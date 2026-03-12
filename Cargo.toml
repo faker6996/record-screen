@@ -1,0 +1,28 @@
+[workspace]
+members = [
+  "src-tauri",
+  "crates/app-core",
+  "crates/audio",
+  "crates/capture",
+  "crates/capture-linux",
+  "crates/capture-macos",
+  "crates/capture-windows",
+  "crates/encoder",
+  "crates/export",
+  "crates/permissions",
+  "crates/shortcuts",
+  "crates/storage",
+  "crates/telemetry",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Tran Van Bach"]
+
+[workspace.dependencies]
+serde = "1"
+serde_json = "1"
+thiserror = "2"

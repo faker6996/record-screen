@@ -1,0 +1,15 @@
+{
+  "name": "record-screen",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run tauri dev --workspace @record-screen/desktop",
+    "dev:web": "npm run dev --workspace @record-screen/desktop",
+    "build": "npm run tauri build --workspace @record-screen/desktop",
+    "build:web": "npm run build --workspace @record-screen/desktop",
+    "lint": "npm run lint --workspace @record-screen/desktop"
+  }
+}

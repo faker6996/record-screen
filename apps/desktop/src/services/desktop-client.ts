@@ -1,0 +1,233 @@
+import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import type {
+  AppSettings,
+  BootstrapSnapshot,
+  RecorderSnapshot,
+  ShortcutBinding,
+} from '../types/desktop'
+
+declare global {
+  interface Window {
+    __TAURI_INTERNALS__?: unknown
+  }
+}
+
+const mockSnapshot: BootstrapSnapshot = {
+  appName: 'Record Screen',
+  platform: 'web-preview',
+  launcherWindowLabel: 'main',
+  recorder: {
+    status: 'idle',
+    elapsedLabel: 'Ready when you are',
+    activeTarget: 'Entire display',
+    qualityPreset: '1080p / 60 fps',
+    outputDirectory: '~/Movies/Record Screen',
+    micEnabled: true,
+  },
+  settings: {
+    outputDirectory: '~/Movies/Record Screen',
+    qualityPreset: '1080p / 60 fps',
+    micEnabled: true,
+    launchOnLogin: true,
+  },
+  qualityPresets: [
+    '720p / 30 fps',
+    '1080p / 60 fps',
+    '1440p / 60 fps',
+    '4K / 60 fps',
+  ],
+  shortcuts: [
+    {
+      action: 'toggleRecording',
+      label: 'Start / stop recording',
+      accelerator: 'CmdOrCtrl+Shift+R',
+      enabled: true,
+      description: 'Instantly begin or finalize the current recording session.',
+    },
+    {
+      action: 'pauseRecording',
+      label: 'Pause / resume recording',
+      accelerator: 'CmdOrCtrl+Shift+P',
+      enabled: true,
+      description: 'Freeze capture without losing the current session.',
+    },
+    {
+      action: 'openLauncher',
+      label: 'Open launcher',
+      accelerator: 'CmdOrCtrl+Shift+L',
+      enabled: true,
+      description: 'Bring the command launcher back into focus from anywhere.',
+    },
+    {
+      action: 'toggleMicrophone',
+      label: 'Mute / unmute microphone',
+      accelerator: 'CmdOrCtrl+Shift+M',
+      enabled: true,
+      description: 'Flip the microphone state while keeping the session alive.',
+    },
+  ],
+  permissions: [
+    {
+      name: 'Launcher readiness',
+      status: 'granted',
+      guidance: 'The shell and keyboard controls are available in preview mode.',
+    },
+    {
+      name: 'Screen recording',
+      status: 'pending',
+      guidance: 'Native permission probing will activate when the Tauri shell is running.',
+    },
+  ],
+  recentSessions: [
+    {
+      id: 'preview-1',
+      title: 'Product walkthrough',
+      startedAt: 'Mar 12, 2026 · 20:30',
+      durationLabel: '14 min',
+      location: '~/Movies/Record Screen/product-walkthrough.mp4',
+      sizeLabel: '426 MB',
+    },
+    {
+      id: 'preview-2',
+      title: 'Bug repro clip',
+      startedAt: 'Mar 11, 2026 · 17:05',
+      durationLabel: '5 min',
+      location: '~/Movies/Record Screen/bug-repro.mov',
+      sizeLabel: '118 MB',
+    },
+  ],
+  roadmap: [
+    'Launcher shell and global shortcuts',
+    'Permission-aware recording bootstrap',
+    'Cross-platform capture backends',
+    'Review and export workflow',
+  ],
+}
+
+function isTauriRuntime() {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+async function command<T>(
+  name: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  if (!isTauriRuntime()) {
+    switch (name) {
+      case 'get_bootstrap':
+        return structuredClone(mockSnapshot) as T
+      case 'toggle_recording':
+        mockSnapshot.recorder.status =
+          mockSnapshot.recorder.status === 'idle' ? 'recording' : 'idle'
+        mockSnapshot.recorder.elapsedLabel =
+          mockSnapshot.recorder.status === 'idle'
+            ? 'Ready when you are'
+            : '00:12:41'
+        return structuredClone(mockSnapshot.recorder) as T
+      case 'pause_resume':
+        if (mockSnapshot.recorder.status === 'recording') {
+          mockSnapshot.recorder.status = 'paused'
+          mockSnapshot.recorder.elapsedLabel = 'Paused at 00:12:41'
+          return structuredClone(mockSnapshot.recorder) as T
+        }
+        if (mockSnapshot.recorder.status === 'paused') {
+          mockSnapshot.recorder.status = 'recording'
+          mockSnapshot.recorder.elapsedLabel = '00:12:41'
+          return structuredClone(mockSnapshot.recorder) as T
+        }
+        return null as T
+      case 'toggle_microphone':
+        mockSnapshot.recorder.micEnabled = !mockSnapshot.recorder.micEnabled
+        mockSnapshot.settings.micEnabled = mockSnapshot.recorder.micEnabled
+        return structuredClone(mockSnapshot.recorder) as T
+      case 'update_quality_preset': {
+        const qualityPreset = String(args?.qualityPreset ?? '')
+        if (mockSnapshot.qualityPresets.includes(qualityPreset)) {
+          mockSnapshot.settings.qualityPreset = qualityPreset
+          mockSnapshot.recorder.qualityPreset = qualityPreset
+        }
+        return structuredClone(mockSnapshot.settings) as T
+      }
+      case 'update_launch_on_login':
+        mockSnapshot.settings.launchOnLogin = Boolean(args?.launchOnLogin)
+        return structuredClone(mockSnapshot.settings) as T
+      case 'update_output_directory': {
+        const outputDirectory = String(args?.outputDirectory ?? '').trim()
+        if (outputDirectory) {
+          mockSnapshot.settings.outputDirectory = outputDirectory
+          mockSnapshot.recorder.outputDirectory = outputDirectory
+        }
+        return structuredClone(mockSnapshot.settings) as T
+      }
+      case 'reset_shortcuts':
+        return structuredClone(mockSnapshot.shortcuts) as T
+      case 'focus_launcher':
+      case 'show_hud':
+      case 'hide_hud':
+        return undefined as T
+      default:
+        throw new Error(`Unsupported preview command: ${name}`)
+    }
+  }
+
+  return invoke<T>(name, args)
+}
+
+export const desktopClient = {
+  getBootstrap() {
+    return command<BootstrapSnapshot>('get_bootstrap')
+  },
+  async getCurrentWindowLabel() {
+    if (!isTauriRuntime()) {
+      return 'main'
+    }
+    return getCurrentWindow().label
+  },
+  focusLauncher() {
+    return command<void>('focus_launcher')
+  },
+  showHud() {
+    return command<void>('show_hud')
+  },
+  hideHud() {
+    return command<void>('hide_hud')
+  },
+  toggleRecording() {
+    return command<RecorderSnapshot>('toggle_recording')
+  },
+  pauseResume() {
+    return command<RecorderSnapshot | null>('pause_resume')
+  },
+  toggleMicrophone() {
+    return command<RecorderSnapshot>('toggle_microphone')
+  },
+  resetShortcuts() {
+    return command<ShortcutBinding[]>('reset_shortcuts')
+  },
+  updateQualityPreset(qualityPreset: string) {
+    return command<AppSettings>('update_quality_preset', { qualityPreset })
+  },
+  updateLaunchOnLogin(launchOnLogin: boolean) {
+    return command<AppSettings>('update_launch_on_login', { launchOnLogin })
+  },
+  updateOutputDirectory(outputDirectory: string) {
+    return command<AppSettings>('update_output_directory', { outputDirectory })
+  },
+  async subscribeRecorderState(
+    listener: (snapshot: RecorderSnapshot) => void,
+  ) {
+    if (!isTauriRuntime()) {
+      return () => undefined
+    }
+
+    const unlisten = await listen<RecorderSnapshot>(
+      'recorder://state-changed',
+      (event) => {
+        listener(event.payload)
+      },
+    )
+    return unlisten
+  },
+}

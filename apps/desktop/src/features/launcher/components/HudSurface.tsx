@@ -1,0 +1,55 @@
+import { Kbd } from '../../../components/Kbd'
+import type { RecorderSnapshot } from '../../../types/desktop'
+
+interface HudSurfaceProps {
+  onPauseResume: () => Promise<void>
+  onToggleRecording: () => Promise<void>
+  recorder: RecorderSnapshot
+}
+
+export function HudSurface({
+  onPauseResume,
+  onToggleRecording,
+  recorder,
+}: HudSurfaceProps) {
+  const isIdle = recorder.status === 'idle'
+  const pauseLabel = recorder.status === 'paused' ? 'Resume' : 'Pause'
+
+  return (
+    <main className="hud-shell">
+      <section className="hud-card">
+        <div className="hud-topline">
+          <span className={`status-dot status-${recorder.status}`} />
+          <strong>{recorder.elapsedLabel}</strong>
+          <span className="pill">
+            Mic {recorder.micEnabled ? 'on' : 'off'}
+          </span>
+        </div>
+
+        <div className="hud-actions">
+          <button
+            className={`primary-button ${isIdle ? 'record' : 'stop'}`}
+            onClick={() => void onToggleRecording()}
+            type="button"
+          >
+            {isIdle ? 'Start' : 'Stop'}
+          </button>
+          <button
+            className="secondary-button"
+            disabled={isIdle}
+            onClick={() => void onPauseResume()}
+            type="button"
+          >
+            {pauseLabel}
+          </button>
+        </div>
+
+        <div className="hud-hint">
+          <Kbd>CmdOrCtrl</Kbd>
+          <Kbd>Shift</Kbd>
+          <Kbd>R</Kbd>
+        </div>
+      </section>
+    </main>
+  )
+}

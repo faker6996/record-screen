@@ -1,0 +1,15 @@
+.DS_Store
+*.log
+
+node_modules/
+target/
+dist/
+.vite/
+
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/.vite/
+apps/desktop/node_modules/.tmp/
+apps/desktop/**/*.tsbuildinfo
+
+src-tauri/gen/

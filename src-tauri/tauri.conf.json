@@ -1,0 +1,33 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Record Screen",
+  "version": "0.1.0",
+  "identifier": "com.tranvanbach.recordscreen",
+  "build": {
+    "beforeDevCommand": "npm run dev --workspace @record-screen/desktop",
+    "beforeBuildCommand": "npm run build --workspace @record-screen/desktop",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../apps/desktop/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Record Screen",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 1040,
+        "minHeight": 720,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

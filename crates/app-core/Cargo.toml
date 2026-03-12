@@ -1,0 +1,10 @@
+[package]
+name = "app-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+permissions = { path = "../permissions" }
+serde = { workspace = true, features = ["derive"] }
+shortcuts = { path = "../shortcuts" }
+storage = { path = "../storage" }
