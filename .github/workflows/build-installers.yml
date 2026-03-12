@@ -3,9 +3,13 @@ name: Build Installers
 on:
   workflow_dispatch:
   push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-installers:
@@ -77,3 +81,61 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
+
+  tag-version:
+    name: Tag successful main build
+    runs-on: ubuntu-22.04
+    needs: build-installers
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate app version
+        id: version
+        shell: bash
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          TAURI_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          CARGO_VERSION="$(sed -n 's/^version = \"\\(.*\\)\"$/\\1/p' Cargo.toml | head -n 1)"
+
+          if [ -z "$PACKAGE_VERSION" ] || [ -z "$TAURI_VERSION" ] || [ -z "$CARGO_VERSION" ]; then
+            echo "Unable to determine one or more versions."
+            exit 1
+          fi
+
+          if [ "$PACKAGE_VERSION" != "$TAURI_VERSION" ] || [ "$PACKAGE_VERSION" != "$CARGO_VERSION" ]; then
+            echo "Version mismatch detected."
+            echo "package.json: $PACKAGE_VERSION"
+            echo "src-tauri/tauri.conf.json: $TAURI_VERSION"
+            echo "Cargo.toml: $CARGO_VERSION"
+            exit 1
+          fi
+
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if version tag already exists
+        id: tag_check
+        shell: bash
+        run: |
+          if git rev-parse -q --verify "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push version tag
+        if: steps.tag_check.outputs.exists == 'false'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Report existing version tag
+        if: steps.tag_check.outputs.exists == 'true'
+        run: echo "Tag ${{ steps.version.outputs.tag }} already exists. Skipping auto-tag."
