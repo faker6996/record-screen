@@ -35,7 +35,10 @@ export function SettingsPanel({
       <div className="panel-header">
         <div>
           <p className="eyebrow">Settings</p>
-          <h2>Quick defaults for an always-ready recorder</h2>
+          <h2>Recording defaults you should not have to hunt for</h2>
+          <p className="subtle-copy">
+            Adjust the essentials here once, then keep using the shortcut.
+          </p>
         </div>
         <div className="panel-actions">
           <button
@@ -78,23 +81,36 @@ export function SettingsPanel({
           <label className="field-label" htmlFor="output-directory">
             Output folder
           </label>
-          <input
-            className="text-input"
-            id="output-directory"
-            key={settings.outputDirectory}
-            onBlur={commitOutputDirectory}
-            onChange={(event) => {
-              setDraftOutputDirectory(event.target.value)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+          <div className="field-row">
+            <input
+              autoComplete="off"
+              className="text-input"
+              id="output-directory"
+              key={settings.outputDirectory}
+              name="output-directory"
+              onBlur={commitOutputDirectory}
+              onChange={(event) => {
+                setDraftOutputDirectory(event.target.value)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  commitOutputDirectory()
+                }
+              }}
+              placeholder="~/Movies/Record Screen"
+              type="text"
+              value={draftOutputDirectory}
+            />
+            <button
+              className="secondary-button"
+              onClick={() => {
                 commitOutputDirectory()
-              }
-            }}
-            placeholder="~/Movies/Record Screen"
-            type="text"
-            value={draftOutputDirectory}
-          />
+              }}
+              type="button"
+            >
+              Save
+            </button>
+          </div>
         </div>
 
         <label className="toggle-card" htmlFor="launch-on-login">

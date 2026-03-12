@@ -21,7 +21,10 @@ export function ShortcutPanel({
       <div className="panel-header">
         <div>
           <p className="eyebrow">Shortcuts</p>
-          <h2>Global controls that stay close</h2>
+          <h2>Keyboard controls for the moments you are already busy</h2>
+          <p className="subtle-copy">
+            These should feel like memory, not another setup surface.
+          </p>
         </div>
         <div className="panel-actions">
           <button
@@ -48,7 +51,7 @@ export function ShortcutPanel({
               <strong>{shortcut.label}</strong>
               <p>{shortcut.description}</p>
             </div>
-            <div className="shortcut-keys">
+            <div aria-label={shortcut.accelerator} className="shortcut-keys">
               {renderAccelerator(shortcut.accelerator)}
             </div>
           </article>

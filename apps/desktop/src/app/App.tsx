@@ -74,24 +74,42 @@ export default function App() {
     )
   }
 
+  const pendingPermissions = snapshot.permissions.filter(
+    (permission) => permission.status === 'pending',
+  ).length
+
   return (
     <main className="app-shell">
-      <section className="hero-strip">
+      <section className="app-header">
         <div>
           <p className="eyebrow">Cross-platform recorder</p>
           <h1>{snapshot.appName}</h1>
           <p className="hero-copy">
-            A compact launcher for rapid capture, global shortcuts, and a Rust
-            core that will own the recording pipeline.
+            Start a recording in one move, keep setup obvious, and pull the
+            launcher back instantly with shortcuts when it is hidden.
           </p>
         </div>
-        <div className="hero-badges">
-          <span className="badge">Platform: {snapshot.platform}</span>
-          <span className="badge">Window: {snapshot.launcherWindowLabel}</span>
+        <div className="hero-summary">
+          <article className="summary-card">
+            <span className="metric-label">Current state</span>
+            <strong>{snapshot.recorder.elapsedLabel}</strong>
+          </article>
+          <article className="summary-card">
+            <span className="metric-label">Ready checks</span>
+            <strong>
+              {pendingPermissions === 0
+                ? 'All clear'
+                : `${pendingPermissions} still pending`}
+            </strong>
+          </article>
+          <article className="summary-card">
+            <span className="metric-label">Quick recall</span>
+            <strong>CmdOrCtrl + Shift + L</strong>
+          </article>
         </div>
       </section>
 
-      <div className="grid-layout">
+      <div className="launch-layout">
         <div className="primary-column">
           <RecorderPanel
             onPauseResume={pauseResume}
@@ -117,10 +135,34 @@ export default function App() {
 
         <div className="secondary-column">
           <PermissionsPanel permissions={snapshot.permissions} />
+          <ShortcutPanel
+            onFocusLauncher={focusLauncher}
+            onReset={resetShortcuts}
+            shortcuts={snapshot.shortcuts}
+          />
+        </div>
+      </div>
+
+      <div className="support-layout">
+        <div className="support-card">
           <RecentSessionsPanel
-            roadmap={snapshot.roadmap}
             sessions={snapshot.recentSessions}
           />
+        </div>
+        <div className="support-card plan-card">
+          <section className="panel panel-stack">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">What comes next</p>
+                <h2>Build plan already wired into the repo</h2>
+              </div>
+            </div>
+            <ul className="roadmap-list">
+              {snapshot.roadmap.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
         </div>
       </div>
     </main>

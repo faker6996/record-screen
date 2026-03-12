@@ -16,36 +16,52 @@ export function RecorderPanel({
 }: RecorderPanelProps) {
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
+  const title = isIdle
+    ? 'Ready to record'
+    : isPaused
+      ? 'Paused and waiting'
+      : 'Recording right now'
 
   return (
     <section className="panel recorder-panel">
       <div className="panel-header">
-        <span className={`status-dot status-${recorder.status}`} />
         <div>
           <p className="eyebrow">Recorder</p>
-          <h2>
-            {isIdle
-              ? 'Ready for a capture burst'
-              : isPaused
-                ? 'Paused with session preserved'
-                : 'Recording in progress'}
-          </h2>
+          <h2>{title}</h2>
+          <p className="subtle-copy">
+            Review the target and defaults below, then hit the main button.
+          </p>
         </div>
+        <span className={`status-pill status-${recorder.status}`}>
+          <span className={`status-dot status-${recorder.status}`} />
+          {recorder.status}
+        </span>
       </div>
 
-      <div className="hero-metrics">
-        <div>
+      <div className="hero-metrics recorder-overview">
+        <article>
           <span className="metric-label">Elapsed</span>
           <strong>{recorder.elapsedLabel}</strong>
-        </div>
-        <div>
+        </article>
+        <article>
           <span className="metric-label">Target</span>
           <strong>{recorder.activeTarget}</strong>
-        </div>
-        <div>
-          <span className="metric-label">Quality</span>
+        </article>
+        <article>
+          <span className="metric-label">Mic</span>
+          <strong>{recorder.micEnabled ? 'Enabled' : 'Muted'}</strong>
+        </article>
+      </div>
+
+      <div className="recorder-checklist">
+        <article className="checklist-item">
+          <span className="metric-label">Quality preset</span>
           <strong>{recorder.qualityPreset}</strong>
-        </div>
+        </article>
+        <article className="checklist-item">
+          <span className="metric-label">Output folder</span>
+          <strong>{recorder.outputDirectory}</strong>
+        </article>
       </div>
 
       <div className="hero-actions">
@@ -75,10 +91,13 @@ export function RecorderPanel({
 
       <div className="inline-shortcuts">
         <span>
-          Trigger anytime with <Kbd>CmdOrCtrl</Kbd> <Kbd>Shift</Kbd>{' '}
-          <Kbd>R</Kbd>
+          Global start/stop <Kbd>CmdOrCtrl</Kbd> <Kbd>Shift</Kbd> <Kbd>R</Kbd>
         </span>
-        <span className="subtle-copy">{recorder.outputDirectory}</span>
+        <span className="subtle-copy">
+          {isIdle
+            ? 'Launcher can be hidden after setup.'
+            : 'Use HUD or shortcut to control the session.'}
+        </span>
       </div>
     </section>
   )
