@@ -16,9 +16,9 @@ export function HudSurface({
   const pauseLabel = recorder.status === 'paused' ? 'Resume' : 'Pause'
 
   return (
-    <main className="hud-shell">
-      <section className="hud-card">
-        <div className="hud-topline">
+    <main className="hud">
+      <section className="hud__card">
+        <div className="hud__topline">
           <span className={`status-dot status-${recorder.status}`} />
           <strong>{recorder.elapsedLabel}</strong>
           <span className="pill">
@@ -26,16 +26,16 @@ export function HudSurface({
           </span>
         </div>
 
-        <div className="hud-actions">
+        <div className="hud__actions">
           <button
-            className={`primary-button ${isIdle ? 'record' : 'stop'}`}
+            className={`button button--primary ${isIdle ? 'button--record' : 'button--stop'}`}
             onClick={() => void onToggleRecording()}
             type="button"
           >
             {isIdle ? 'Start' : 'Stop'}
           </button>
           <button
-            className="secondary-button"
+            className="button button--secondary"
             disabled={isIdle}
             onClick={() => void onPauseResume()}
             type="button"
@@ -44,7 +44,7 @@ export function HudSurface({
           </button>
         </div>
 
-        <div className="hud-hint">
+        <div className="hud__hint">
           <Kbd>CmdOrCtrl</Kbd>
           <Kbd>Shift</Kbd>
           <Kbd>R</Kbd>

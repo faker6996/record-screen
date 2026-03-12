@@ -4,6 +4,7 @@ export interface RecorderSnapshot {
   status: RecorderStatus
   elapsedLabel: string
   activeTarget: string
+  activeOutputPath: string | null
   qualityPreset: string
   outputDirectory: string
   micEnabled: boolean

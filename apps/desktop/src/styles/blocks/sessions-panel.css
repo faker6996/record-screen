@@ -1,0 +1,25 @@
+.sessions-panel__list {
+  display: grid;
+  gap: 12px;
+}
+
+.sessions-panel__item {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 16px 18px;
+}
+
+.sessions-panel__item p {
+  color: var(--text-muted);
+}
+
+.sessions-panel__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}

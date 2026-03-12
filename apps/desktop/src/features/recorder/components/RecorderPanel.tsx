@@ -24,7 +24,7 @@ export function RecorderPanel({
 
   return (
     <section className="panel recorder-panel">
-      <div className="panel-header">
+      <div className="panel__header">
         <div>
           <p className="eyebrow">Recorder</p>
           <h2>{title}</h2>
@@ -38,7 +38,7 @@ export function RecorderPanel({
         </span>
       </div>
 
-      <div className="hero-metrics recorder-overview">
+      <div className="recorder-panel__metrics">
         <article>
           <span className="metric-label">Elapsed</span>
           <strong>{recorder.elapsedLabel}</strong>
@@ -53,27 +53,33 @@ export function RecorderPanel({
         </article>
       </div>
 
-      <div className="recorder-checklist">
-        <article className="checklist-item">
+      <div className="recorder-panel__checklist">
+        <article className="recorder-panel__checklist-item">
           <span className="metric-label">Quality preset</span>
           <strong>{recorder.qualityPreset}</strong>
         </article>
-        <article className="checklist-item">
+        <article className="recorder-panel__checklist-item">
           <span className="metric-label">Output folder</span>
           <strong>{recorder.outputDirectory}</strong>
         </article>
       </div>
 
-      <div className="hero-actions">
+          {recorder.activeOutputPath ? (
+        <p className="subtle-copy recorder-panel__file">
+          Active file: {recorder.activeOutputPath}
+        </p>
+      ) : null}
+
+      <div className="recorder-panel__actions">
         <button
-          className={`primary-button ${isIdle ? 'record' : 'stop'}`}
+          className={`button button--primary ${isIdle ? 'button--record' : 'button--stop'}`}
           onClick={() => void onToggleRecording()}
           type="button"
         >
           {isIdle ? 'Start recording' : 'Stop recording'}
         </button>
         <button
-          className="secondary-button"
+          className="button button--secondary"
           disabled={isIdle}
           onClick={() => void onPauseResume()}
           type="button"
@@ -81,7 +87,7 @@ export function RecorderPanel({
           {isPaused ? 'Resume' : 'Pause'}
         </button>
         <button
-          className="secondary-button"
+          className="button button--secondary"
           onClick={() => void onToggleMicrophone()}
           type="button"
         >
@@ -89,7 +95,7 @@ export function RecorderPanel({
         </button>
       </div>
 
-      <div className="inline-shortcuts">
+      <div className="recorder-panel__shortcuts">
         <span>
           Global start/stop <Kbd>CmdOrCtrl</Kbd> <Kbd>Shift</Kbd> <Kbd>R</Kbd>
         </span>

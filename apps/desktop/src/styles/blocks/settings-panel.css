@@ -1,0 +1,48 @@
+.settings-panel__grid {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-panel__group {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-panel__preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-panel__field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.settings-panel__toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 16px 18px;
+}
+
+.settings-panel__toggle p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+}
+
+.settings-panel__toggle input {
+  width: 20px;
+  height: 20px;
+}
+
+@media (max-width: 720px) {
+  .settings-panel__field-row {
+    grid-template-columns: 1fr;
+  }
+}

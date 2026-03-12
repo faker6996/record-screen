@@ -1,0 +1,40 @@
+.hud {
+  min-height: 100vh;
+  display: grid;
+  place-items: end center;
+  padding: 12px;
+  background: transparent;
+}
+
+.hud__card {
+  width: min(100%, 340px);
+  border-radius: 24px;
+  padding: 16px;
+  backdrop-filter: blur(18px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    rgba(19, 18, 23, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+}
+
+.hud__topline {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.hud__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.hud__hint {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}

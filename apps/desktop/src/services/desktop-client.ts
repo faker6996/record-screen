@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import type {
   AppSettings,
   BootstrapSnapshot,
+  PermissionCheck,
   RecorderSnapshot,
   ShortcutBinding,
 } from '../types/desktop'
@@ -22,6 +23,7 @@ const mockSnapshot: BootstrapSnapshot = {
     status: 'idle',
     elapsedLabel: 'Ready when you are',
     activeTarget: 'Entire display',
+    activeOutputPath: null,
     qualityPreset: '1080p / 60 fps',
     outputDirectory: '~/Movies/Record Screen',
     micEnabled: true,
@@ -121,6 +123,10 @@ async function command<T>(
       case 'toggle_recording':
         mockSnapshot.recorder.status =
           mockSnapshot.recorder.status === 'idle' ? 'recording' : 'idle'
+        mockSnapshot.recorder.activeOutputPath =
+          mockSnapshot.recorder.status === 'idle'
+            ? null
+            : '~/Movies/Record Screen/recording-preview.mp4'
         mockSnapshot.recorder.elapsedLabel =
           mockSnapshot.recorder.status === 'idle'
             ? 'Ready when you are'
@@ -166,7 +172,19 @@ async function command<T>(
       case 'focus_launcher':
       case 'show_hud':
       case 'hide_hud':
+      case 'open_permission_settings':
         return undefined as T
+      case 'get_permissions':
+        return structuredClone(mockSnapshot.permissions) as T
+      case 'request_permission': {
+        const permissionName = String(args?.permissionName ?? '')
+        mockSnapshot.permissions = mockSnapshot.permissions.map((permission) =>
+          permission.name === permissionName
+            ? { ...permission, status: 'granted' }
+            : permission,
+        )
+        return structuredClone(mockSnapshot.permissions) as T
+      }
       default:
         throw new Error(`Unsupported preview command: ${name}`)
     }
@@ -215,6 +233,15 @@ export const desktopClient = {
   updateOutputDirectory(outputDirectory: string) {
     return command<AppSettings>('update_output_directory', { outputDirectory })
   },
+  getPermissions() {
+    return command<PermissionCheck[]>('get_permissions')
+  },
+  requestPermission(permissionName: string) {
+    return command<PermissionCheck[]>('request_permission', { permissionName })
+  },
+  openPermissionSettings(permissionName: string) {
+    return command<void>('open_permission_settings', { permissionName })
+  },
   async subscribeRecorderState(
     listener: (snapshot: RecorderSnapshot) => void,
   ) {
@@ -228,6 +255,16 @@ export const desktopClient = {
         listener(event.payload)
       },
     )
+    return unlisten
+  },
+  async subscribeRuntimeError(listener: (message: string) => void) {
+    if (!isTauriRuntime()) {
+      return () => undefined
+    }
+
+    const unlisten = await listen<string>('recorder://runtime-error', (event) => {
+      listener(event.payload)
+    })
     return unlisten
   },
 }

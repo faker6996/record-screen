@@ -15,7 +15,7 @@ pub fn update_quality_preset(
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
         let settings = core.update_quality_preset(quality_preset);
-        let recorder = core.bootstrap(crate::bootstrap::platform_name()).recorder;
+        let recorder = core.snapshot();
         (settings, recorder)
     };
 
@@ -35,7 +35,7 @@ pub fn update_output_directory(
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
         let settings = core.update_output_directory(output_directory);
-        let recorder = core.bootstrap(crate::bootstrap::platform_name()).recorder;
+        let recorder = core.snapshot();
         (settings, recorder)
     };
 

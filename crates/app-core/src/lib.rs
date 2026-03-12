@@ -1,6 +1,7 @@
 use permissions::{PermissionCheck, default_permissions};
 use serde::{Deserialize, Serialize};
 use shortcuts::{ShortcutBinding, default_shortcuts};
+use std::time::{Duration, SystemTime};
 use storage::AppSettings;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -17,6 +18,7 @@ pub struct RecorderSnapshot {
     pub status: RecorderStatus,
     pub elapsed_label: String,
     pub active_target: String,
+    pub active_output_path: Option<String>,
     pub quality_preset: String,
     pub output_directory: String,
     pub mic_enabled: bool,
@@ -31,6 +33,15 @@ pub struct SessionSummary {
     pub duration_label: String,
     pub location: String,
     pub size_label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompletedRecording {
+    pub title: String,
+    pub started_at_label: String,
+    pub duration: Duration,
+    pub location: String,
+    pub size_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +63,11 @@ pub struct BootstrapSnapshot {
 pub struct AppCore {
     settings: AppSettings,
     status: RecorderStatus,
+    active_target: String,
+    active_output_path: Option<String>,
+    started_at: Option<SystemTime>,
+    paused_at: Option<SystemTime>,
+    accumulated_paused: Duration,
     shortcuts: Vec<ShortcutBinding>,
     recent_sessions: Vec<SessionSummary>,
 }
@@ -61,6 +77,11 @@ impl Default for AppCore {
         Self {
             settings: AppSettings::default(),
             status: RecorderStatus::Idle,
+            active_target: "Entire display".to_string(),
+            active_output_path: None,
+            started_at: None,
+            paused_at: None,
+            accumulated_paused: Duration::default(),
             shortcuts: default_shortcuts(),
             recent_sessions: vec![
                 SessionSummary {
@@ -114,20 +135,74 @@ impl AppCore {
         }
     }
 
-    pub fn toggle_recording(&mut self) -> RecorderSnapshot {
-        self.status = match self.status {
-            RecorderStatus::Idle => RecorderStatus::Recording,
-            RecorderStatus::Recording | RecorderStatus::Paused => RecorderStatus::Idle,
-        };
+    pub fn recorder_status(&self) -> RecorderStatus {
+        self.status
+    }
+
+    pub fn snapshot(&self) -> RecorderSnapshot {
         self.current_snapshot()
     }
 
-    pub fn pause_resume(&mut self) -> Option<RecorderSnapshot> {
-        self.status = match self.status {
-            RecorderStatus::Recording => RecorderStatus::Paused,
-            RecorderStatus::Paused => RecorderStatus::Recording,
-            RecorderStatus::Idle => return None,
-        };
+    pub fn start_recording(
+        &mut self,
+        active_target: String,
+        output_path: String,
+    ) -> RecorderSnapshot {
+        self.status = RecorderStatus::Recording;
+        self.active_target = active_target;
+        self.active_output_path = Some(output_path);
+        self.started_at = Some(SystemTime::now());
+        self.paused_at = None;
+        self.accumulated_paused = Duration::default();
+        self.current_snapshot()
+    }
+
+    pub fn stop_recording(&mut self, completed: Option<CompletedRecording>) -> RecorderSnapshot {
+        self.status = RecorderStatus::Idle;
+        self.active_output_path = None;
+        self.started_at = None;
+        self.paused_at = None;
+        self.accumulated_paused = Duration::default();
+
+        if let Some(recording) = completed {
+            self.recent_sessions.insert(
+                0,
+                SessionSummary {
+                    id: format!("session-{}", self.recent_sessions.len() + 1),
+                    title: recording.title,
+                    started_at: recording.started_at_label,
+                    duration_label: format_duration(recording.duration),
+                    location: recording.location,
+                    size_label: format_size(recording.size_bytes),
+                },
+            );
+            self.recent_sessions.truncate(10);
+        }
+
+        self.current_snapshot()
+    }
+
+    pub fn pause_recording(&mut self) -> Option<RecorderSnapshot> {
+        if self.status != RecorderStatus::Recording {
+            return None;
+        }
+
+        self.status = RecorderStatus::Paused;
+        self.paused_at = Some(SystemTime::now());
+        Some(self.current_snapshot())
+    }
+
+    pub fn resume_recording(&mut self) -> Option<RecorderSnapshot> {
+        if self.status != RecorderStatus::Paused {
+            return None;
+        }
+
+        if let Some(paused_at) = self.paused_at.take() {
+            self.accumulated_paused += SystemTime::now()
+                .duration_since(paused_at)
+                .unwrap_or_default();
+        }
+        self.status = RecorderStatus::Recording;
         Some(self.current_snapshot())
     }
 
@@ -161,19 +236,51 @@ impl AppCore {
     }
 
     fn current_snapshot(&self) -> RecorderSnapshot {
+        let elapsed = self.elapsed_duration();
         let elapsed_label = match self.status {
             RecorderStatus::Idle => "Ready when you are".to_string(),
-            RecorderStatus::Recording => "00:12:41".to_string(),
-            RecorderStatus::Paused => "Paused at 00:12:41".to_string(),
+            RecorderStatus::Recording => format_duration(elapsed),
+            RecorderStatus::Paused => format!("Paused at {}", format_duration(elapsed)),
         };
 
         RecorderSnapshot {
             status: self.status,
             elapsed_label,
-            active_target: "Entire display".to_string(),
+            active_target: self.active_target.clone(),
+            active_output_path: self.active_output_path.clone(),
             quality_preset: self.settings.quality_preset.clone(),
             output_directory: self.settings.output_directory.clone(),
             mic_enabled: self.settings.mic_enabled,
         }
+    }
+
+    fn elapsed_duration(&self) -> Duration {
+        let Some(started_at) = self.started_at else {
+            return Duration::default();
+        };
+
+        let end = self.paused_at.unwrap_or_else(SystemTime::now);
+        end.duration_since(started_at)
+            .unwrap_or_default()
+            .saturating_sub(self.accumulated_paused)
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    format!("{hours:02}:{minutes:02}:{seconds:02}")
+}
+
+fn format_size(bytes: u64) -> String {
+    const MB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = MB * 1024.0;
+
+    if bytes as f64 >= GB {
+        format!("{:.2} GB", bytes as f64 / GB)
+    } else {
+        format!("{:.0} MB", bytes as f64 / MB)
     }
 }

@@ -9,8 +9,8 @@ import { useDesktopState } from '../hooks/use-desktop-state'
 
 function LoadingState() {
   return (
-    <main className="app-shell loading-shell">
-      <section className="panel loading-panel">
+    <main className="launcher launcher--loading">
+      <section className="panel launcher__state-panel">
         <p className="eyebrow">Record Screen</p>
         <h1>Preparing launcher</h1>
         <p>Loading recorder state, shortcuts, and first-run readiness checks.</p>
@@ -21,8 +21,8 @@ function LoadingState() {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <main className="app-shell loading-shell">
-      <section className="panel loading-panel">
+    <main className="launcher launcher--loading">
+      <section className="panel launcher__state-panel">
         <p className="eyebrow">Launcher error</p>
         <h1>Unable to load desktop state</h1>
         <p>{message}</p>
@@ -33,13 +33,17 @@ function ErrorState({ message }: { message: string }) {
 
 export default function App() {
   const {
+    actionError,
     currentWindowLabel,
     error,
     focusLauncher,
     hideHud,
     isLoading,
+    openPermissionSettings,
     pauseResume,
+    refreshPermissions,
     resetShortcuts,
+    requestPermission,
     showHud,
     snapshot,
     toggleMicrophone,
@@ -79,22 +83,22 @@ export default function App() {
   ).length
 
   return (
-    <main className="app-shell">
-      <section className="app-header">
-        <div>
+    <main className="launcher">
+      <section className="launcher__header">
+        <div className="launcher__intro">
           <p className="eyebrow">Cross-platform recorder</p>
           <h1>{snapshot.appName}</h1>
-          <p className="hero-copy">
+          <p className="launcher__copy">
             Start a recording in one move, keep setup obvious, and pull the
             launcher back instantly with shortcuts when it is hidden.
           </p>
         </div>
-        <div className="hero-summary">
-          <article className="summary-card">
+        <div className="launcher__summary">
+          <article className="launcher__summary-card">
             <span className="metric-label">Current state</span>
             <strong>{snapshot.recorder.elapsedLabel}</strong>
           </article>
-          <article className="summary-card">
+          <article className="launcher__summary-card">
             <span className="metric-label">Ready checks</span>
             <strong>
               {pendingPermissions === 0
@@ -102,15 +106,22 @@ export default function App() {
                 : `${pendingPermissions} still pending`}
             </strong>
           </article>
-          <article className="summary-card">
+          <article className="launcher__summary-card">
             <span className="metric-label">Quick recall</span>
             <strong>CmdOrCtrl + Shift + L</strong>
           </article>
         </div>
       </section>
 
-      <div className="launch-layout">
-        <div className="primary-column">
+      {actionError ? (
+        <section className="panel launcher__error">
+          <p className="eyebrow">Recorder issue</p>
+          <p>{actionError}</p>
+        </section>
+      ) : null}
+
+      <div className="launcher__layout">
+        <div className="launcher__column launcher__column--primary">
           <RecorderPanel
             onPauseResume={pauseResume}
             onToggleMicrophone={toggleMicrophone}
@@ -133,8 +144,13 @@ export default function App() {
           />
         </div>
 
-        <div className="secondary-column">
-          <PermissionsPanel permissions={snapshot.permissions} />
+        <div className="launcher__column launcher__column--secondary">
+          <PermissionsPanel
+            onOpenPermissionSettings={openPermissionSettings}
+            onRefreshPermissions={refreshPermissions}
+            onRequestPermission={requestPermission}
+            permissions={snapshot.permissions}
+          />
           <ShortcutPanel
             onFocusLauncher={focusLauncher}
             onReset={resetShortcuts}
@@ -143,21 +159,19 @@ export default function App() {
         </div>
       </div>
 
-      <div className="support-layout">
-        <div className="support-card">
-          <RecentSessionsPanel
-            sessions={snapshot.recentSessions}
-          />
+      <div className="launcher__support">
+        <div className="launcher__support-card">
+          <RecentSessionsPanel sessions={snapshot.recentSessions} />
         </div>
-        <div className="support-card plan-card">
-          <section className="panel panel-stack">
-            <div className="panel-header">
+        <div className="launcher__support-card launcher__support-card--plan">
+          <section className="panel panel--stack">
+            <div className="panel__header">
               <div>
                 <p className="eyebrow">What comes next</p>
                 <h2>Build plan already wired into the repo</h2>
               </div>
             </div>
-            <ul className="roadmap-list">
+            <ul className="launcher__roadmap">
               {snapshot.roadmap.map((item) => (
                 <li key={item}>{item}</li>
               ))}

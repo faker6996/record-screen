@@ -1,3 +1,334 @@
-pub fn backend_name() -> &'static str {
-    "ScreenCaptureKit backend placeholder"
+use std::{
+    fs,
+    io::{Read, Write},
+    os::unix::process::ExitStatusExt,
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::{Arc, Mutex},
+    thread,
+    time::{Duration, SystemTime},
+};
+
+use capture::{
+    ActiveRecording, CaptureController, CaptureError, RecordingArtifact, RecordingOptions,
+};
+
+pub struct FfmpegMacosCapture {
+    active_recording: ActiveRecording,
+    child: Child,
+    stdin: Option<ChildStdin>,
+    stderr_buffer: Arc<Mutex<String>>,
+    finished_artifact: Option<RecordingArtifact>,
+    paused: bool,
+}
+
+impl FfmpegMacosCapture {
+    pub fn start(options: RecordingOptions) -> Result<Self, CaptureError> {
+        let video_device = discover_screen_device()?;
+        let audio_device = discover_audio_device(options.mic_enabled)?;
+        let input = format!("{video_device}:{audio_device}");
+        let (width, height, fps) = quality_settings(&options.quality_preset);
+        let started_at = SystemTime::now();
+        let stderr_buffer = Arc::new(Mutex::new(String::new()));
+
+        let mut command = Command::new("ffmpeg");
+        command
+            .arg("-y")
+            .arg("-f")
+            .arg("avfoundation")
+            .arg("-capture_cursor")
+            .arg("1")
+            .arg("-capture_mouse_clicks")
+            .arg("1")
+            .arg("-framerate")
+            .arg(fps.to_string())
+            .arg("-video_size")
+            .arg(format!("{width}x{height}"))
+            .arg("-i")
+            .arg(input)
+            .arg("-c:v")
+            .arg("libx264")
+            .arg("-preset")
+            .arg("veryfast")
+            .arg("-pix_fmt")
+            .arg("yuv420p");
+
+        if options.mic_enabled {
+            command.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
+        } else {
+            command.arg("-an");
+        }
+
+        command
+            .arg("-movflags")
+            .arg("+faststart")
+            .arg(options.output_path.as_os_str())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+
+        let mut child = command
+            .spawn()
+            .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?;
+
+        let stdin = child.stdin.take();
+        if let Some(mut stderr) = child.stderr.take() {
+            let stderr_buffer = Arc::clone(&stderr_buffer);
+            thread::spawn(move || {
+                let mut buffer = String::new();
+                let _ = stderr.read_to_string(&mut buffer);
+                if let Ok(mut log) = stderr_buffer.lock() {
+                    *log = buffer;
+                }
+            });
+        }
+
+        thread::sleep(Duration::from_millis(900));
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?
+        {
+            let stderr_log = read_stderr_buffer(&stderr_buffer);
+            return Err(CaptureError::SpawnFailed(describe_ffmpeg_failure(
+                status.code(),
+                &stderr_log,
+            )));
+        }
+
+        Ok(Self {
+            active_recording: ActiveRecording {
+                backend_name: "macOS ffmpeg / AVFoundation".to_string(),
+                output_path: options.output_path,
+                started_at,
+                target_label: "Entire display".to_string(),
+            },
+            child,
+            stdin,
+            stderr_buffer,
+            finished_artifact: None,
+            paused: false,
+        })
+    }
+
+    fn build_artifact(&self, finished_at: SystemTime) -> Result<RecordingArtifact, CaptureError> {
+        let metadata = fs::metadata(&self.active_recording.output_path)
+            .map_err(|error| CaptureError::OutputInspectionFailed(error.to_string()))?;
+
+        let duration = finished_at
+            .duration_since(self.active_recording.started_at)
+            .unwrap_or_default();
+
+        Ok(RecordingArtifact {
+            output_path: self.active_recording.output_path.clone(),
+            started_at: self.active_recording.started_at,
+            finished_at,
+            duration,
+            bytes_written: metadata.len(),
+        })
+    }
+}
+
+impl CaptureController for FfmpegMacosCapture {
+    fn active_recording(&self) -> &ActiveRecording {
+        &self.active_recording
+    }
+
+    fn pause(&mut self) -> Result<(), CaptureError> {
+        if self.paused {
+            return Ok(());
+        }
+
+        let result = unsafe { libc::kill(self.child.id() as i32, libc::SIGSTOP) };
+        if result != 0 {
+            return Err(CaptureError::SignalFailed(
+                "failed to send SIGSTOP".to_string(),
+            ));
+        }
+
+        self.paused = true;
+        Ok(())
+    }
+
+    fn resume(&mut self) -> Result<(), CaptureError> {
+        if !self.paused {
+            return Ok(());
+        }
+
+        let result = unsafe { libc::kill(self.child.id() as i32, libc::SIGCONT) };
+        if result != 0 {
+            return Err(CaptureError::SignalFailed(
+                "failed to send SIGCONT".to_string(),
+            ));
+        }
+
+        self.paused = false;
+        Ok(())
+    }
+
+    fn stop(&mut self) -> Result<RecordingArtifact, CaptureError> {
+        if let Some(artifact) = self.finished_artifact.clone() {
+            return Ok(artifact);
+        }
+
+        if self.paused {
+            self.resume()?;
+        }
+
+        if let Some(stdin) = self.stdin.as_mut() {
+            stdin
+                .write_all(b"q\n")
+                .and_then(|_| stdin.flush())
+                .map_err(|error| CaptureError::StopFailed(error.to_string()))?;
+        }
+
+        let status = self
+            .child
+            .wait()
+            .map_err(|error| CaptureError::StopFailed(error.to_string()))?;
+
+        if !status.success() && status.signal() != Some(libc::SIGTERM) {
+            return Err(CaptureError::StopFailed(format!(
+                "ffmpeg exited with status {status}: {}",
+                describe_ffmpeg_failure(status.code(), &read_stderr_buffer(&self.stderr_buffer))
+            )));
+        }
+
+        let finished_at = SystemTime::now();
+        let artifact = self.build_artifact(finished_at)?;
+        self.finished_artifact = Some(artifact.clone());
+        Ok(artifact)
+    }
+
+    fn poll_finished(&mut self) -> Result<Option<RecordingArtifact>, CaptureError> {
+        if let Some(artifact) = self.finished_artifact.clone() {
+            return Ok(Some(artifact));
+        }
+
+        let Some(status) = self
+            .child
+            .try_wait()
+            .map_err(|error| CaptureError::StopFailed(error.to_string()))?
+        else {
+            return Ok(None);
+        };
+
+        if !status.success() && status.signal() != Some(libc::SIGTERM) {
+            return Err(CaptureError::StopFailed(describe_ffmpeg_failure(
+                status.code(),
+                &read_stderr_buffer(&self.stderr_buffer),
+            )));
+        }
+
+        let artifact = self.build_artifact(SystemTime::now())?;
+        self.finished_artifact = Some(artifact.clone());
+        Ok(Some(artifact))
+    }
+}
+
+fn discover_screen_device() -> Result<String, CaptureError> {
+    let output = Command::new("ffmpeg")
+        .arg("-f")
+        .arg("avfoundation")
+        .arg("-list_devices")
+        .arg("true")
+        .arg("-i")
+        .arg("")
+        .output()
+        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+
+    let listing = String::from_utf8_lossy(&output.stderr);
+    let screen_line = listing
+        .lines()
+        .find(|line| line.contains("Capture screen"))
+        .ok_or_else(|| {
+            CaptureError::BackendUnavailable(
+                "ffmpeg did not expose any avfoundation screen device".to_string(),
+            )
+        })?;
+
+    parse_device_index(screen_line)
+}
+
+fn discover_audio_device(mic_enabled: bool) -> Result<String, CaptureError> {
+    if !mic_enabled {
+        return Ok("none".to_string());
+    }
+
+    let output = Command::new("ffmpeg")
+        .arg("-f")
+        .arg("avfoundation")
+        .arg("-list_devices")
+        .arg("true")
+        .arg("-i")
+        .arg("")
+        .output()
+        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+
+    let listing = String::from_utf8_lossy(&output.stderr);
+    let preferred = listing
+        .lines()
+        .find(|line| line.contains("Microphone") && !line.contains("iPhone"))
+        .or_else(|| listing.lines().find(|line| line.contains("Microphone")))
+        .ok_or_else(|| {
+            CaptureError::BackendUnavailable(
+                "ffmpeg did not expose any avfoundation microphone device".to_string(),
+            )
+        })?;
+
+    parse_device_index(preferred)
+}
+
+fn parse_device_index(line: &str) -> Result<String, CaptureError> {
+    let start = line
+        .find('[')
+        .ok_or_else(|| CaptureError::BackendUnavailable(format!("invalid device line: {line}")))?;
+    let end = line[start + 1..]
+        .find(']')
+        .map(|index| index + start + 1)
+        .ok_or_else(|| CaptureError::BackendUnavailable(format!("invalid device line: {line}")))?;
+
+    Ok(line[start + 1..end].to_string())
+}
+
+fn quality_settings(preset: &str) -> (u32, u32, u32) {
+    match preset {
+        "720p / 30 fps" => (1280, 720, 30),
+        "1440p / 60 fps" => (2560, 1440, 60),
+        "4K / 60 fps" => (3840, 2160, 60),
+        _ => (1920, 1080, 60),
+    }
+}
+
+fn read_stderr_buffer(buffer: &Arc<Mutex<String>>) -> String {
+    buffer.lock().map(|log| log.clone()).unwrap_or_default()
+}
+
+fn describe_ffmpeg_failure(exit_code: Option<i32>, stderr_log: &str) -> String {
+    let stderr_lower = stderr_log.to_lowercase();
+
+    if stderr_lower.contains("not authorized")
+        || stderr_lower.contains("permission denied")
+        || stderr_lower.contains("operation not permitted")
+        || stderr_lower.contains("screen recording")
+    {
+        return "macOS blocked screen capture. Open System Settings > Privacy & Security > Screen & System Audio Recording, allow this app or Terminal, then try again.".to_string();
+    }
+
+    if stderr_lower.contains("no such file or directory")
+        || stderr_lower.contains("command not found")
+    {
+        return "ffmpeg is not available on this Mac. Install ffmpeg first, then retry."
+            .to_string();
+    }
+
+    let tail = stderr_log
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("ffmpeg exited before capture could start.")
+        .trim();
+
+    match exit_code {
+        Some(code) => format!("ffmpeg failed to start (exit code {code}). {tail}"),
+        None => tail.to_string(),
+    }
 }

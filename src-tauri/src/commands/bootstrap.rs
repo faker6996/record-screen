@@ -13,9 +13,12 @@ pub fn get_bootstrap(
         .core
         .lock()
         .map_err(|_| "failed to lock app state".to_string())?;
+    let platform = bootstrap::platform_name();
+    let mut snapshot = core.bootstrap(platform);
+    snapshot.permissions = permissions::probe_permissions(platform);
 
     let _ = app;
-    Ok(core.bootstrap(bootstrap::platform_name()))
+    Ok(snapshot)
 }
 
 #[tauri::command]

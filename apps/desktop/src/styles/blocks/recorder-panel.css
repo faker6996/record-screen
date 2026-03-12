@@ -1,0 +1,69 @@
+.recorder-panel {
+  background:
+    linear-gradient(135deg, rgba(255, 142, 60, 0.16), transparent 40%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
+    var(--panel-strong);
+}
+
+.recorder-panel__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.recorder-panel__metrics article {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 16px 18px;
+}
+
+.recorder-panel__metrics strong {
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.recorder-panel__checklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.recorder-panel__checklist-item {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 14px 16px;
+}
+
+.recorder-panel__file {
+  margin: 0 0 18px;
+}
+
+.recorder-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.recorder-panel__shortcuts {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .recorder-panel__metrics,
+  .recorder-panel__checklist {
+    grid-template-columns: 1fr;
+  }
+
+  .recorder-panel__actions {
+    display: grid;
+  }
+}

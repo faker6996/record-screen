@@ -3,6 +3,7 @@ import { desktopClient } from '../services/desktop-client'
 import type {
   AppSettings,
   BootstrapSnapshot,
+  PermissionCheck,
   RecorderSnapshot,
 } from '../types/desktop'
 
@@ -20,7 +21,6 @@ function updateRecorderSnapshot(
     settings: {
       ...snapshot.settings,
       micEnabled: recorder.micEnabled,
-      outputDirectory: recorder.outputDirectory,
       qualityPreset: recorder.qualityPreset,
     },
   }
@@ -46,15 +46,31 @@ function updateSettingsSnapshot(
   }
 }
 
+function updatePermissionsSnapshot(
+  snapshot: BootstrapSnapshot | null,
+  permissions: PermissionCheck[],
+) {
+  if (!snapshot) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    permissions,
+  }
+}
+
 export function useDesktopState() {
   const [snapshot, setSnapshot] = useState<BootstrapSnapshot | null>(null)
   const [currentWindowLabel, setCurrentWindowLabel] = useState('main')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   useEffect(() => {
     let isDisposed = false
-    let unlisten: () => void = () => undefined
+    let unlistenRecorder: () => void = () => undefined
+    let unlistenRuntimeError: () => void = () => undefined
 
     async function loadSnapshot() {
       try {
@@ -69,6 +85,7 @@ export function useDesktopState() {
           setSnapshot(nextSnapshot)
           setCurrentWindowLabel(nextWindowLabel)
           setError(null)
+          setActionError(null)
           setIsLoading(false)
         })
       } catch (loadError) {
@@ -94,45 +111,98 @@ export function useDesktopState() {
 
     void loadSnapshot()
 
-    void desktopClient.subscribeRecorderState((recorder) => {
-      if (!isDisposed) {
-        applyRecorderSnapshot(recorder)
-      }
-    }).then((dispose) => {
-      if (isDisposed) {
-        dispose()
-        return
-      }
-      unlisten = dispose
-    })
+    void desktopClient
+      .subscribeRecorderState((recorder) => {
+        if (!isDisposed) {
+          applyRecorderSnapshot(recorder)
+        }
+      })
+      .then((dispose) => {
+        if (isDisposed) {
+          dispose()
+          return
+        }
+        unlistenRecorder = dispose
+      })
+
+    void desktopClient
+      .subscribeRuntimeError((message) => {
+        if (isDisposed) {
+          return
+        }
+        startTransition(() => {
+          setActionError(message)
+        })
+      })
+      .then((dispose) => {
+        if (isDisposed) {
+          dispose()
+          return
+        }
+        unlistenRuntimeError = dispose
+      })
 
     return () => {
       isDisposed = true
-      unlisten()
+      unlistenRecorder()
+      unlistenRuntimeError()
     }
   }, [])
 
   async function toggleRecording() {
-    const recorder = await desktopClient.toggleRecording()
-    startTransition(() => {
-      setSnapshot((current) => updateRecorderSnapshot(current, recorder))
-    })
+    try {
+      const recorder = await desktopClient.toggleRecording()
+      startTransition(() => {
+        setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to start or stop the recorder.',
+        )
+      })
+    }
   }
 
   async function pauseResume() {
-    const recorder = await desktopClient.pauseResume()
-    if (recorder) {
+    try {
+      const recorder = await desktopClient.pauseResume()
+      if (recorder) {
+        startTransition(() => {
+          setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+          setActionError(null)
+        })
+      }
+    } catch (actionLoadError) {
       startTransition(() => {
-        setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to pause or resume the recorder.',
+        )
       })
     }
   }
 
   async function toggleMicrophone() {
-    const recorder = await desktopClient.toggleMicrophone()
-    startTransition(() => {
-      setSnapshot((current) => updateRecorderSnapshot(current, recorder))
-    })
+    try {
+      const recorder = await desktopClient.toggleMicrophone()
+      startTransition(() => {
+        setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update microphone state.',
+        )
+      })
+    }
   }
 
   async function resetShortcuts() {
@@ -141,40 +211,129 @@ export function useDesktopState() {
     startTransition(() => {
       setSnapshot(nextSnapshot)
       setError(null)
+      setActionError(null)
       setIsLoading(false)
     })
   }
 
   async function updateQualityPreset(qualityPreset: string) {
-    const settings = await desktopClient.updateQualityPreset(qualityPreset)
-    startTransition(() => {
-      setSnapshot((current) => updateSettingsSnapshot(current, settings))
-    })
+    try {
+      const settings = await desktopClient.updateQualityPreset(qualityPreset)
+      startTransition(() => {
+        setSnapshot((current) => updateSettingsSnapshot(current, settings))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update quality preset.',
+        )
+      })
+    }
   }
 
   async function updateLaunchOnLogin(launchOnLogin: boolean) {
-    const settings = await desktopClient.updateLaunchOnLogin(launchOnLogin)
-    startTransition(() => {
-      setSnapshot((current) => updateSettingsSnapshot(current, settings))
-    })
+    try {
+      const settings = await desktopClient.updateLaunchOnLogin(launchOnLogin)
+      startTransition(() => {
+        setSnapshot((current) => updateSettingsSnapshot(current, settings))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update launch-on-login.',
+        )
+      })
+    }
   }
 
   async function updateOutputDirectory(outputDirectory: string) {
-    const settings = await desktopClient.updateOutputDirectory(outputDirectory)
-    startTransition(() => {
-      setSnapshot((current) => updateSettingsSnapshot(current, settings))
-    })
+    try {
+      const settings = await desktopClient.updateOutputDirectory(outputDirectory)
+      startTransition(() => {
+        setSnapshot((current) => updateSettingsSnapshot(current, settings))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update output directory.',
+        )
+      })
+    }
+  }
+
+  async function refreshPermissions() {
+    try {
+      const permissions = await desktopClient.getPermissions()
+      startTransition(() => {
+        setSnapshot((current) => updatePermissionsSnapshot(current, permissions))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to refresh permissions.',
+        )
+      })
+    }
+  }
+
+  async function requestPermission(permissionName: string) {
+    try {
+      const permissions = await desktopClient.requestPermission(permissionName)
+      startTransition(() => {
+        setSnapshot((current) => updatePermissionsSnapshot(current, permissions))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : `Unable to request ${permissionName.toLowerCase()} permission.`,
+        )
+      })
+    }
+  }
+
+  async function openPermissionSettings(permissionName: string) {
+    try {
+      await desktopClient.openPermissionSettings(permissionName)
+      setActionError(null)
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : `Unable to open settings for ${permissionName.toLowerCase()}.`,
+        )
+      })
+    }
   }
 
   return {
+    actionError,
     currentWindowLabel,
     snapshot,
     isLoading,
     error,
     focusLauncher: desktopClient.focusLauncher,
     hideHud: desktopClient.hideHud,
+    openPermissionSettings,
     pauseResume,
+    refreshPermissions,
     resetShortcuts,
+    requestPermission,
     showHud: desktopClient.showHud,
     toggleMicrophone,
     toggleRecording,

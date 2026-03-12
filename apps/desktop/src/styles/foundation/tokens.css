@@ -1,0 +1,25 @@
+:root {
+  font-family: Manrope, "IBM Plex Sans", "Segoe UI Variable", sans-serif;
+  line-height: 1.5;
+  font-weight: 500;
+  color: #f6efe7;
+  background:
+    radial-gradient(circle at top left, rgba(255, 167, 38, 0.22), transparent 28%),
+    radial-gradient(circle at top right, rgba(115, 87, 255, 0.18), transparent 30%),
+    linear-gradient(160deg, #12100f 0%, #1e1713 48%, #0f1418 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --panel: rgba(27, 24, 22, 0.76);
+  --panel-strong: rgba(39, 33, 28, 0.92);
+  --panel-border: rgba(255, 245, 233, 0.08);
+  --text-main: #f6efe7;
+  --text-muted: #cdbba9;
+  --accent: #ff8e3c;
+  --success: #6dd8a8;
+  --danger: #ff7d74;
+  --pending: #ffd270;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+}

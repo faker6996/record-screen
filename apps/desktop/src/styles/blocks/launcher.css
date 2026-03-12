@@ -1,0 +1,129 @@
+.launcher {
+  width: min(1240px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+
+body[data-surface='hud'] .launcher {
+  display: none;
+}
+
+.launcher--loading {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+}
+
+.launcher__state-panel {
+  max-width: 560px;
+}
+
+.launcher__state-panel h1,
+.launcher__header h1 {
+  margin: 8px 0 10px;
+  font-size: clamp(2.4rem, 4vw, 4.4rem);
+  line-height: 0.92;
+  letter-spacing: -0.06em;
+}
+
+.launcher__state-panel p {
+  color: var(--text-muted);
+}
+
+.launcher__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.launcher__copy {
+  max-width: 720px;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+}
+
+.launcher__summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  min-width: min(100%, 480px);
+}
+
+.launcher__summary-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 16px 18px;
+}
+
+.launcher__summary-card strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.launcher__error {
+  margin-bottom: 20px;
+  border-color: rgba(255, 125, 116, 0.34);
+  background:
+    linear-gradient(135deg, rgba(255, 125, 116, 0.15), rgba(255, 125, 116, 0.02)),
+    rgba(54, 22, 20, 0.84);
+}
+
+.launcher__error p:last-child {
+  margin: 8px 0 0;
+}
+
+.launcher__layout,
+.launcher__support {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.9fr);
+  gap: 20px;
+}
+
+.launcher__layout {
+  margin-bottom: 20px;
+}
+
+.launcher__column,
+.launcher__support-card {
+  min-width: 0;
+}
+
+.launcher__column {
+  display: grid;
+  gap: 20px;
+}
+
+.launcher__roadmap {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--text-main);
+}
+
+.launcher__roadmap li + li {
+  margin-top: 8px;
+}
+
+@media (max-width: 980px) {
+  .launcher__layout,
+  .launcher__support {
+    grid-template-columns: 1fr;
+  }
+
+  .launcher__header {
+    flex-direction: column;
+  }
+
+  .launcher__summary {
+    grid-template-columns: 1fr;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .launcher {
+    width: min(100vw - 20px, 100%);
+    padding-top: 18px;
+  }
+}

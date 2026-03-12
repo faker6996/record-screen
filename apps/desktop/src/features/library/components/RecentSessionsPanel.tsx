@@ -6,8 +6,8 @@ interface RecentSessionsPanelProps {
 
 export function RecentSessionsPanel({ sessions }: RecentSessionsPanelProps) {
   return (
-    <section className="panel">
-      <div className="panel-header">
+    <section className="panel sessions-panel">
+      <div className="panel__header">
         <div>
           <p className="eyebrow">Recent sessions</p>
           <h2>Fast access to what you recorded last</h2>
@@ -17,14 +17,14 @@ export function RecentSessionsPanel({ sessions }: RecentSessionsPanelProps) {
         </div>
       </div>
 
-      <div className="session-list">
+      <div className="sessions-panel__list">
         {sessions.map((session) => (
-          <article className="session-item" key={session.id}>
+          <article className="sessions-panel__item" key={session.id}>
             <div>
               <strong>{session.title}</strong>
               <p>{session.startedAt}</p>
             </div>
-            <div className="session-meta">
+            <div className="sessions-panel__meta">
               <span>{session.durationLabel}</span>
               <span>{session.sizeLabel}</span>
             </div>

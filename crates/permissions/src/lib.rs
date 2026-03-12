@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,6 +15,48 @@ pub struct PermissionCheck {
     pub name: String,
     pub status: PermissionStatus,
     pub guidance: String,
+}
+
+#[derive(Debug, Error)]
+pub enum PermissionError {
+    #[error("permission flow is not implemented for this platform yet")]
+    UnsupportedPlatform,
+    #[error("unknown permission target: {0}")]
+    UnknownTarget(String),
+    #[error("failed to request permission: {0}")]
+    RequestFailed(String),
+    #[error("failed to open system settings: {0}")]
+    OpenSettingsFailed(String),
+}
+
+pub fn probe_permissions(platform: &str) -> Vec<PermissionCheck> {
+    match platform {
+        "macos" => macos::probe_permissions(),
+        _ => default_permissions(platform),
+    }
+}
+
+pub fn request_permission(
+    platform: &str,
+    permission_name: &str,
+) -> Result<Vec<PermissionCheck>, PermissionError> {
+    match platform {
+        "macos" => {
+            macos::request_permission(permission_name)?;
+            Ok(macos::probe_permissions())
+        }
+        _ => Err(PermissionError::UnsupportedPlatform),
+    }
+}
+
+pub fn open_permission_settings(
+    platform: &str,
+    permission_name: &str,
+) -> Result<(), PermissionError> {
+    match platform {
+        "macos" => macos::open_permission_settings(permission_name),
+        _ => Err(PermissionError::UnsupportedPlatform),
+    }
 }
 
 pub fn default_permissions(platform: &str) -> Vec<PermissionCheck> {
@@ -78,4 +121,153 @@ pub fn default_permissions(platform: &str) -> Vec<PermissionCheck> {
     }
 
     items
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::{process::Command, sync::mpsc, time::Duration};
+
+    use block2::RcBlock;
+    use core_graphics::access::ScreenCaptureAccess;
+    use objc2::runtime::Bool;
+    use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
+
+    use crate::{PermissionCheck, PermissionError, PermissionStatus};
+
+    const SCREEN_RECORDING: &str = "Screen recording";
+    const MICROPHONE: &str = "Microphone";
+
+    pub fn probe_permissions() -> Vec<PermissionCheck> {
+        vec![
+            PermissionCheck {
+                name: "Launcher readiness".to_string(),
+                status: PermissionStatus::Granted,
+                guidance: "The app shell is ready to react to shortcuts and UI commands."
+                    .to_string(),
+            },
+            PermissionCheck {
+                name: SCREEN_RECORDING.to_string(),
+                status: screen_recording_status(),
+                guidance: screen_recording_guidance(),
+            },
+            PermissionCheck {
+                name: MICROPHONE.to_string(),
+                status: microphone_permission_status(),
+                guidance: microphone_guidance(),
+            },
+        ]
+    }
+
+    pub fn request_permission(permission_name: &str) -> Result<(), PermissionError> {
+        match permission_name {
+            SCREEN_RECORDING => {
+                let _ = ScreenCaptureAccess.request();
+                Ok(())
+            }
+            MICROPHONE => request_microphone_permission(),
+            other => Err(PermissionError::UnknownTarget(other.to_string())),
+        }
+    }
+
+    pub fn open_permission_settings(permission_name: &str) -> Result<(), PermissionError> {
+        let url = match permission_name {
+            SCREEN_RECORDING => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            }
+            MICROPHONE => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+            }
+            other => return Err(PermissionError::UnknownTarget(other.to_string())),
+        };
+
+        let status = Command::new("open")
+            .arg(url)
+            .status()
+            .map_err(|error| PermissionError::OpenSettingsFailed(error.to_string()))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(PermissionError::OpenSettingsFailed(format!(
+                "open exited with status {status}"
+            )))
+        }
+    }
+
+    fn screen_recording_status() -> PermissionStatus {
+        if ScreenCaptureAccess.preflight() {
+            PermissionStatus::Granted
+        } else {
+            PermissionStatus::Pending
+        }
+    }
+
+    fn screen_recording_guidance() -> String {
+        if ScreenCaptureAccess.preflight() {
+            "macOS reports that screen capture access is already granted.".to_string()
+        } else {
+            "Click Request access to trigger the macOS prompt. If you already denied it, use Open settings and enable Screen Recording for this app or Terminal.".to_string()
+        }
+    }
+
+    fn microphone_permission_status() -> PermissionStatus {
+        match microphone_authorization_status() {
+            AVAuthorizationStatus::Authorized => PermissionStatus::Granted,
+            AVAuthorizationStatus::Denied | AVAuthorizationStatus::Restricted => {
+                PermissionStatus::Pending
+            }
+            _ => PermissionStatus::Pending,
+        }
+    }
+
+    fn microphone_guidance() -> String {
+        match microphone_authorization_status() {
+            AVAuthorizationStatus::Authorized => {
+                "macOS reports that microphone access is already granted.".to_string()
+            }
+            AVAuthorizationStatus::NotDetermined => {
+                "Click Request access to show the microphone permission prompt the first time."
+                    .to_string()
+            }
+            AVAuthorizationStatus::Denied | AVAuthorizationStatus::Restricted => {
+                "Microphone access is blocked. Open settings and allow microphone access before recording narration.".to_string()
+            }
+            _ => "Microphone permission state is still unresolved.".to_string(),
+        }
+    }
+
+    fn microphone_authorization_status() -> AVAuthorizationStatus {
+        let media_type = unsafe { AVMediaTypeAudio }
+            .unwrap_or_else(|| panic!("AVMediaTypeAudio is unavailable on macOS"));
+
+        unsafe { AVCaptureDevice::authorizationStatusForMediaType(media_type) }
+    }
+
+    fn request_microphone_permission() -> Result<(), PermissionError> {
+        if matches!(
+            microphone_authorization_status(),
+            AVAuthorizationStatus::Authorized
+                | AVAuthorizationStatus::Denied
+                | AVAuthorizationStatus::Restricted
+        ) {
+            return Ok(());
+        }
+
+        let media_type = unsafe { AVMediaTypeAudio }.ok_or_else(|| {
+            PermissionError::RequestFailed("AVMediaTypeAudio missing".to_string())
+        })?;
+        let (sender, receiver) = mpsc::channel();
+        let completion = RcBlock::new(move |granted: Bool| {
+            let _ = sender.send(granted.as_bool());
+        });
+
+        unsafe {
+            AVCaptureDevice::requestAccessForMediaType_completionHandler(media_type, &completion);
+        }
+
+        receiver
+            .recv_timeout(Duration::from_secs(120))
+            .map(|_| ())
+            .map_err(|error| PermissionError::RequestFailed(error.to_string()))
+    }
 }

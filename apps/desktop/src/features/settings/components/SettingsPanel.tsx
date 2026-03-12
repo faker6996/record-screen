@@ -31,8 +31,8 @@ export function SettingsPanel({
   }
 
   return (
-    <section className="panel">
-      <div className="panel-header">
+    <section className="panel settings-panel">
+      <div className="panel__header">
         <div>
           <p className="eyebrow">Settings</p>
           <h2>Recording defaults you should not have to hunt for</h2>
@@ -40,16 +40,16 @@ export function SettingsPanel({
             Adjust the essentials here once, then keep using the shortcut.
           </p>
         </div>
-        <div className="panel-actions">
+        <div className="panel__actions">
           <button
-            className="secondary-button"
+            className="button button--secondary"
             onClick={() => void onShowHud()}
             type="button"
           >
             Show HUD
           </button>
           <button
-            className="secondary-button"
+            className="button button--secondary"
             onClick={() => void onHideHud()}
             type="button"
           >
@@ -58,14 +58,14 @@ export function SettingsPanel({
         </div>
       </div>
 
-      <div className="settings-grid">
-        <div className="settings-block">
+      <div className="settings-panel__grid">
+        <div className="settings-panel__group">
           <span className="metric-label">Quality preset</span>
-          <div className="preset-row">
+          <div className="settings-panel__preset-row">
             {qualityPresets.map((preset) => (
               <button
-                className={`chip-button ${
-                  preset === settings.qualityPreset ? 'chip-active' : ''
+                className={`chip ${
+                  preset === settings.qualityPreset ? 'chip--active' : ''
                 }`}
                 key={preset}
                 onClick={() => void onUpdateQualityPreset(preset)}
@@ -77,11 +77,11 @@ export function SettingsPanel({
           </div>
         </div>
 
-        <div className="settings-block">
+        <div className="settings-panel__group">
           <label className="field-label" htmlFor="output-directory">
             Output folder
           </label>
-          <div className="field-row">
+          <div className="settings-panel__field-row">
             <input
               autoComplete="off"
               className="text-input"
@@ -102,7 +102,7 @@ export function SettingsPanel({
               value={draftOutputDirectory}
             />
             <button
-              className="secondary-button"
+              className="button button--secondary"
               onClick={() => {
                 commitOutputDirectory()
               }}
@@ -113,7 +113,7 @@ export function SettingsPanel({
           </div>
         </div>
 
-        <label className="toggle-card" htmlFor="launch-on-login">
+        <label className="settings-panel__toggle" htmlFor="launch-on-login">
           <div>
             <strong>Launch on login</strong>
             <p>
