@@ -5,7 +5,7 @@ on:
   push:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-installers:
@@ -17,26 +17,32 @@ jobs:
         include:
           - name: macOS DMG
             platform: macos-latest
-            args: "--bundles dmg --target universal-apple-darwin --ci --no-sign"
+            build_args: "--bundles dmg --target universal-apple-darwin --ci --no-sign"
+            artifact_name: record-screen-macos-dmg
+            artifact_path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           - name: Windows MSI
             platform: windows-latest
-            args: "--bundles msi --ci"
+            build_args: "--bundles msi --ci --no-sign"
+            artifact_name: record-screen-windows-msi
+            artifact_path: target/release/bundle/msi/*.msi
           - name: Linux AppImage
             platform: ubuntu-22.04
-            args: "--bundles appimage --ci"
+            build_args: "--bundles appimage --ci --no-sign"
+            artifact_name: record-screen-linux-appimage
+            artifact_path: target/release/bundle/appimage/*.AppImage*
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
@@ -51,26 +57,23 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Rust cache
+      - name: Restore Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Install frontend dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build installers
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build installer
+        run: npm run build -- ${{ matrix.build_args }}
+
+      - name: Show bundle outputs
+        if: always()
+        shell: bash
+        run: find target -type f | sort | grep '/bundle/' || true
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: .
-          tauriScript: npm exec tauri --
-          tagName: v__VERSION__
-          releaseName: Record Screen v__VERSION__
-          releaseBody: Automated installers for macOS, Windows, and Linux.
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: "[name]-[platform]-[arch]-[ext]"
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
