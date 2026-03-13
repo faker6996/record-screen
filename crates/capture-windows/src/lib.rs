@@ -36,7 +36,6 @@ mod platform {
         height: u32,
         x: i32,
         y: i32,
-        primary: bool,
     }
 
     #[derive(Debug, Clone, Deserialize)]
