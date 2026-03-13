@@ -1,6 +1,8 @@
-import { Mic, MicOff, Monitor, Pause, Play } from 'lucide-react'
+import { AudioLines, Mic, MicOff, Monitor, Pause, Play } from 'lucide-react'
+import { useEffect } from 'react'
 import { Combobox } from '../../../components/Combobox'
 import { Kbd } from '../../../components/Kbd'
+import { useMicCheck } from '../../../hooks/use-mic-check'
 import type {
   CaptureTargetOption,
   RecorderSnapshot,
@@ -25,6 +27,15 @@ export function RecorderPanel({
   onToggleRecording,
   selectedCaptureTargetId,
 }: RecorderPanelProps) {
+  const {
+    active: micCheckActive,
+    error: micCheckError,
+    hasSignal,
+    level: micLevel,
+    supported: micCheckSupported,
+    toggle: toggleMicCheck,
+    stop: stopMicCheck,
+  } = useMicCheck()
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
   const title = isIdle
@@ -33,6 +44,25 @@ export function RecorderPanel({
       ? 'Paused and waiting'
       : 'Recording right now'
   const recordLabel = isIdle ? 'REC' : 'STOP'
+  const micMeterSteps = Array.from({ length: 12 }, (_, index) => {
+    const threshold = (index + 1) / 12
+    return micLevel >= threshold
+  })
+  const micCheckLabel = micCheckError
+    ? micCheckError
+    : micCheckActive
+      ? hasSignal
+        ? 'Mic detected'
+        : 'Listening for input'
+      : recorder.micEnabled
+        ? 'Default Input'
+        : 'Microphone muted'
+
+  useEffect(() => {
+    if (!isIdle && micCheckActive) {
+      void stopMicCheck()
+    }
+  }, [isIdle, micCheckActive, stopMicCheck])
 
   return (
     <section className="recorder-panel" aria-label={title}>
@@ -140,6 +170,31 @@ export function RecorderPanel({
             </span>
             <strong>{recorder.micEnabled ? 'On' : 'Off'}</strong>
           </button>
+
+          <div className="recorder-panel__mic-check">
+            <div className="recorder-panel__mic-meter" aria-hidden="true">
+              {micMeterSteps.map((isActive, index) => (
+                <span
+                  className={`recorder-panel__mic-meter-bar ${
+                    isActive ? 'recorder-panel__mic-meter-bar--active' : ''
+                  }`}
+                  key={index}
+                />
+              ))}
+            </div>
+            <div className="recorder-panel__mic-check-meta">
+              <span className="subtle-copy">{micCheckLabel}</span>
+              <button
+                className="button button--secondary recorder-panel__mic-check-button"
+                disabled={!micCheckSupported || !isIdle}
+                onClick={() => void toggleMicCheck()}
+                type="button"
+              >
+                <AudioLines aria-hidden="true" size={16} strokeWidth={1.9} />
+                {micCheckActive ? 'Stop test' : 'Test mic'}
+              </button>
+            </div>
+          </div>
         </section>
       </div>
 

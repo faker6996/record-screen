@@ -41,6 +41,13 @@ pub(crate) fn emit_runtime_error(app: &AppHandle, message: &str) {
     let _ = app.emit("recorder://runtime-error", message.to_string());
 }
 
+pub(crate) fn emit_bootstrap_refresh_request(app: &AppHandle, reason: &str) {
+    let _ = app.emit(
+        "recorder://bootstrap-refresh-requested",
+        serde_json::json!({ "reason": reason }),
+    );
+}
+
 fn command_or_control_modifier() -> Modifiers {
     if cfg!(target_os = "macos") {
         Modifiers::SUPER

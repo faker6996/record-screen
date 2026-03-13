@@ -1,5 +1,4 @@
 import { Mic, MicOff, Pause, Play, Scan, Square } from 'lucide-react'
-import { useEffect, useState } from 'react'
 import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
@@ -42,32 +41,6 @@ function formatHudTime(totalSeconds: number) {
     .join(':')
 }
 
-function HudElapsed({
-  elapsedSeconds,
-  status,
-}: {
-  elapsedSeconds: number
-  status: RecorderSnapshot['status']
-}) {
-  const [displaySeconds, setDisplaySeconds] = useState(elapsedSeconds)
-
-  useEffect(() => {
-    if (status !== 'recording') {
-      return
-    }
-
-    const interval = window.setInterval(() => {
-      setDisplaySeconds((current) => current + 1)
-    }, 1000)
-
-    return () => {
-      window.clearInterval(interval)
-    }
-  }, [status])
-
-  return <strong>{formatHudTime(displaySeconds)}</strong>
-}
-
 export function HudSurface({
   onFocusLauncher,
   onPauseResume,
@@ -88,11 +61,7 @@ export function HudSurface({
           title="Drag HUD"
         >
           <span className={`status-dot status-${recorder.status}`} />
-          <HudElapsed
-            elapsedSeconds={parsedElapsedSeconds}
-            key={`${recorder.status}:${parsedElapsedSeconds}`}
-            status={recorder.status}
-          />
+          <strong>{formatHudTime(parsedElapsedSeconds)}</strong>
         </div>
 
         <div className="hud__divider" />

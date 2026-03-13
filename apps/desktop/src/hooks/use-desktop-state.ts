@@ -7,6 +7,7 @@ import type {
   PermissionCheck,
   RecorderSnapshot,
 } from '../types/desktop'
+import type { BootstrapRefreshRequestPayload } from '../types/events'
 
 function updateRecorderSnapshot(
   snapshot: BootstrapSnapshot | null,
@@ -91,6 +92,7 @@ export function useDesktopState() {
     let isDisposed = false
     let unlistenRecorder: () => void = () => undefined
     let unlistenRuntimeError: () => void = () => undefined
+    let unlistenBootstrapRefresh: () => void = () => undefined
 
     async function loadSnapshot() {
       try {
@@ -149,6 +151,13 @@ export function useDesktopState() {
           )
         })
       }
+    }
+
+    async function handleBootstrapRefreshRequest(
+      payload: BootstrapRefreshRequestPayload,
+    ) {
+      void payload
+      await refreshBootstrapState()
     }
 
     async function refreshCaptureTargets() {
@@ -215,10 +224,26 @@ export function useDesktopState() {
         unlistenRuntimeError = dispose
       })
 
+    void desktopClient
+      .subscribeBootstrapRefreshRequest((payload) => {
+        if (isDisposed) {
+          return
+        }
+        void handleBootstrapRefreshRequest(payload)
+      })
+      .then((dispose) => {
+        if (isDisposed) {
+          dispose()
+          return
+        }
+        unlistenBootstrapRefresh = dispose
+      })
+
     return () => {
       isDisposed = true
       unlistenRecorder()
       unlistenRuntimeError()
+      unlistenBootstrapRefresh()
     }
   }, [])
 

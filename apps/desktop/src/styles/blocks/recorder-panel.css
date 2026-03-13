@@ -163,6 +163,62 @@
   background: color-mix(in srgb, var(--color-surface-strong) 70%, var(--color-accent-soft));
 }
 
+.recorder-panel__mic-check {
+  display: grid;
+  gap: 10px;
+}
+
+.recorder-panel__mic-meter {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 6px;
+  align-items: end;
+  min-height: 28px;
+}
+
+.recorder-panel__mic-meter-bar {
+  display: block;
+  min-height: 10px;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  transition:
+    background 120ms ease,
+    transform 120ms ease,
+    opacity 120ms ease;
+  opacity: 0.45;
+}
+
+.recorder-panel__mic-meter-bar:nth-child(3n) {
+  min-height: 14px;
+}
+
+.recorder-panel__mic-meter-bar:nth-child(4n) {
+  min-height: 18px;
+}
+
+.recorder-panel__mic-meter-bar--active {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-accent) 72%, white),
+    var(--color-accent)
+  );
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.recorder-panel__mic-check-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.recorder-panel__mic-check-button {
+  min-width: 110px;
+  justify-content: center;
+}
+
 .recorder-panel__active-file {
   padding: 14px 16px;
   border-radius: 18px;

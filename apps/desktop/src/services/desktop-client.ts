@@ -9,6 +9,7 @@ import type {
   RecorderSnapshot,
   ShortcutBinding,
 } from '../types/desktop'
+import type { BootstrapRefreshRequestPayload } from '../types/events'
 
 declare global {
   interface Window {
@@ -329,6 +330,21 @@ export const desktopClient = {
     const unlisten = await listen<string>('recorder://runtime-error', (event) => {
       listener(event.payload)
     })
+    return unlisten
+  },
+  async subscribeBootstrapRefreshRequest(
+    listener: (payload: BootstrapRefreshRequestPayload) => void,
+  ) {
+    if (!isTauriRuntime()) {
+      return () => undefined
+    }
+
+    const unlisten = await listen<BootstrapRefreshRequestPayload>(
+      'recorder://bootstrap-refresh-requested',
+      (event) => {
+        listener(event.payload)
+      },
+    )
     return unlisten
   },
 }
