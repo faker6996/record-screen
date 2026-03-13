@@ -5,11 +5,13 @@ on:
   push:
     branches:
       - '**'
-    tags:
-      - 'v*'
+    tags-ignore:
+      - '*'
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build-installers:
@@ -87,6 +89,10 @@ jobs:
     runs-on: ubuntu-22.04
     needs: build-installers
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      created: ${{ steps.tag_result.outputs.created }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -149,13 +155,23 @@ jobs:
         if: steps.tag_check.outputs.exists == 'true'
         run: echo "Tag ${{ steps.version.outputs.tag }} already exists. Skipping auto-tag."
 
+      - name: Record tag creation result
+        id: tag_result
+        shell: bash
+        run: |
+          if [ "${{ steps.tag_check.outputs.exists }}" = "false" ]; then
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          fi
+
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-22.04
-    needs: build-installers
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
+    needs:
+      - build-installers
+      - tag-version
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.tag-version.outputs.created == 'true'
     steps:
       - name: Download macOS artifact
         uses: actions/download-artifact@v5
@@ -200,7 +216,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ needs.tag-version.outputs.tag }}
         run: |
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" \
@@ -219,3 +235,105 @@ jobs:
             release-assets/SHA256SUMS.txt \
             --title "Record Screen $TAG_NAME" \
             --generate-notes
+
+  publish-apt-repo:
+    name: Publish APT repo to GitHub Pages
+    runs-on: ubuntu-22.04
+    needs:
+      - build-installers
+      - publish-release
+      - tag-version
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.tag-version.outputs.created == 'true'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Preflight secret check
+        id: preflight
+        shell: bash
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "APT_GPG_PRIVATE_KEY is not configured. Skipping APT repo publish."
+            exit 0
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download Linux artifact
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/download-artifact@v5
+        with:
+          name: record-screen-linux-deb
+          path: release-assets/linux
+
+      - name: Install APT repo build dependencies
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+      - name: Build APT repository
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          APT_REPO_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/apt
+          APT_ORIGIN: Record Screen
+          APT_LABEL: Record Screen
+        run: |
+          chmod +x scripts/build-apt-repo.sh
+          DEB_PATH="$(find release-assets/linux -type f -name '*.deb' | head -n 1)"
+          if [ -z "$DEB_PATH" ]; then
+            echo "No .deb artifact found."
+            exit 1
+          fi
+
+          scripts/build-apt-repo.sh "$DEB_PATH" pages-site/apt
+
+      - name: Add root index
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        run: |
+          cat > pages-site/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>Record Screen Packages</title>
+            </head>
+            <body>
+              <h1>Record Screen Packages</h1>
+              <ul>
+                <li><a href="./apt/">APT repository</a></li>
+              </ul>
+            </body>
+          </html>
+          EOF
+
+      - name: Configure Pages
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages-site
+
+      - name: Deploy to GitHub Pages
+        if: steps.preflight.outputs.ready == 'true'
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Skip notice
+        if: steps.preflight.outputs.ready != 'true'
+        run: echo "APT repo publish skipped because signing secrets are not configured."
