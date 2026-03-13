@@ -201,6 +201,8 @@ async function command<T>(
       case 'focus_launcher':
       case 'show_hud':
       case 'hide_hud':
+      case 'open_recording':
+      case 'reveal_recording_in_folder':
       case 'open_permission_settings':
         return undefined as T
       case 'get_permissions':
@@ -273,6 +275,12 @@ export const desktopClient = {
   },
   openPermissionSettings(permissionName: string) {
     return command<void>('open_permission_settings', { permissionName })
+  },
+  openRecording(recordingPath: string) {
+    return command<void>('open_recording', { recordingPath })
+  },
+  revealRecordingInFolder(recordingPath: string) {
+    return command<void>('reveal_recording_in_folder', { recordingPath })
   },
   async subscribeRecorderState(
     listener: (snapshot: RecorderSnapshot) => void,

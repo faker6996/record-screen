@@ -1,25 +1,102 @@
 :root {
-  font-family: Manrope, "IBM Plex Sans", "Segoe UI Variable", sans-serif;
+  font-family: "IBM Plex Sans", Manrope, "Segoe UI Variable", sans-serif;
   line-height: 1.5;
   font-weight: 500;
-  color: #f6efe7;
-  background:
-    radial-gradient(circle at top left, rgba(255, 167, 38, 0.22), transparent 28%),
-    radial-gradient(circle at top right, rgba(115, 87, 255, 0.18), transparent 30%),
-    linear-gradient(160deg, #12100f 0%, #1e1713 48%, #0f1418 100%);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
 
-  --panel: rgba(27, 24, 22, 0.76);
-  --panel-strong: rgba(39, 33, 28, 0.92);
-  --panel-border: rgba(255, 245, 233, 0.08);
-  --text-main: #f6efe7;
-  --text-muted: #cdbba9;
-  --accent: #ff8e3c;
-  --success: #6dd8a8;
-  --danger: #ff7d74;
-  --pending: #ffd270;
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+body,
+body[data-theme='dark'] {
+  color-scheme: dark;
+  --color-bg-base: #09090b;
+  --color-bg-elevated: #111114;
+  --color-bg-overlay: #17171c;
+  --color-surface-1: rgba(8, 8, 10, 0.58);
+  --color-surface-2: rgba(17, 17, 20, 0.84);
+  --color-surface-3: rgba(11, 12, 14, 0.94);
+  --color-surface-soft: rgba(255, 255, 255, 0.04);
+  --color-surface-strong: rgba(255, 255, 255, 0.08);
+  --color-border-soft: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-control-bg: rgba(255, 255, 255, 0.08);
+  --color-control-bg-hover: rgba(255, 255, 255, 0.11);
+  --color-control-bg-active: rgba(255, 255, 255, 0.13);
+  --color-control-border: rgba(255, 255, 255, 0.1);
+  --color-control-border-strong: rgba(255, 255, 255, 0.18);
+  --color-text-primary: #f5f5f5;
+  --color-text-secondary: #c6c6cf;
+  --color-text-tertiary: #a1a1aa;
+  --color-text-on-accent: #fff7f7;
+  --color-accent: #ef4444;
+  --color-accent-strong: #fb7185;
+  --color-accent-soft: rgba(239, 68, 68, 0.18);
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+  --color-shadow: rgba(0, 0, 0, 0.42);
+  --color-focus-ring: rgba(239, 68, 68, 0.42);
+  --color-menu-bg: rgba(16, 16, 19, 0.96);
+  --color-menu-border: rgba(255, 255, 255, 0.1);
+  --color-menu-shadow: 0 24px 54px rgba(0, 0, 0, 0.44);
+  --app-background:
+    radial-gradient(circle at top left, rgba(239, 68, 68, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(244, 63, 94, 0.12), transparent 30%),
+    linear-gradient(180deg, #09090b 0%, #111114 55%, #17171c 100%);
+}
+
+body[data-theme='light'] {
+  color-scheme: light;
+  --color-bg-base: #f5f5f7;
+  --color-bg-elevated: #ececf1;
+  --color-bg-overlay: #ffffff;
+  --color-surface-1: rgba(255, 255, 255, 0.78);
+  --color-surface-2: rgba(255, 255, 255, 0.88);
+  --color-surface-3: rgba(255, 255, 255, 0.94);
+  --color-surface-soft: rgba(15, 23, 42, 0.04);
+  --color-surface-strong: rgba(15, 23, 42, 0.08);
+  --color-border-soft: rgba(15, 23, 42, 0.1);
+  --color-border-strong: rgba(15, 23, 42, 0.16);
+  --color-control-bg: rgba(15, 23, 42, 0.05);
+  --color-control-bg-hover: rgba(15, 23, 42, 0.08);
+  --color-control-bg-active: rgba(15, 23, 42, 0.11);
+  --color-control-border: rgba(15, 23, 42, 0.12);
+  --color-control-border-strong: rgba(15, 23, 42, 0.18);
+  --color-text-primary: #111114;
+  --color-text-secondary: #3f3f46;
+  --color-text-tertiary: #52525b;
+  --color-text-on-accent: #fff7f7;
+  --color-accent: #dc2626;
+  --color-accent-strong: #f87171;
+  --color-accent-soft: rgba(220, 38, 38, 0.14);
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-shadow: rgba(15, 23, 42, 0.14);
+  --color-focus-ring: rgba(220, 38, 38, 0.28);
+  --color-menu-bg: rgba(255, 255, 255, 0.97);
+  --color-menu-border: rgba(15, 23, 42, 0.12);
+  --color-menu-shadow: 0 18px 36px rgba(15, 23, 42, 0.14);
+  --app-background:
+    radial-gradient(circle at top left, rgba(248, 113, 113, 0.14), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(251, 191, 36, 0.1), transparent 30%),
+    linear-gradient(180deg, #f8fafc 0%, #eff3f8 55%, #eef2f7 100%);
+}
+
+body {
+  color: var(--color-text-primary);
+  background: var(--app-background);
+
+  --panel: var(--color-surface-2);
+  --panel-strong: var(--color-surface-3);
+  --panel-border: var(--color-border-soft);
+  --text-main: var(--color-text-primary);
+  --text-muted: var(--color-text-tertiary);
+  --accent: var(--color-accent);
+  --success: var(--color-success);
+  --danger: var(--color-danger);
+  --pending: var(--color-warning);
+  --shadow: 0 28px 90px var(--color-shadow);
 }

@@ -1,4 +1,13 @@
-import { useEffect } from 'react'
+import type { ReactElement } from 'react'
+import { useEffect, useState } from 'react'
+import {
+  AppWindow,
+  Clock3,
+  Keyboard,
+  Settings,
+  ShieldCheck,
+  Video,
+} from 'lucide-react'
 import { HudSurface } from '../features/launcher/components/HudSurface'
 import { PermissionsPanel } from '../features/permissions/components/PermissionsPanel'
 import { RecorderPanel } from '../features/recorder/components/RecorderPanel'
@@ -7,13 +16,72 @@ import { SettingsPanel } from '../features/settings/components/SettingsPanel'
 import { ShortcutPanel } from '../features/settings/components/ShortcutPanel'
 import { useDesktopState } from '../hooks/use-desktop-state'
 
+type LauncherTab =
+  | 'recorder'
+  | 'recent'
+  | 'settings'
+  | 'shortcuts'
+  | 'permissions'
+
+type ThemeMode = 'dark' | 'light'
+
+const launcherTabs: Array<{
+  id: LauncherTab
+  label: string
+  eyebrow: string
+  icon: ReactElement
+  title: string
+  description: string
+}> = [
+  {
+    id: 'recorder',
+    label: 'Record',
+    eyebrow: 'Recorder',
+    icon: <Video aria-hidden="true" size={16} strokeWidth={1.9} />,
+    title: 'Ready to record',
+    description: 'Select your target and start capturing.',
+  },
+  {
+    id: 'recent',
+    label: 'Recent',
+    eyebrow: 'Recent sessions',
+    icon: <Clock3 aria-hidden="true" size={16} strokeWidth={1.9} />,
+    title: 'Recent clips',
+    description: 'Open recent recordings.',
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    eyebrow: 'Defaults',
+    icon: <Settings aria-hidden="true" size={16} strokeWidth={1.9} />,
+    title: 'Defaults',
+    description: 'Theme, quality, output.',
+  },
+  {
+    id: 'shortcuts',
+    label: 'Shortcuts',
+    eyebrow: 'Keyboard control',
+    icon: <Keyboard aria-hidden="true" size={16} strokeWidth={1.9} />,
+    title: 'Shortcuts',
+    description: 'Control the app anywhere.',
+  },
+  {
+    id: 'permissions',
+    label: 'Permissions',
+    eyebrow: 'Readiness',
+    icon: <ShieldCheck aria-hidden="true" size={16} strokeWidth={1.9} />,
+    title: 'Permissions',
+    description: 'Check what is ready.',
+  },
+]
+
 function LoadingState() {
   return (
-    <main className="launcher launcher--loading">
+    <main className="launcher-shell launcher--loading">
       <section className="panel launcher__state-panel">
         <p className="eyebrow">Record Screen</p>
         <h1>Preparing launcher</h1>
-        <p>Loading recorder state, shortcuts, and first-run readiness checks.</p>
+        <p>Loading app state.</p>
       </section>
     </main>
   )
@@ -21,7 +89,7 @@ function LoadingState() {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <main className="launcher launcher--loading">
+    <main className="launcher-shell launcher--loading">
       <section className="panel launcher__state-panel">
         <p className="eyebrow">Launcher error</p>
         <h1>Unable to load desktop state</h1>
@@ -32,6 +100,16 @@ function ErrorState({ message }: { message: string }) {
 }
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<LauncherTab>('recorder')
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: light)').matches
+        ? 'light'
+        : 'dark'
+    }
+
+    return 'dark'
+  })
   const {
     actionError,
     currentWindowLabel,
@@ -40,8 +118,10 @@ export default function App() {
     hideHud,
     isLoading,
     openPermissionSettings,
+    openRecording,
     pauseResume,
     refreshPermissions,
+    revealRecordingInFolder,
     resetShortcuts,
     requestPermission,
     showHud,
@@ -61,6 +141,13 @@ export default function App() {
     }
   }, [currentWindowLabel])
 
+  useEffect(() => {
+    document.body.dataset.theme = themeMode
+    return () => {
+      delete document.body.dataset.theme
+    }
+  }, [themeMode])
+
   if (isLoading || !snapshot) {
     return <LoadingState />
   }
@@ -69,120 +156,154 @@ export default function App() {
     return <ErrorState message={error} />
   }
 
+  const currentSnapshot = snapshot
+
   if (currentWindowLabel === 'hud') {
     return (
       <HudSurface
+        onFocusLauncher={focusLauncher}
         onPauseResume={pauseResume}
+        onToggleMicrophone={toggleMicrophone}
         onToggleRecording={toggleRecording}
-        recorder={snapshot.recorder}
+        recorder={currentSnapshot.recorder}
       />
     )
   }
 
-  const pendingPermissions = snapshot.permissions.filter(
-    (permission) => permission.status === 'pending',
-  ).length
+  const activeTabConfig =
+    launcherTabs.find((tab) => tab.id === activeTab) ?? launcherTabs[0]
 
-  return (
-    <main className="launcher">
-      <section className="launcher__header">
-        <div className="launcher__intro">
-          <p className="eyebrow">Cross-platform recorder</p>
-          <h1>{snapshot.appName}</h1>
-          <p className="launcher__copy">
-            Start a recording in one move, keep setup obvious, and pull the
-            launcher back instantly with shortcuts when it is hidden.
-          </p>
-        </div>
-        <div className="launcher__summary">
-          <article className="launcher__summary-card">
-            <span className="metric-label">Current state</span>
-            <strong>{snapshot.recorder.elapsedLabel}</strong>
-          </article>
-          <article className="launcher__summary-card">
-            <span className="metric-label">Ready checks</span>
-            <strong>
-              {pendingPermissions === 0
-                ? 'All clear'
-                : `${pendingPermissions} still pending`}
-            </strong>
-          </article>
-          <article className="launcher__summary-card">
-            <span className="metric-label">Quick recall</span>
-            <strong>CmdOrCtrl + Shift + L</strong>
-          </article>
-        </div>
-      </section>
-
-      {actionError ? (
-        <section className="panel launcher__error">
-          <p className="eyebrow">Recorder issue</p>
-          <p>{actionError}</p>
-        </section>
-      ) : null}
-
-      <div className="launcher__layout">
-        <div className="launcher__column launcher__column--primary">
+  function renderActiveTab() {
+    switch (activeTab) {
+      case 'recorder':
+        return (
           <RecorderPanel
-            captureTargets={snapshot.captureTargets}
+            captureTargets={currentSnapshot.captureTargets}
             onPauseResume={pauseResume}
             onUpdateCaptureTarget={updateCaptureTarget}
             onToggleMicrophone={toggleMicrophone}
             onToggleRecording={toggleRecording}
-            recorder={snapshot.recorder}
-            selectedCaptureTargetId={snapshot.settings.captureTargetId}
+            recorder={currentSnapshot.recorder}
+            selectedCaptureTargetId={currentSnapshot.settings.captureTargetId}
           />
-          <ShortcutPanel
-            onFocusLauncher={focusLauncher}
-            onReset={resetShortcuts}
-            shortcuts={snapshot.shortcuts}
+        )
+      case 'recent':
+        return (
+          <RecentSessionsPanel
+            onOpenRecording={openRecording}
+            onRevealRecordingInFolder={revealRecordingInFolder}
+            sessions={currentSnapshot.recentSessions}
           />
+        )
+      case 'settings':
+        return (
           <SettingsPanel
             onHideHud={hideHud}
             onShowHud={showHud}
+            onUpdateThemeMode={setThemeMode}
             onUpdateLaunchOnLogin={updateLaunchOnLogin}
             onUpdateOutputDirectory={updateOutputDirectory}
             onUpdateQualityPreset={updateQualityPreset}
-            qualityPresets={snapshot.qualityPresets}
-            settings={snapshot.settings}
+            qualityPresets={currentSnapshot.qualityPresets}
+            settings={currentSnapshot.settings}
+            themeMode={themeMode}
           />
-        </div>
-
-        <div className="launcher__column launcher__column--secondary">
+        )
+      case 'shortcuts':
+        return (
+          <ShortcutPanel
+            onFocusLauncher={focusLauncher}
+            onReset={resetShortcuts}
+            shortcuts={currentSnapshot.shortcuts}
+          />
+        )
+      case 'permissions':
+        return (
           <PermissionsPanel
             onOpenPermissionSettings={openPermissionSettings}
             onRefreshPermissions={refreshPermissions}
             onRequestPermission={requestPermission}
-            permissions={snapshot.permissions}
+            permissions={currentSnapshot.permissions}
           />
-          <ShortcutPanel
-            onFocusLauncher={focusLauncher}
-            onReset={resetShortcuts}
-            shortcuts={snapshot.shortcuts}
-          />
-        </div>
-      </div>
+        )
+    }
+  }
 
-      <div className="launcher__support">
-        <div className="launcher__support-card">
-          <RecentSessionsPanel sessions={snapshot.recentSessions} />
-        </div>
-        <div className="launcher__support-card launcher__support-card--plan">
-          <section className="panel panel--stack">
-            <div className="panel__header">
-              <div>
-                <p className="eyebrow">What comes next</p>
-                <h2>Build plan already wired into the repo</h2>
-              </div>
+  return (
+    <main className="launcher-shell">
+      <section className="launcher-frame">
+        <aside className="launcher-sidebar">
+          <div className="launcher-sidebar__brand">
+            <div className="launcher-sidebar__brand-mark">
+              <Video aria-hidden="true" size={17} strokeWidth={2} />
             </div>
-            <ul className="launcher__roadmap">
-              {snapshot.roadmap.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </section>
-        </div>
-      </div>
+            <div>
+              <strong>{currentSnapshot.appName}</strong>
+              <p>{activeTab === 'recorder' ? 'Desktop recorder' : currentSnapshot.platform}</p>
+            </div>
+          </div>
+
+          <nav className="launcher-nav" aria-label="Launcher sections">
+            {launcherTabs.map((tab) => (
+              <button
+                className={`launcher-nav__item ${
+                  activeTab === tab.id ? 'launcher-nav__item--active' : ''
+                }`}
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id)
+                }}
+                type="button"
+              >
+                <span className="launcher-nav__marker">
+                  {tab.icon}
+                </span>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="launcher-sidebar__footer">
+            <button
+              className="button button--secondary launcher-sidebar__preview"
+              onClick={() => void showHud()}
+              type="button"
+            >
+              <AppWindow aria-hidden="true" size={15} strokeWidth={1.9} />
+              Preview HUD Mode
+            </button>
+          </div>
+        </aside>
+
+        <section className="launcher-stage">
+          <header
+            className={`launcher-stage__header ${
+              activeTab === 'recorder'
+                ? 'launcher-stage__header--centered'
+                : 'launcher-stage__header--compact'
+            }`}
+          >
+            <div>
+              {activeTab !== 'recorder' ? (
+                <p className="eyebrow">{activeTabConfig.eyebrow}</p>
+              ) : null}
+              <h1>{activeTabConfig.title}</h1>
+              <p className="launcher-stage__copy">{activeTabConfig.description}</p>
+            </div>
+          </header>
+
+          {actionError ? (
+            <section className="panel launcher__error">
+              <p className="eyebrow">Recorder issue</p>
+              <p>{actionError}</p>
+            </section>
+          ) : null}
+
+          <div className={`launcher-stage__body launcher-stage__body--${activeTab}`}>
+            {renderActiveTab()}
+          </div>
+        </section>
+      </section>
     </main>
   )
 }

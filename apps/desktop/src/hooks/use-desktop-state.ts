@@ -339,6 +339,40 @@ export function useDesktopState() {
     }
   }
 
+  async function openRecording(recordingPath: string) {
+    try {
+      await desktopClient.openRecording(recordingPath)
+      startTransition(() => {
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to open recording file.',
+        )
+      })
+    }
+  }
+
+  async function revealRecordingInFolder(recordingPath: string) {
+    try {
+      await desktopClient.revealRecordingInFolder(recordingPath)
+      startTransition(() => {
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to reveal recording in folder.',
+        )
+      })
+    }
+  }
+
   return {
     actionError,
     currentWindowLabel,
@@ -348,8 +382,10 @@ export function useDesktopState() {
     focusLauncher: desktopClient.focusLauncher,
     hideHud: desktopClient.hideHud,
     openPermissionSettings,
+    openRecording,
     pauseResume,
     refreshPermissions,
+    revealRecordingInFolder,
     resetShortcuts,
     requestPermission,
     showHud: desktopClient.showHud,

@@ -1,3 +1,44 @@
+.shortcut-panel {
+  width: min(100%, 860px);
+  display: grid;
+  gap: 16px;
+}
+
+.shortcut-panel__hero {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-radius: 28px;
+  border: 1px solid var(--color-border-soft);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent-soft) 46%, transparent), transparent 60%),
+    var(--color-surface-1);
+}
+
+.shortcut-panel__hero-copy h3 {
+  margin: 6px 0 4px;
+  font-size: 1.48rem;
+  line-height: 1.03;
+  letter-spacing: -0.04em;
+}
+
+.shortcut-panel__hero-copy p:last-child {
+  margin: 0;
+}
+
+.shortcut-panel__hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shortcut-panel__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .shortcut-panel__list {
   display: grid;
   gap: 12px;
@@ -7,15 +48,38 @@
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  align-items: flex-start;
+  align-items: center;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(8, 8, 10, 0.58);
   padding: 16px 18px;
 }
 
-.shortcut-panel__item p {
+.shortcut-panel__copy {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.shortcut-panel__marker {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+}
+
+.shortcut-panel__copy p {
   color: var(--text-muted);
+  margin: 4px 0 0;
+}
+
+.shortcut-panel__marker svg {
+  width: 18px;
+  height: 18px;
 }
 
 .shortcut-panel__keys {

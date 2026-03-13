@@ -143,6 +143,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap::get_bootstrap,
             commands::bootstrap::reset_shortcuts,
+            commands::library::open_recording,
+            commands::library::reveal_recording_in_folder,
             commands::permissions::get_permissions,
             commands::permissions::open_permission_settings,
             commands::permissions::request_permission,

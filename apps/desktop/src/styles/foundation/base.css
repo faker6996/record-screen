@@ -11,6 +11,8 @@ body,
 
 body {
   min-height: 100vh;
+  background: var(--app-background);
+  color: var(--color-text-primary);
 }
 
 body[data-surface='hud'] {
@@ -22,6 +24,12 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+input,
+textarea,
+select {
+  color: inherit;
 }
 
 button {

@@ -59,8 +59,8 @@
   border: 1px solid var(--panel-border);
   border-radius: 999px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-muted);
+  background: var(--color-surface-soft);
+  color: var(--color-text-secondary);
 }
 
 .pill-granted {
@@ -81,8 +81,8 @@
   gap: 10px;
   border-radius: 999px;
   padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface-soft);
   text-transform: capitalize;
   font-variant-numeric: tabular-nums;
 }
@@ -92,7 +92,7 @@
   height: 14px;
   margin-top: 2px;
   border-radius: 999px;
-  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 8px var(--color-surface-soft);
 }
 
 .status-idle {
@@ -109,6 +109,10 @@
 
 .button,
 .chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   transition:
     transform 140ms ease,
     background 140ms ease,
@@ -127,18 +131,19 @@
 }
 
 .button--primary.button--record {
-  background: linear-gradient(135deg, var(--accent) 0%, #ffbc6a 100%);
-  color: #1a120e;
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  color: var(--color-text-on-accent);
 }
 
 .button--primary.button--stop {
-  background: linear-gradient(135deg, #ff867a 0%, #ff5d67 100%);
-  color: #2a0e10;
+  background: linear-gradient(135deg, var(--color-danger) 0%, var(--color-accent) 100%);
+  color: var(--color-text-on-accent);
 }
 
 .button--secondary {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-strong);
   color: var(--text-main);
+  border: 1px solid var(--color-border-soft);
 }
 
 .button--secondary:disabled {
@@ -151,13 +156,14 @@
   min-height: 38px;
   padding: 0 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-surface-soft);
   color: var(--text-main);
+  border: 1px solid var(--color-border-soft);
 }
 
 .chip--active {
-  background: linear-gradient(135deg, rgba(255, 142, 60, 0.86), rgba(255, 206, 118, 0.9));
-  color: #1a120e;
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  color: var(--color-text-on-accent);
 }
 
 .field-label {
@@ -167,11 +173,22 @@
 
 .text-input {
   min-height: 46px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-control-border);
   border-radius: 16px;
-  background: rgba(13, 14, 16, 0.52);
+  background: var(--color-control-bg);
   color: var(--text-main);
   padding: 0 14px;
+}
+
+.text-input:focus-visible,
+.button:focus-visible,
+.chip:focus-visible,
+.combobox__trigger:focus-visible,
+.combobox__option:focus-visible,
+.kbd:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
 }
 
 .kbd {
@@ -182,8 +199,8 @@
   padding: 6px 10px;
   margin-right: 6px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface-soft);
   color: var(--text-main);
 }
 

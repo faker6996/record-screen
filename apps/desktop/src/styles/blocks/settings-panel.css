@@ -1,6 +1,61 @@
+.settings-panel {
+  width: min(100%, 900px);
+  display: grid;
+  gap: 16px;
+}
+
+.settings-panel__hero {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-radius: 28px;
+  border: 1px solid var(--color-border-soft);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent-soft) 52%, transparent), transparent 60%),
+    var(--color-surface-1);
+}
+
+.settings-panel__hero-copy h3 {
+  margin: 6px 0 4px;
+  font-size: 1.48rem;
+  line-height: 1.03;
+  letter-spacing: -0.04em;
+}
+
+.settings-panel__hero-copy p:last-child {
+  margin: 0;
+}
+
+.settings-panel__hero-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-panel__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .settings-panel__grid {
   display: grid;
   gap: 16px;
+}
+
+.settings-panel__card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 22px;
+  background: var(--color-surface-1);
+  padding: 18px;
+}
+
+.settings-panel__card h3 {
+  margin: 6px 0 4px;
+  font-size: 1.08rem;
 }
 
 .settings-panel__group {
@@ -25,9 +80,9 @@
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border-soft);
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--color-surface-soft);
   padding: 16px 18px;
 }
 
@@ -41,7 +96,51 @@
   height: 20px;
 }
 
+.settings-panel__theme-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-panel__theme-chip {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  text-align: left;
+  min-height: 88px;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border-soft);
+  color: var(--color-text-primary);
+}
+
+.settings-panel__theme-chip svg {
+  color: var(--color-accent);
+}
+
+.settings-panel__theme-chip span {
+  font-weight: 700;
+}
+
+.settings-panel__theme-chip small {
+  color: var(--color-text-tertiary);
+}
+
+.settings-panel__theme-chip--active {
+  background: color-mix(in srgb, var(--color-accent-soft) 70%, var(--color-surface-soft));
+  border-color: color-mix(in srgb, var(--color-accent) 34%, var(--color-border-soft));
+}
+
 @media (max-width: 720px) {
+  .settings-panel__toolbar {
+    justify-content: stretch;
+  }
+
+  .settings-panel__theme-row {
+    grid-template-columns: 1fr;
+  }
+
   .settings-panel__field-row {
     grid-template-columns: 1fr;
   }

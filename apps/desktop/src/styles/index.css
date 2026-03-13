@@ -1,6 +1,7 @@
 @import './foundation/tokens.css';
 @import './foundation/base.css';
 @import './shared/primitives.css';
+@import './shared/combobox.css';
 @import './blocks/launcher.css';
 @import './blocks/recorder-panel.css';
 @import './blocks/permissions-panel.css';
