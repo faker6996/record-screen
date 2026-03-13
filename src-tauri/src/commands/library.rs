@@ -23,6 +23,7 @@ fn parent_directory(path: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("Unable to resolve parent directory for {}", path.display()))
 }
 
+#[cfg(not(target_os = "linux"))]
 fn run_command(mut command: Command, action_label: &str) -> Result<(), String> {
     let status = command
         .status()
@@ -33,6 +34,34 @@ fn run_command(mut command: Command, action_label: &str) -> Result<(), String> {
     }
 
     Err(format!("Failed to {action_label}: process exited with {status}"))
+}
+
+#[cfg(target_os = "linux")]
+fn run_linux_open(path: &Path, action_label: &str) -> Result<(), String> {
+    let mut attempts = Vec::new();
+
+    for (program, args) in [
+        ("xdg-open", vec![path.display().to_string()]),
+        ("gio", vec!["open".to_string(), path.display().to_string()]),
+    ] {
+        let mut command = Command::new(program);
+        command.args(&args);
+
+        match command.status() {
+            Ok(status) if status.success() => return Ok(()),
+            Ok(status) => {
+                attempts.push(format!("{program} exited with {status}"));
+            }
+            Err(error) => {
+                attempts.push(format!("{program}: {error}"));
+            }
+        }
+    }
+
+    Err(format!(
+        "Failed to {action_label}. Tried Linux open handlers: {}",
+        attempts.join("; ")
+    ))
 }
 
 fn open_path(path: &Path) -> Result<(), String> {
@@ -47,9 +76,7 @@ fn open_path(path: &Path) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        let mut command = Command::new("xdg-open");
-        command.arg(path);
-        return run_command(command, "open recording");
+        return run_linux_open(path, "open recording");
     }
 
     #[cfg(target_os = "windows")]
@@ -81,9 +108,7 @@ fn reveal_path(path: &Path) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        let mut command = Command::new("xdg-open");
-        command.arg(&fallback_directory);
-        return run_command(command, "open recording folder");
+        return run_linux_open(&fallback_directory, "open recording folder");
     }
 
     #[cfg(target_os = "windows")]
