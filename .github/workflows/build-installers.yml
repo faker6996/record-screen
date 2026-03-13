@@ -24,16 +24,16 @@ jobs:
             build_args: "--bundles dmg --target universal-apple-darwin --ci --no-sign"
             artifact_name: record-screen-macos-dmg
             artifact_path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
-          - name: Windows MSI
+          - name: Windows Setup EXE
             platform: windows-latest
-            build_args: "--bundles msi --ci --no-sign"
-            artifact_name: record-screen-windows-msi
-            artifact_path: target/release/bundle/msi/*.msi
-          - name: Linux AppImage
+            build_args: "--bundles nsis --ci --no-sign"
+            artifact_name: record-screen-windows-setup
+            artifact_path: target/release/bundle/nsis/*.exe
+          - name: Linux DEB
             platform: ubuntu-22.04
-            build_args: "--bundles appimage --ci --no-sign"
-            artifact_name: record-screen-linux-appimage
-            artifact_path: target/release/bundle/appimage/*.AppImage*
+            build_args: "--bundles deb --ci --no-sign"
+            artifact_name: record-screen-linux-deb
+            artifact_path: target/release/bundle/deb/*.deb
 
     steps:
       - name: Checkout

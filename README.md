@@ -1,147 +1,162 @@
-# Record Screen
+<div align="center">
+  <h1>🎥 Record Screen</h1>
+  <p>A high-performance, cross-platform desktop screen recorder built with modern web and systems tech.</p>
 
-A cross-platform desktop screen recorder built with **Tauri v2**, **React 19**, and **Rust**.
+  <p>
+    <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" alt="Tauri v2" />
+    <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19" />
+    <img src="https://img.shields.io/badge/Rust-1.70+-000000?logo=rust&logoColor=white" alt="Rust" />
+    <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="Cross-Platform" />
+  </p>
+</div>
 
-The current repo state is a strong MVP foundation with a working macOS recording path, launcher UI, global shortcuts, tray/HUD shell, and a Rust workspace split by domain.
+---
 
-## Current Status
+## ✨ Features
 
-Implemented now:
+- ⌨️ **Keyboard-First Interface** - Navigate and control entirely via global shortcuts.
+- 🎨 **Modern UI** - Sleek launcher, HUD, tray menu, and recent sessions manager.
+- 🦀 **Rust App State** - High-performance, memory-safe backend as the source of truth.
+- 🎯 **Flexible Capture Targets** - Record the full desktop, a specific display, or an individual window.
+- 🔒 **Native Permissions** - Seamless flow for `Screen recording` and `Microphone` access on macOS.
+- 🚀 **Automated Builds** - GitHub Actions CI/CD for macOS DMG, Windows setup EXE, and Linux DEB packages.
+- 💅 **Scalable CSS** - Styled with a modular architecture (`foundation`, `shared`, `blocks`).
 
-- keyboard-first desktop shell with global shortcuts
-- launcher, HUD, tray menu, settings, recent sessions
-- Rust app state as the source of truth
-- macOS recording MVP using `ffmpeg + AVFoundation`
-- Linux recording MVP using `ffmpeg + x11grab + pulse`
-- Windows recording MVP using `ffmpeg + gdigrab + dshow`
-- capture target selection for full desktop, a single display, or a single window where the platform backend supports it
-- macOS permission flow for `Screen recording` and `Microphone`
-- GitHub Actions build workflow for macOS, Windows, and Linux installers
-- frontend CSS structure split into `foundation`, `shared`, and `blocks`
+<details>
+<summary><b>Current MVP Backend Implementations</b></summary>
+<br>
 
-Not implemented yet:
+- **macOS:** `ffmpeg + AVFoundation`
+- **Linux:** `ffmpeg + x11grab + pulse`
+- **Windows:** `ffmpeg + gdigrab + dshow`
+</details>
 
-- production-grade encoder pipeline beyond the current macOS MVP path
-- full review/export workflow
+## 🗺️ Roadmap (Not Implemented Yet)
+- [ ] Production-grade encoder pipeline beyond MVP.
+- [ ] Full video review and export workflow.
 
-## Project Structure
+---
 
-```text
-apps/
-  desktop/          React launcher and desktop UI
-src-tauri/          Tauri shell, commands, tray, windows, runtime orchestration
-crates/
-  app-core/         Recorder state and session summaries
-  capture/          Shared capture abstractions
-  capture-macos/    macOS recording backend
-  capture-windows/  Windows recording backend
-  capture-linux/    Linux recording backend
-  permissions/      Permission probing and request flow
-  shortcuts/        Shortcut bindings
-  storage/          Settings and output-path helpers
-docs/               Architecture, roadmap, decisions, frontend conventions
-```
-
-## Default Global Shortcuts
+## ⌨️ Global Shortcuts
 
 | Action | Shortcut |
 | :--- | :--- |
-| Start / Stop | `CmdOrCtrl+Shift+R` |
-| Pause / Resume | `CmdOrCtrl+Shift+P` |
-| Show Launcher | `CmdOrCtrl+Shift+L` |
-| Mute / Unmute Mic | `CmdOrCtrl+Shift+M` |
+| 🔴 **Start / Stop** | <kbd>CmdOrCtrl</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> |
+| ⏸️ **Pause / Resume** | <kbd>CmdOrCtrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> |
+| 🚀 **Show Launcher** | <kbd>CmdOrCtrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> |
+| 🎙️ **Mute / Unmute Mic** | <kbd>CmdOrCtrl</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> |
 
-## Local Development
+---
 
-Prerequisites:
+## 🛠️ Local Development
 
+### Prerequisites
+
+Ensure you have the following installed before proceeding:
 - [Node.js](https://nodejs.org/)
 - [Rust](https://www.rust-lang.org/)
-- macOS developers should also have Xcode Command Line Tools
-- `ffmpeg` is required for the current macOS, Linux, and Windows recording paths
+- **macOS only:** Xcode Command Line Tools
+- **All platforms:** `ffmpeg` is required for the MVP recording paths.
 
-Install dependencies:
+### Getting Started
 
-```bash
-npm install
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Run the desktop app in development mode:**
+   ```bash
+   npm run dev
+   ```
+
+<details>
+<summary><b>Other useful commands</b></summary>
+
+- Run only the web UI preview:
+  ```bash
+  npm run dev:web
+  ```
+- Build desktop app locally (no installer bundling):
+  ```bash
+  npm run build -- --no-bundle --ci
+  ```
+- Build a macOS DMG locally:
+  ```bash
+  npm run build -- --bundles dmg --ci --no-sign
+  ```
+- Build a Linux DEB locally:
+  ```bash
+  npm run build -- --bundles deb --ci --no-sign
+  ```
+- Linting and type-checking:
+  ```bash
+  npm run lint
+  npm run build:web
+  cargo check
+  ```
+</details>
+
+---
+
+## 🏗️ Project Structure
+
+The repository is structured as a monorepo, separating the UI from the Rust core:
+
+```text
+📁 record-screen/
+├── 📁 apps/
+│   └── 🖥️ desktop/          # React launcher and desktop UI
+├── 📁 src-tauri/             # Tauri shell, commands, tray, windows
+├── 📁 crates/                # Rust workspace
+│   ├── ⚙️ app-core/         # Recorder state and session summaries
+│   ├── 🎥 capture/          # Shared capture abstractions
+│   ├── 🍏 capture-macos/    # macOS recording backend
+│   ├── 🪟 capture-windows/  # Windows recording backend
+│   ├── 🐧 capture-linux/    # Linux recording backend
+│   ├── 🔐 permissions/      # Permission probing and request flow
+│   ├── ⌨️ shortcuts/        # Shortcut bindings
+│   └── 💾 storage/          # Settings and output-path helpers
+└── 📁 docs/                  # Architecture, decisions, conventions
 ```
 
-Run the desktop app in development mode:
+---
 
-```bash
-npm run dev
-```
+## 📝 Platform Notes
 
-Run only the web UI preview:
+### 🍏 macOS
+- `ffmpeg` must be installed and available on `PATH`.
+- Must grant **Screen Recording** permission.
+- If narration is enabled, must grant **Microphone** permission.
 
-```bash
-npm run dev:web
-```
+### 🐧 Linux
+- Targets X11 sessions.
+- `ffmpeg` must be on `PATH`.
+- Must run inside an X11 desktop session with `DISPLAY` set.
+- Microphone narration uses default PulseAudio/PipeWire source.
+- Can discover individual windows from X11.
+- Release packages are distributed as `.deb` files for `apt install ./record-screen_<version>_amd64.deb`.
+- The launcher permission panel can refresh permission status, request access, and open the matching macOS Privacy page (simulated behavior).
 
-Build the desktop app locally without installer bundling:
+### 🪟 Windows
+- Uses `gdigrab` (desktop) and `dshow` (microphone).
+- `ffmpeg` must be on `PATH`.
+- **PowerShell** is required to enumerate monitors/windows and control pause/resume.
+- Uses the first matching DirectShow microphone device found by `ffmpeg`.
+- The launcher can target the full desktop, a single monitor, or a single top-level window.
+- Release packages are distributed as NSIS setup executables.
 
-```bash
-npm run build -- --no-bundle --ci
-```
+---
 
-Build a macOS DMG locally:
-
-```bash
-npm run build -- --bundles dmg --ci --no-sign
-```
-
-## Validation
-
-Useful checks:
-
-```bash
-npm run lint
-npm run build:web
-cargo check
-```
-
-## macOS Notes
-
-The current real recording path is implemented for macOS.
-
-Requirements:
-
-- `ffmpeg` must be installed and available on `PATH`
-- `Screen Recording` permission must be granted
-- if microphone narration is enabled, `Microphone` permission must also be granted
-
-## Linux Notes
-
-The Linux MVP path currently targets X11 sessions.
-
-Requirements:
-
-- `ffmpeg` must be installed and available on `PATH`
-- the app must run inside an X11 desktop session with `DISPLAY` set
-- microphone narration uses the default PulseAudio / PipeWire source when available
-- the launcher can target the full desktop, a single monitor, or an individual window discovered from X11
-
-The launcher permission panel can:
-
-- refresh permission status
-- request access
-- open the matching macOS Privacy page
-
-## Windows Notes
-
-The Windows MVP path uses `gdigrab` for the desktop video stream and `dshow` for microphone capture.
-
-Requirements:
-
-- `ffmpeg` must be installed and available on `PATH`
-- PowerShell must be available so the app can enumerate displays, windows, and control pause / resume
-- microphone narration uses the first matching DirectShow microphone device reported by `ffmpeg`
-
-The launcher can target the full desktop, a single monitor, or a single top-level window discovered from the current desktop session.
-
-## Documentation
-
-- Roadmap: [`docs/roadmap/product-plan.md`](docs/roadmap/product-plan.md)
-- Architecture: [`docs/architecture/overview.md`](docs/architecture/overview.md)
-- Decision record: [`docs/decisions/0001-launcher-and-hud-surfaces.md`](docs/decisions/0001-launcher-and-hud-surfaces.md)
-- Frontend CSS conventions: [`docs/frontend/styleguide.md`](docs/frontend/styleguide.md)
+## 📚 Documentation
+Dive deeper into the project's design and conventions:
+- 📌 **Roadmap:** [`docs/roadmap/product-plan.md`](docs/roadmap/product-plan.md)
+- 🏛 **Architecture:** [`docs/architecture/overview.md`](docs/architecture/overview.md)
+- 📝 **Decisions:** [`docs/decisions/0001-launcher-and-hud-surfaces.md`](docs/decisions/0001-launcher-and-hud-surfaces.md)
+- 💅 **Frontend:** [`docs/frontend/styleguide.md`](docs/frontend/styleguide.md)
+- 📦 **Distribution overview:** [`docs/distribution/overview.md`](docs/distribution/overview.md)
+- 🐧 **Linux install guide:** [`docs/distribution/linux.md`](docs/distribution/linux.md)
+- 🍺 **Homebrew cask template:** [`docs/distribution/homebrew.md`](docs/distribution/homebrew.md)
+- 🍏 **macOS install guide:** [`docs/distribution/macos.md`](docs/distribution/macos.md)
+- 🪟 **Windows install guide:** [`docs/distribution/windows.md`](docs/distribution/windows.md)
+- ⚖️ **Licensing:** [`docs/legal/licensing.md`](docs/legal/licensing.md)
