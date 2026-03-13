@@ -142,6 +142,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap::get_bootstrap,
+            commands::bootstrap::get_capture_targets,
             commands::bootstrap::reset_shortcuts,
             commands::library::open_recording,
             commands::library::reveal_recording_in_folder,
@@ -152,7 +153,9 @@ pub fn run() {
             commands::recorder::toggle_microphone,
             commands::recorder::toggle_recording,
             commands::settings::update_launch_on_login,
+            commands::settings::update_show_hud_during_recording,
             commands::settings::update_capture_target,
+            commands::settings::pick_output_directory,
             commands::settings::update_output_directory,
             commands::settings::update_quality_preset,
             commands::window::focus_launcher,

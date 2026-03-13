@@ -1,14 +1,10 @@
 import {
-  Eye,
-  EyeOff,
   FolderOpen,
   MoonStar,
-  Save,
-  SlidersHorizontal,
-  Sparkles,
   SunMedium,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useRef } from 'react'
+import { Combobox } from '../../../components/Combobox'
 import type { AppSettings } from '../../../types/desktop'
 
 type ThemeMode = 'dark' | 'light'
@@ -16,208 +12,190 @@ type ThemeMode = 'dark' | 'light'
 interface SettingsPanelProps {
   qualityPresets: string[]
   settings: AppSettings
-  onHideHud: () => Promise<void>
-  onShowHud: () => Promise<void>
+  onPickOutputDirectory: () => Promise<void>
   onUpdateThemeMode: (themeMode: ThemeMode) => void
   onUpdateLaunchOnLogin: (enabled: boolean) => Promise<void>
   onUpdateOutputDirectory: (outputDirectory: string) => Promise<void>
   onUpdateQualityPreset: (qualityPreset: string) => Promise<void>
+  onUpdateShowHudDuringRecording: (enabled: boolean) => Promise<void>
   themeMode: ThemeMode
+}
+
+function qualityPresetLabel(preset: string) {
+  return preset
+    .replace(' / ', ' · ')
+    .replace('fps', ' fps')
 }
 
 export function SettingsPanel({
   qualityPresets,
   settings,
-  onHideHud,
-  onShowHud,
+  onPickOutputDirectory,
   onUpdateThemeMode,
   onUpdateLaunchOnLogin,
   onUpdateOutputDirectory,
   onUpdateQualityPreset,
+  onUpdateShowHudDuringRecording,
   themeMode,
 }: SettingsPanelProps) {
-  const [draftOutputDirectory, setDraftOutputDirectory] = useState(settings.outputDirectory)
+  const outputDirectoryRef = useRef<HTMLInputElement | null>(null)
+
+  const qualityOptions = useMemo(
+    () =>
+      qualityPresets.map((preset) => ({
+        value: preset,
+        label: qualityPresetLabel(preset),
+      })),
+    [qualityPresets],
+  )
 
   function commitOutputDirectory() {
-    const nextOutputDirectory = draftOutputDirectory.trim()
+    const nextOutputDirectory = outputDirectoryRef.current?.value.trim() ?? ''
     if (!nextOutputDirectory || nextOutputDirectory === settings.outputDirectory) {
       return
     }
+
     void onUpdateOutputDirectory(nextOutputDirectory)
   }
 
   return (
     <section className="settings-panel">
-      <article className="settings-panel__hero">
-        <div className="settings-panel__hero-copy">
-          <p className="eyebrow">Recorder defaults</p>
-          <h3>Keep defaults simple</h3>
-          <p className="subtle-copy">Set it once.</p>
+      <header className="settings-panel__header">
+        <div>
+          <h3>Settings</h3>
+          <p className="subtle-copy">Configure recording quality and app behavior.</p>
         </div>
 
-        <div className="settings-panel__hero-metrics">
-          <span className="pill">
-            <Sparkles aria-hidden="true" size={14} strokeWidth={1.9} />
-            {themeMode === 'dark' ? 'Dark theme' : 'Light theme'}
-          </span>
-          <span className="pill">
-            <SlidersHorizontal aria-hidden="true" size={14} strokeWidth={1.9} />
-            {settings.qualityPreset}
-          </span>
-          <span className="pill">
-            <FolderOpen aria-hidden="true" size={14} strokeWidth={1.9} />
-            {settings.outputDirectory}
-          </span>
+        <div className="settings-panel__theme-switcher" aria-label="Theme mode">
+          <button
+            className={`settings-panel__theme-button ${
+              themeMode === 'dark' ? 'settings-panel__theme-button--active' : ''
+            }`}
+            onClick={() => {
+              onUpdateThemeMode('dark')
+            }}
+            type="button"
+          >
+            <MoonStar aria-hidden="true" size={15} strokeWidth={1.9} />
+            Dark
+          </button>
+          <button
+            className={`settings-panel__theme-button ${
+              themeMode === 'light' ? 'settings-panel__theme-button--active' : ''
+            }`}
+            onClick={() => {
+              onUpdateThemeMode('light')
+            }}
+            type="button"
+          >
+            <SunMedium aria-hidden="true" size={15} strokeWidth={1.9} />
+            Light
+          </button>
         </div>
-      </article>
+      </header>
 
-      <div className="settings-panel__toolbar">
-        <button
-          className="button button--secondary"
-          onClick={() => void onShowHud()}
-          type="button"
-        >
-          <Eye aria-hidden="true" size={16} strokeWidth={1.9} />
-          Show HUD
-        </button>
-        <button
-          className="button button--secondary"
-          onClick={() => void onHideHud()}
-          type="button"
-        >
-          <EyeOff aria-hidden="true" size={16} strokeWidth={1.9} />
-          Hide HUD
-        </button>
+      <div className="settings-panel__section">
+        <p className="eyebrow">Output</p>
+
+        <div className="settings-panel__group">
+          <label className="field-label" htmlFor="settings-quality-preset">
+            Quality Preset
+          </label>
+          <Combobox
+            ariaLabel="Quality preset"
+            className="settings-panel__combobox"
+            onChange={(value) => {
+              void onUpdateQualityPreset(value)
+            }}
+            options={qualityOptions}
+            value={settings.qualityPreset}
+          />
+        </div>
+
+        <div className="settings-panel__group">
+          <label className="field-label" htmlFor="settings-output-directory">
+            Save Location
+          </label>
+
+          <div className="settings-panel__field-row">
+            <input
+              autoComplete="off"
+              className="text-input settings-panel__directory-input"
+              defaultValue={settings.outputDirectory}
+              id="settings-output-directory"
+              key={settings.outputDirectory}
+              onBlur={commitOutputDirectory}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  commitOutputDirectory()
+                }
+              }}
+              placeholder="~/Movies/Record Screen"
+              ref={outputDirectoryRef}
+              type="text"
+            />
+            <button
+              className="button button--secondary settings-panel__browse-button"
+              onClick={() => {
+                void onPickOutputDirectory()
+              }}
+              type="button"
+            >
+              <FolderOpen aria-hidden="true" size={16} strokeWidth={1.9} />
+              Browse
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="settings-panel__grid">
-        <section className="settings-panel__card">
-          <div className="settings-panel__card-copy">
-            <p className="eyebrow">Appearance</p>
-            <h3>Theme</h3>
-            <p className="subtle-copy">Dark or light.</p>
-          </div>
+      <div className="settings-panel__section settings-panel__section--behavior">
+        <p className="eyebrow">Behavior</p>
 
-          <div className="settings-panel__theme-row">
-            <button
-              className={`settings-panel__theme-chip ${
-                themeMode === 'dark' ? 'settings-panel__theme-chip--active' : ''
-              }`}
-              onClick={() => {
-                onUpdateThemeMode('dark')
-              }}
-              type="button"
-            >
-              <MoonStar aria-hidden="true" size={18} strokeWidth={1.9} />
-              <span>Dark</span>
-              <small>Low glare</small>
-            </button>
-            <button
-              className={`settings-panel__theme-chip ${
-                themeMode === 'light' ? 'settings-panel__theme-chip--active' : ''
-              }`}
-              onClick={() => {
-                onUpdateThemeMode('light')
-              }}
-              type="button"
-            >
-              <SunMedium aria-hidden="true" size={18} strokeWidth={1.9} />
-              <span>Light</span>
-              <small>Bright UI</small>
-            </button>
+        <label className="settings-panel__toggle" htmlFor="settings-show-hud">
+          <div className="settings-panel__toggle-copy">
+            <strong>Show HUD while recording</strong>
+            <p>Display a small floating control bar.</p>
           </div>
-        </section>
+          <span
+            className={`settings-panel__switch ${
+              settings.showHudDuringRecording ? 'settings-panel__switch--active' : ''
+            }`}
+            aria-hidden="true"
+          >
+            <span className="settings-panel__switch-thumb" />
+          </span>
+          <input
+            checked={settings.showHudDuringRecording}
+            id="settings-show-hud"
+            onChange={(event) => {
+              void onUpdateShowHudDuringRecording(event.target.checked)
+            }}
+            type="checkbox"
+          />
+        </label>
 
-        <section className="settings-panel__card">
-          <div className="settings-panel__card-copy">
-            <p className="eyebrow">Output quality</p>
-            <h3>Preset</h3>
-            <p className="subtle-copy">Pick one.</p>
+        <label className="settings-panel__toggle" htmlFor="settings-launch-on-login">
+          <div className="settings-panel__toggle-copy">
+            <strong>Launch on Login</strong>
+            <p>Start app silently in system tray.</p>
           </div>
-
-          <div className="settings-panel__preset-row">
-            {qualityPresets.map((preset) => (
-              <button
-                className={`chip ${
-                  preset === settings.qualityPreset ? 'chip--active' : ''
-                }`}
-                key={preset}
-                onClick={() => void onUpdateQualityPreset(preset)}
-                type="button"
-              >
-                {preset}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="settings-panel__card">
-          <div className="settings-panel__card-copy">
-            <p className="eyebrow">Storage</p>
-            <h3>Save location</h3>
-            <p className="subtle-copy">Where clips go.</p>
-          </div>
-
-          <div className="settings-panel__group">
-            <label className="field-label" htmlFor="output-directory">
-              Output folder
-            </label>
-            <div className="settings-panel__field-row">
-              <input
-                autoComplete="off"
-                className="text-input"
-                id="output-directory"
-                key={settings.outputDirectory}
-                name="output-directory"
-                onBlur={commitOutputDirectory}
-                onChange={(event) => {
-                  setDraftOutputDirectory(event.target.value)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    commitOutputDirectory()
-                  }
-                }}
-                placeholder="~/Movies/Record Screen"
-                type="text"
-                value={draftOutputDirectory}
-              />
-              <button
-                className="button button--secondary"
-                onClick={() => {
-                  commitOutputDirectory()
-                }}
-                type="button"
-              >
-                <Save aria-hidden="true" size={16} strokeWidth={1.9} />
-                Save
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section className="settings-panel__card">
-          <div className="settings-panel__card-copy">
-            <p className="eyebrow">Behavior</p>
-            <h3>Behavior</h3>
-            <p className="subtle-copy">Startup options.</p>
-          </div>
-
-          <label className="settings-panel__toggle" htmlFor="launch-on-login">
-            <div>
-              <strong>Launch on login</strong>
-              <p>Start after sign in.</p>
-            </div>
-            <input
-              checked={settings.launchOnLogin}
-              id="launch-on-login"
-              onChange={(event) => {
-                void onUpdateLaunchOnLogin(event.target.checked)
-              }}
-              type="checkbox"
-            />
-          </label>
-        </section>
+          <span
+            className={`settings-panel__switch ${
+              settings.launchOnLogin ? 'settings-panel__switch--active' : ''
+            }`}
+            aria-hidden="true"
+          >
+            <span className="settings-panel__switch-thumb" />
+          </span>
+          <input
+            checked={settings.launchOnLogin}
+            id="settings-launch-on-login"
+            onChange={(event) => {
+              void onUpdateLaunchOnLogin(event.target.checked)
+            }}
+            type="checkbox"
+          />
+        </label>
       </div>
     </section>
   )

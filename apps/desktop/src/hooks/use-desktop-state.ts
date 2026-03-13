@@ -1,8 +1,9 @@
-import { startTransition, useEffect, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 import { desktopClient } from '../services/desktop-client'
 import type {
   AppSettings,
   BootstrapSnapshot,
+  CaptureTargetOption,
   PermissionCheck,
   RecorderSnapshot,
 } from '../types/desktop'
@@ -60,12 +61,31 @@ function updatePermissionsSnapshot(
   }
 }
 
+function updateCaptureTargetsSnapshot(
+  snapshot: BootstrapSnapshot | null,
+  captureTargets: CaptureTargetOption[],
+) {
+  if (!snapshot) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    captureTargets,
+  }
+}
+
 export function useDesktopState() {
   const [snapshot, setSnapshot] = useState<BootstrapSnapshot | null>(null)
   const [currentWindowLabel, setCurrentWindowLabel] = useState('main')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const snapshotRef = useRef<BootstrapSnapshot | null>(null)
+
+  useEffect(() => {
+    snapshotRef.current = snapshot
+  }, [snapshot])
 
   useEffect(() => {
     let isDisposed = false
@@ -88,6 +108,7 @@ export function useDesktopState() {
           setActionError(null)
           setIsLoading(false)
         })
+        void refreshCaptureTargets()
       } catch (loadError) {
         if (isDisposed) {
           return
@@ -103,10 +124,62 @@ export function useDesktopState() {
       }
     }
 
+    async function refreshBootstrapState() {
+      try {
+        const nextSnapshot = await desktopClient.getBootstrap()
+        if (isDisposed) {
+          return
+        }
+
+        startTransition(() => {
+          setSnapshot(nextSnapshot)
+          setActionError(null)
+        })
+        void refreshCaptureTargets()
+      } catch (refreshError) {
+        if (isDisposed) {
+          return
+        }
+
+        startTransition(() => {
+          setActionError(
+            refreshError instanceof Error
+              ? refreshError.message
+              : 'Unable to refresh recent recordings.',
+          )
+        })
+      }
+    }
+
+    async function refreshCaptureTargets() {
+      try {
+        const captureTargets = await desktopClient.getCaptureTargets()
+        if (isDisposed) {
+          return
+        }
+
+        startTransition(() => {
+          setSnapshot((current) => updateCaptureTargetsSnapshot(current, captureTargets))
+        })
+      } catch {
+        // Keep the initial fallback target list if discovery fails.
+      }
+    }
+
     function applyRecorderSnapshot(recorder: RecorderSnapshot) {
+      const previousStatus = snapshotRef.current?.recorder.status
+      const shouldRefreshBootstrap =
+        recorder.status === 'idle' &&
+        previousStatus !== undefined &&
+        previousStatus !== 'idle'
+
       startTransition(() => {
         setSnapshot((current) => updateRecorderSnapshot(current, recorder))
       })
+
+      if (shouldRefreshBootstrap) {
+        void refreshBootstrapState()
+      }
     }
 
     void loadSnapshot()
@@ -151,11 +224,21 @@ export function useDesktopState() {
 
   async function toggleRecording() {
     try {
+      const previousStatus = snapshotRef.current?.recorder.status
       const recorder = await desktopClient.toggleRecording()
+
       startTransition(() => {
         setSnapshot((current) => updateRecorderSnapshot(current, recorder))
         setActionError(null)
       })
+
+      if (recorder.status === 'idle' && previousStatus && previousStatus !== 'idle') {
+        const nextSnapshot = await desktopClient.getBootstrap()
+        startTransition(() => {
+          setSnapshot(nextSnapshot)
+          setActionError(null)
+        })
+      }
     } catch (actionLoadError) {
       startTransition(() => {
         setActionError(
@@ -252,6 +335,25 @@ export function useDesktopState() {
     }
   }
 
+  async function updateShowHudDuringRecording(showHudDuringRecording: boolean) {
+    try {
+      const settings =
+        await desktopClient.updateShowHudDuringRecording(showHudDuringRecording)
+      startTransition(() => {
+        setSnapshot((current) => updateSettingsSnapshot(current, settings))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update HUD preference.',
+        )
+      })
+    }
+  }
+
   async function updateCaptureTarget(captureTargetId: string) {
     try {
       const settings = await desktopClient.updateCaptureTarget(captureTargetId)
@@ -283,6 +385,28 @@ export function useDesktopState() {
           actionLoadError instanceof Error
             ? actionLoadError.message
             : 'Unable to update output directory.',
+        )
+      })
+    }
+  }
+
+  async function pickOutputDirectory() {
+    try {
+      const settings = await desktopClient.pickOutputDirectory()
+      if (!settings) {
+        return
+      }
+
+      startTransition(() => {
+        setSnapshot((current) => updateSettingsSnapshot(current, settings))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to choose output directory.',
         )
       })
     }
@@ -391,9 +515,11 @@ export function useDesktopState() {
     showHud: desktopClient.showHud,
     toggleMicrophone,
     updateCaptureTarget,
+    updateShowHudDuringRecording,
     toggleRecording,
     updateLaunchOnLogin,
     updateOutputDirectory,
     updateQualityPreset,
+    pickOutputDirectory,
   }
 }

@@ -1,13 +1,13 @@
+import { convertFileSrc } from '@tauri-apps/api/core'
 import {
-  Clock3,
-  Copy,
+  AlertCircle,
   FileVideo,
   FolderOpen,
-  HardDrive,
+  LoaderCircle,
   Play,
-  Type,
+  X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SessionSummary } from '../../../types/desktop'
 
 interface RecentSessionsPanelProps {
@@ -17,16 +17,11 @@ interface RecentSessionsPanelProps {
 }
 
 function filenameFromPath(location: string) {
-  return location.split('/').filter(Boolean).at(-1) ?? location
+  return location.split(/[\\/]/).filter(Boolean).at(-1) ?? location
 }
 
-function fileTypeLabel(location: string) {
-  const filename = filenameFromPath(location)
-  const extension = filename.includes('.')
-    ? filename.split('.').at(-1)?.toUpperCase()
-    : null
-
-  return extension ? `${extension} clip` : 'Recording'
+function canPreviewInApp(location: string) {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window && !location.startsWith('~/')
 }
 
 export function RecentSessionsPanel({
@@ -34,183 +29,310 @@ export function RecentSessionsPanel({
   onRevealRecordingInFolder,
   sessions,
 }: RecentSessionsPanelProps) {
-  const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null)
-  const totalSize = sessions.reduce((accumulator, session) => {
-    const value = Number.parseFloat(session.sizeLabel)
-    return Number.isNaN(value) ? accumulator : accumulator + value
-  }, 0)
-  const latestSession = sessions[0] ?? null
-  const totalDuration = sessions.reduce((accumulator, session) => {
-    const [minutes = '0', seconds = '0'] = session.durationLabel.split(':').slice(-2)
-    const nextMinutes = Number.parseInt(minutes, 10)
-    const nextSeconds = Number.parseInt(seconds, 10)
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [playbackSource, setPlaybackSource] = useState<string | null>(null)
+  const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [previewErrorDetail, setPreviewErrorDetail] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const objectUrlRef = useRef<string | null>(null)
+  const previewRequestRef = useRef(0)
 
-    if (Number.isNaN(nextMinutes) || Number.isNaN(nextSeconds)) {
-      return accumulator
+  const selectedSession =
+    sessions.find((session) => session.id === selectedSessionId) ?? null
+
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = null
+      }
+    }
+  }, [])
+
+  function revokePlaybackSource() {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+  }
+
+  async function openPreview(session: SessionSummary) {
+    const canPreview = canPreviewInApp(session.location)
+    const requestId = previewRequestRef.current + 1
+    previewRequestRef.current = requestId
+
+    revokePlaybackSource()
+    setSelectedSessionId(session.id)
+    setPlaybackSource(null)
+    setIsPlaying(false)
+    setPreviewErrorDetail(null)
+    setPreviewState(canPreview ? 'loading' : 'idle')
+
+    if (!canPreview) {
+      return
     }
 
-    return accumulator + nextMinutes * 60 + nextSeconds
-  }, 0)
-  const durationLabel =
-    totalDuration > 0
-      ? `${Math.floor(totalDuration / 60)}m ${String(totalDuration % 60).padStart(2, '0')}s`
-      : '0m 00s'
+    const assetUrl = convertFileSrc(session.location)
 
-  async function copyValue(sessionId: string, value: string) {
     try {
-      await navigator.clipboard.writeText(value)
-      setCopiedSessionId(sessionId)
-      window.setTimeout(() => {
-        setCopiedSessionId((current) => (current === sessionId ? null : current))
-      }, 1800)
+      const response = await fetch(assetUrl)
+      if (!response.ok) {
+        throw new Error(`Preview request failed with status ${response.status}`)
+      }
+
+      const blob = await response.blob()
+      if (previewRequestRef.current != requestId) {
+        return
+      }
+
+      const objectUrl = URL.createObjectURL(blob)
+      objectUrlRef.current = objectUrl
+      setPlaybackSource(objectUrl)
+    } catch (error) {
+      if (previewRequestRef.current != requestId) {
+        return
+      }
+
+      const detail =
+        error instanceof Error ? error.message : 'The embedded webview could not load this clip.'
+      setPreviewState('error')
+      setPreviewErrorDetail(detail)
+      console.error('[recent-preview] unable to prepare playback source', {
+        assetUrl,
+        location: session.location,
+        detail,
+      })
+    }
+  }
+
+  function closePreview() {
+    previewRequestRef.current += 1
+    revokePlaybackSource()
+    setSelectedSessionId(null)
+    setPlaybackSource(null)
+    setPreviewState('idle')
+    setIsPlaying(false)
+    setPreviewErrorDetail(null)
+  }
+
+  async function startPreview() {
+    const video = videoRef.current
+    if (!video) {
+      return
+    }
+
+    try {
+      await video.play()
+      setIsPlaying(true)
+      setPreviewErrorDetail(null)
     } catch {
-      setCopiedSessionId(null)
+      setPreviewState('error')
+      setPreviewErrorDetail('The embedded webview rejected playback.')
+      console.error('[recent-preview] play() rejected', {
+        currentSrc: video.currentSrc,
+        networkState: video.networkState,
+        readyState: video.readyState,
+      })
     }
   }
 
   return (
     <section className="sessions-panel">
-      {latestSession ? (
-        <article className="sessions-panel__featured">
-          <div className="sessions-panel__featured-media" aria-hidden="true">
-            <FileVideo size={32} strokeWidth={1.9} />
+      <div className="sessions-panel__shell">
+        <div className="sessions-panel__header">
+          <div>
+            <h3>Recent Sessions</h3>
+            <p className="subtle-copy">Your latest recordings saved to disk.</p>
           </div>
+        </div>
 
-          <div className="sessions-panel__featured-copy">
-            <p className="eyebrow">Latest recording</p>
-            <h3>{latestSession.title}</h3>
-            <p className="subtle-copy">Open your latest clip.</p>
+        {sessions.length === 0 ? (
+          <div className="sessions-panel__empty">
+            <FileVideo aria-hidden="true" size={28} strokeWidth={1.9} />
+            <strong>No recordings yet</strong>
+            <p className="subtle-copy">Start a clip and it will appear here.</p>
+          </div>
+        ) : (
+          <div className="sessions-panel__list">
+            {sessions.map((session) => {
+              const isActive = session.id === selectedSessionId
 
-            <div className="sessions-panel__featured-meta">
-              <span className="pill">
-                <Clock3 aria-hidden="true" size={14} strokeWidth={1.9} />
-                {latestSession.durationLabel}
-              </span>
-              <span className="pill">
-                <HardDrive aria-hidden="true" size={14} strokeWidth={1.9} />
-                {latestSession.sizeLabel}
-              </span>
-              <span className="pill">{fileTypeLabel(latestSession.location)}</span>
+              return (
+                <article
+                  className={`sessions-panel__row ${
+                    isActive ? 'sessions-panel__row--active' : ''
+                  }`}
+                  key={session.id}
+                >
+                  <button
+                    className="sessions-panel__row-main"
+                    onClick={() => {
+                      void openPreview(session)
+                    }}
+                    type="button"
+                  >
+                    <span className="sessions-panel__row-icon" aria-hidden="true">
+                      <FileVideo size={18} strokeWidth={1.9} />
+                    </span>
+                    <span className="sessions-panel__row-copy">
+                      <strong>{filenameFromPath(session.location)}</strong>
+                      <span>
+                        {session.startedAt} • {session.sizeLabel}
+                      </span>
+                    </span>
+                  </button>
+
+                  <button
+                    aria-label={`Open folder for ${filenameFromPath(session.location)}`}
+                    className="sessions-panel__row-action"
+                    onClick={() => void onRevealRecordingInFolder(session.location)}
+                    type="button"
+                  >
+                    <FolderOpen size={17} strokeWidth={1.9} />
+                  </button>
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {selectedSession ? (
+        <div className="sessions-panel__viewer-backdrop" role="presentation">
+          <section
+            aria-label={`Preview ${filenameFromPath(selectedSession.location)}`}
+            className="sessions-panel__viewer"
+          >
+            <div className="sessions-panel__viewer-header">
+              <div>
+                <strong>{filenameFromPath(selectedSession.location)}</strong>
+                <p className="subtle-copy">
+                  {selectedSession.startedAt} • {selectedSession.sizeLabel}
+                </p>
+              </div>
+
+              <button
+                className="sessions-panel__viewer-close"
+                onClick={() => {
+                  closePreview()
+                }}
+                type="button"
+              >
+                <X aria-hidden="true" size={16} strokeWidth={1.9} />
+              </button>
             </div>
 
-            <div className="sessions-panel__actions">
+            <div className="sessions-panel__viewer-stage">
+              {playbackSource ? (
+                <div className="sessions-panel__video-shell">
+                  <video
+                    className="sessions-panel__video"
+                    controls
+                    onCanPlay={() => {
+                      setPreviewState('ready')
+                      setPreviewErrorDetail(null)
+                    }}
+                    onError={(event) => {
+                      const mediaError = event.currentTarget.error
+                      const detail = mediaError
+                        ? `Media error code ${mediaError.code}`
+                        : 'Unknown media playback error'
+                      setPreviewState('error')
+                      setIsPlaying(false)
+                      setPreviewErrorDetail(detail)
+                      console.error('[recent-preview] media error', {
+                        detail,
+                        currentSrc: event.currentTarget.currentSrc,
+                        networkState: event.currentTarget.networkState,
+                        readyState: event.currentTarget.readyState,
+                      })
+                    }}
+                    onPause={() => {
+                      setIsPlaying(false)
+                    }}
+                    onPlay={() => {
+                      setIsPlaying(true)
+                    }}
+                    playsInline
+                    preload="metadata"
+                    ref={videoRef}
+                    src={playbackSource}
+                  />
+
+                  {!isPlaying && previewState !== 'error' ? (
+                    <button
+                      className="sessions-panel__video-overlay"
+                      onClick={() => {
+                        void startPreview()
+                      }}
+                      type="button"
+                    >
+                      {previewState === 'loading' ? (
+                        <>
+                          <LoaderCircle
+                            aria-hidden="true"
+                            className="sessions-panel__spinner"
+                            size={24}
+                            strokeWidth={1.9}
+                          />
+                          Loading preview
+                        </>
+                      ) : (
+                        <>
+                          <Play aria-hidden="true" size={22} strokeWidth={1.9} />
+                          Play preview
+                        </>
+                      )}
+                    </button>
+                  ) : null}
+
+                  {previewState === 'error' ? (
+                    <div className="sessions-panel__video-error">
+                      <AlertCircle aria-hidden="true" size={26} strokeWidth={1.9} />
+                      <strong>Preview failed</strong>
+                      <p className="subtle-copy">
+                        {previewErrorDetail ?? 'Open the clip externally or open its folder.'}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="sessions-panel__viewer-empty">
+                  <Play aria-hidden="true" size={26} strokeWidth={1.9} />
+                  <strong>
+                    {previewState === 'loading' ? 'Preparing preview' : 'Preview unavailable here'}
+                  </strong>
+                  <p className="subtle-copy">
+                    {previewState === 'loading'
+                      ? 'Loading the clip into the embedded player.'
+                      : 'Open the clip externally or open its folder.'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="sessions-panel__viewer-actions">
               <button
                 className="button button--secondary"
-                onClick={() => void onOpenRecording(latestSession.location)}
+                onClick={() => void onOpenRecording(selectedSession.location)}
                 type="button"
               >
                 <Play aria-hidden="true" size={16} strokeWidth={1.9} />
-                Open latest
+                Open clip
               </button>
               <button
                 className="button button--secondary"
-                onClick={() => void onRevealRecordingInFolder(latestSession.location)}
+                onClick={() => void onRevealRecordingInFolder(selectedSession.location)}
                 type="button"
               >
                 <FolderOpen aria-hidden="true" size={16} strokeWidth={1.9} />
                 Open folder
               </button>
             </div>
-          </div>
-        </article>
+          </section>
+        </div>
       ) : null}
-
-      <div className="sessions-panel__summary">
-        <article className="sessions-panel__summary-card">
-          <span className="metric-label">Saved sessions</span>
-          <strong>{sessions.length}</strong>
-          <p>{latestSession ? latestSession.startedAt : 'No recordings yet'}</p>
-        </article>
-        <article className="sessions-panel__summary-card">
-          <span className="metric-label">Approx library size</span>
-          <strong>{totalSize > 0 ? `${totalSize.toFixed(0)} MB` : '0 MB'}</strong>
-          <p>{latestSession ? latestSession.location : 'No clips yet'}</p>
-        </article>
-        <article className="sessions-panel__summary-card">
-          <span className="metric-label">Captured runtime</span>
-          <strong>{durationLabel}</strong>
-          <p>{latestSession ? filenameFromPath(latestSession.location) : 'No clips yet'}</p>
-        </article>
-      </div>
-
-      <div className="sessions-panel__library">
-        <div className="sessions-panel__library-header">
-          <div>
-            <span className="metric-label">Library</span>
-            <strong>Recorded clips</strong>
-          </div>
-          <span className="pill">{sessions.length} items</span>
-        </div>
-
-        <div className="sessions-panel__list">
-          {sessions.map((session) => (
-            <article className="sessions-panel__item" key={session.id}>
-              <div className="sessions-panel__topline">
-                <div className="sessions-panel__thumb" aria-hidden="true">
-                  <FileVideo aria-hidden="true" size={20} strokeWidth={1.9} />
-                </div>
-                <div className="sessions-panel__headline">
-                  <div>
-                    <strong>{session.title}</strong>
-                    <p>{session.startedAt}</p>
-                  </div>
-                  <span className="pill">{fileTypeLabel(session.location)}</span>
-                </div>
-              </div>
-
-              <div className="sessions-panel__meta">
-                <span className="pill">{session.durationLabel}</span>
-                <span className="pill">{session.sizeLabel}</span>
-                <span className="pill">{filenameFromPath(session.location)}</span>
-              </div>
-
-              <div className="sessions-panel__location">
-                <span className="metric-label">Saved at</span>
-                <strong>{session.location}</strong>
-              </div>
-
-              <div className="sessions-panel__actions">
-                <button
-                  className="button button--secondary"
-                  onClick={() => void onOpenRecording(session.location)}
-                  type="button"
-                >
-                  <Play aria-hidden="true" size={16} strokeWidth={1.9} />
-                  Open clip
-                </button>
-                <button
-                  className="button button--secondary"
-                  onClick={() => void onRevealRecordingInFolder(session.location)}
-                  type="button"
-                >
-                  <FolderOpen aria-hidden="true" size={16} strokeWidth={1.9} />
-                  Show folder
-                </button>
-                <button
-                  className="button button--secondary"
-                  onClick={() => {
-                    void copyValue(session.id, session.location)
-                  }}
-                  type="button"
-                >
-                  <Copy aria-hidden="true" size={16} strokeWidth={1.9} />
-                  {copiedSessionId === session.id ? 'Path copied' : 'Copy path'}
-                </button>
-                <button
-                  className="button button--secondary"
-                  onClick={() => {
-                    void copyValue(session.id, filenameFromPath(session.location))
-                  }}
-                  type="button"
-                >
-                  <Type aria-hidden="true" size={16} strokeWidth={1.9} />
-                  Copy filename
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </div>
     </section>
   )
 }

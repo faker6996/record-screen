@@ -7,6 +7,12 @@ use time::{OffsetDateTime, UtcOffset, macros::format_description};
 
 use crate::{AppState, emit_recorder_state, emit_runtime_error, window, with_core};
 
+fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
+    let show_hud_during_recording =
+        with_core(app, |core| core.settings().show_hud_during_recording).unwrap_or(true);
+    let _ = window::sync_hud_visibility(app, snapshot, show_hud_during_recording);
+}
+
 pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     let status = with_core(app, |core| core.recorder_status())?;
 
@@ -46,8 +52,8 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         core.start_recording(active.target_label, output_path.display().to_string())
     })?;
 
+    sync_hud_for_current_settings(app, &snapshot);
     emit_recorder_state(app, &snapshot);
-    let _ = window::sync_hud_visibility(app, &snapshot);
     spawn_recorder_ticker(app.clone());
     Ok(snapshot)
 }
@@ -65,7 +71,7 @@ pub fn stop_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 
     let snapshot = with_core(app, |core| core.stop_recording(Some(summary)))?;
     emit_recorder_state(app, &snapshot);
-    let _ = window::sync_hud_visibility(app, &snapshot);
+    sync_hud_for_current_settings(app, &snapshot);
     Ok(snapshot)
 }
 
@@ -88,7 +94,7 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
             let snapshot = with_core(app, |core| core.pause_recording())?;
             if let Some(recorder) = snapshot.as_ref() {
                 emit_recorder_state(app, recorder);
-                let _ = window::sync_hud_visibility(app, recorder);
+                sync_hud_for_current_settings(app, recorder);
             }
             Ok(snapshot)
         }
@@ -107,7 +113,7 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
             let snapshot = with_core(app, |core| core.resume_recording())?;
             if let Some(recorder) = snapshot.as_ref() {
                 emit_recorder_state(app, recorder);
-                let _ = window::sync_hud_visibility(app, recorder);
+                sync_hud_for_current_settings(app, recorder);
             }
             Ok(snapshot)
         }
@@ -123,7 +129,7 @@ fn spawn_recorder_ticker(app: AppHandle) {
             match poll_runtime(&app) {
                 Ok(Some(snapshot)) => {
                     emit_recorder_state(&app, &snapshot);
-                    let _ = window::sync_hud_visibility(&app, &snapshot);
+                    sync_hud_for_current_settings(&app, &snapshot);
                     break;
                 }
                 Ok(None) => {}
@@ -131,7 +137,7 @@ fn spawn_recorder_ticker(app: AppHandle) {
                     emit_runtime_error(&app, &error);
                     if let Ok(snapshot) = with_core(&app, |core| core.stop_recording(None)) {
                         emit_recorder_state(&app, &snapshot);
-                        let _ = window::sync_hud_visibility(&app, &snapshot);
+                        sync_hud_for_current_settings(&app, &snapshot);
                     }
                     break;
                 }

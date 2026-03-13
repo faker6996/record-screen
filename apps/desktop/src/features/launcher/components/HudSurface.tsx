@@ -1,5 +1,5 @@
-import { AppWindow, Circle, Mic, MicOff, Pause, Play, Square } from 'lucide-react'
-import { Kbd } from '../../../components/Kbd'
+import { Mic, MicOff, Pause, Play, Scan, Square } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
@@ -10,6 +10,64 @@ interface HudSurfaceProps {
   recorder: RecorderSnapshot
 }
 
+function parseElapsedSeconds(label: string, status: RecorderSnapshot['status']) {
+  if (status === 'idle') {
+    return 0
+  }
+
+  const normalized = label.replace(/^Paused at\s+/i, '').trim()
+  const parts = normalized
+    .split(':')
+    .map((part) => Number.parseInt(part, 10))
+    .filter((part) => Number.isFinite(part))
+
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  }
+
+  if (parts.length === 2) {
+    return parts[0] * 60 + parts[1]
+  }
+
+  return 0
+}
+
+function formatHudTime(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  return [hours, minutes, seconds]
+    .map((value) => value.toString().padStart(2, '0'))
+    .join(':')
+}
+
+function HudElapsed({
+  elapsedSeconds,
+  status,
+}: {
+  elapsedSeconds: number
+  status: RecorderSnapshot['status']
+}) {
+  const [displaySeconds, setDisplaySeconds] = useState(elapsedSeconds)
+
+  useEffect(() => {
+    if (status !== 'recording') {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      setDisplaySeconds((current) => current + 1)
+    }, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [status])
+
+  return <strong>{formatHudTime(displaySeconds)}</strong>
+}
+
 export function HudSurface({
   onFocusLauncher,
   onPauseResume,
@@ -18,52 +76,67 @@ export function HudSurface({
   recorder,
 }: HudSurfaceProps) {
   const isIdle = recorder.status === 'idle'
-  const pauseLabel = recorder.status === 'paused' ? 'Resume' : 'Pause'
+  const isPaused = recorder.status === 'paused'
+  const parsedElapsedSeconds = parseElapsedSeconds(recorder.elapsedLabel, recorder.status)
 
   return (
     <main className="hud">
       <section className="hud__card">
-        <div className="hud__elapsed">
+        <div
+          className="hud__elapsed hud__drag-region"
+          data-tauri-drag-region
+          title="Drag HUD"
+        >
           <span className={`status-dot status-${recorder.status}`} />
-          <strong>{recorder.elapsedLabel}</strong>
+          <HudElapsed
+            elapsedSeconds={parsedElapsedSeconds}
+            key={`${recorder.status}:${parsedElapsedSeconds}`}
+            status={recorder.status}
+          />
         </div>
 
         <div className="hud__divider" />
 
-        <div className="hud__actions">
+        <div className="hud__controls">
           <button
-            className="button button--secondary hud__icon-button"
+            aria-label={recorder.status === 'paused' ? 'Resume recording' : 'Pause recording'}
+            aria-pressed={isPaused}
+            className={`button button--secondary hud__icon-button ${
+              isPaused ? 'hud__icon-button--active' : ''
+            }`}
             disabled={isIdle}
             onClick={() => void onPauseResume()}
+            title={recorder.status === 'paused' ? 'Resume' : 'Pause'}
             type="button"
           >
-            {recorder.status === 'paused' ? (
+            {isPaused ? (
               <Play aria-hidden="true" size={16} strokeWidth={1.9} />
             ) : (
               <Pause aria-hidden="true" size={16} strokeWidth={1.9} />
             )}
-            {pauseLabel}
           </button>
           <button
+            aria-label={isIdle ? 'Start recording' : 'Stop recording'}
             className={`button ${isIdle ? 'button--primary button--record' : 'button--primary button--stop'} hud__icon-button`}
             onClick={() => void onToggleRecording()}
+            title={isIdle ? 'Start recording' : 'Stop recording'}
             type="button"
           >
-            {isIdle ? (
-              <Circle aria-hidden="true" size={15} strokeWidth={1.9} />
-            ) : (
-              <Square aria-hidden="true" size={15} strokeWidth={1.9} />
-            )}
-            {isIdle ? 'Start' : 'Stop'}
+            <Square
+              aria-hidden="true"
+              fill="currentColor"
+              size={14}
+              strokeWidth={1.9}
+            />
           </button>
-        </div>
-
-        <div className="hud__divider" />
-
-        <div className="hud__meta">
           <button
-            className="button button--secondary hud__icon-button"
+            aria-label={recorder.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+            aria-pressed={recorder.micEnabled}
+            className={`button button--secondary hud__icon-button ${
+              recorder.micEnabled ? 'hud__icon-button--active' : ''
+            }`}
             onClick={() => void onToggleMicrophone()}
+            title={recorder.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
             type="button"
           >
             {recorder.micEnabled ? (
@@ -71,24 +144,16 @@ export function HudSurface({
             ) : (
               <MicOff aria-hidden="true" size={16} strokeWidth={1.9} />
             )}
-            Mic {recorder.micEnabled ? 'on' : 'off'}
           </button>
           <button
+            aria-label="Open launcher"
             className="button button--secondary hud__icon-button"
             onClick={() => void onFocusLauncher()}
+            title="Open launcher"
             type="button"
           >
-            <AppWindow aria-hidden="true" size={16} strokeWidth={1.9} />
-            Launcher
+            <Scan aria-hidden="true" size={16} strokeWidth={1.9} />
           </button>
-        </div>
-
-        <div className="hud__divider" />
-
-        <div className="hud__hint">
-          <Kbd>CmdOrCtrl</Kbd>
-          <Kbd>Shift</Kbd>
-          <Kbd>R</Kbd>
         </div>
       </section>
     </main>

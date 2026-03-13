@@ -115,11 +115,11 @@ export default function App() {
     currentWindowLabel,
     error,
     focusLauncher,
-    hideHud,
     isLoading,
     openPermissionSettings,
     openRecording,
     pauseResume,
+    pickOutputDirectory,
     refreshPermissions,
     revealRecordingInFolder,
     resetShortcuts,
@@ -132,6 +132,7 @@ export default function App() {
     updateLaunchOnLogin,
     updateOutputDirectory,
     updateQualityPreset,
+    updateShowHudDuringRecording,
   } = useDesktopState()
 
   useEffect(() => {
@@ -198,12 +199,12 @@ export default function App() {
       case 'settings':
         return (
           <SettingsPanel
-            onHideHud={hideHud}
-            onShowHud={showHud}
+            onPickOutputDirectory={pickOutputDirectory}
             onUpdateThemeMode={setThemeMode}
             onUpdateLaunchOnLogin={updateLaunchOnLogin}
             onUpdateOutputDirectory={updateOutputDirectory}
             onUpdateQualityPreset={updateQualityPreset}
+            onUpdateShowHudDuringRecording={updateShowHudDuringRecording}
             qualityPresets={currentSnapshot.qualityPresets}
             settings={currentSnapshot.settings}
             themeMode={themeMode}
@@ -272,6 +273,11 @@ export default function App() {
               <AppWindow aria-hidden="true" size={15} strokeWidth={1.9} />
               Preview HUD Mode
             </button>
+            <div className="launcher-sidebar__meta">
+              <span>{currentSnapshot.appLicense}</span>
+              <span aria-hidden="true">•</span>
+              <span>{currentSnapshot.appAuthor}</span>
+            </div>
           </div>
         </aside>
 

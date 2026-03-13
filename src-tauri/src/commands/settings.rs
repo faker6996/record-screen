@@ -1,4 +1,10 @@
-use storage::AppSettings;
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+use storage::{AppSettings, expand_home_path};
 use tauri::{AppHandle, State};
 
 use crate::{AppState, capture_targets, emit_recorder_state};
@@ -60,6 +66,27 @@ pub fn update_launch_on_login(
 }
 
 #[tauri::command]
+pub fn update_show_hud_during_recording(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    show_hud_during_recording: bool,
+) -> Result<AppSettings, String> {
+    let (settings, recorder) = {
+        let mut core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        let settings = core.update_show_hud_during_recording(show_hud_during_recording);
+        let recorder = core.snapshot();
+        (settings, recorder)
+    };
+
+    emit_recorder_state(&app, &recorder);
+    let _ = crate::window::sync_hud_visibility(&app, &recorder, settings.show_hud_during_recording);
+    Ok(settings)
+}
+
+#[tauri::command]
 pub fn update_capture_target(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -82,4 +109,167 @@ pub fn update_capture_target(
 
     emit_recorder_state(&app, &recorder);
     Ok(settings)
+}
+
+#[tauri::command]
+pub fn pick_output_directory(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<AppSettings>, String> {
+    let current_directory = {
+        let core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        core.settings().output_directory
+    };
+
+    let Some(chosen_directory) = open_directory_picker(&current_directory)? else {
+        return Ok(None);
+    };
+
+    let normalized_directory = normalize_output_directory(&chosen_directory);
+    let (settings, recorder) = {
+        let mut core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        let settings = core.update_output_directory(normalized_directory);
+        let recorder = core.snapshot();
+        (settings, recorder)
+    };
+
+    emit_recorder_state(&app, &recorder);
+    Ok(Some(settings))
+}
+
+fn normalize_output_directory(directory: &Path) -> String {
+    let display = directory.display().to_string();
+
+    if let Ok(home) = env::var("HOME") {
+        if let Some(stripped) = display.strip_prefix(&home) {
+            return format!("~{stripped}");
+        }
+    }
+
+    display
+}
+
+fn open_directory_picker(current_directory: &str) -> Result<Option<PathBuf>, String> {
+    let starting_directory = expand_home_path(current_directory);
+
+    #[cfg(target_os = "linux")]
+    {
+        let start = format!("{}/", starting_directory.display());
+
+        if command_exists("zenity") {
+            let output = Command::new("zenity")
+                .args([
+                    "--file-selection",
+                    "--directory",
+                    "--title=Choose output folder",
+                    "--filename",
+                    &start,
+                ])
+                .output()
+                .map_err(|error| format!("failed to open directory picker: {error}"))?;
+
+            if output.status.success() {
+                let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if value.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(PathBuf::from(value)));
+            }
+
+            return Ok(None);
+        }
+
+        if command_exists("kdialog") {
+            let output = Command::new("kdialog")
+                .args(["--getexistingdirectory", &start])
+                .output()
+                .map_err(|error| format!("failed to open directory picker: {error}"))?;
+
+            if output.status.success() {
+                let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if value.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(PathBuf::from(value)));
+            }
+
+            return Ok(None);
+        }
+
+        return Err("no supported directory picker found. Install zenity or kdialog.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "POSIX path of (choose folder with prompt \"Choose output folder\" default location POSIX file \"{}\")",
+            escape_applescript_path(&starting_directory)
+        );
+        let output = Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|error| format!("failed to open directory picker: {error}"))?;
+
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if value.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(PathBuf::from(value)));
+        }
+
+        return Ok(None);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; \
+             $dialog.Description = 'Choose output folder'; \
+             $dialog.SelectedPath = '{}'; \
+             if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ \
+               Write-Output $dialog.SelectedPath \
+             }}",
+            starting_directory.display().to_string().replace('\'', "''")
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!(
+                "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; {script}"
+            )])
+            .output()
+            .map_err(|error| format!("failed to open directory picker: {error}"))?;
+
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if value.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(PathBuf::from(value)));
+        }
+
+        return Ok(None);
+    }
+
+    #[allow(unreachable_code)]
+    Err("directory picking is not supported on this platform".to_string())
+}
+
+fn command_exists(command_name: &str) -> bool {
+    env::var_os("PATH")
+        .map(|path| {
+            env::split_paths(&path).any(|directory| directory.join(command_name).is_file())
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn escape_applescript_path(path: &Path) -> String {
+    path.display().to_string().replace('\\', "\\\\").replace('\"', "\\\"")
 }

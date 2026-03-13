@@ -6,16 +6,23 @@ html,
 body,
 #root {
   margin: 0;
+  height: 100%;
   min-height: 100%;
 }
 
 body {
   min-height: 100vh;
+  overflow: hidden;
   background: var(--app-background);
   color: var(--color-text-primary);
 }
 
 body[data-surface='hud'] {
+  background: transparent;
+}
+
+body[data-surface='hud'] #root,
+body[data-surface='hud'] .hud {
   background: transparent;
 }
 

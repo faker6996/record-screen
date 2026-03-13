@@ -98,5 +98,5 @@ body {
   --success: var(--color-success);
   --danger: var(--color-danger);
   --pending: var(--color-warning);
-  --shadow: 0 28px 90px var(--color-shadow);
+  --shadow: 0 16px 42px var(--color-shadow);
 }

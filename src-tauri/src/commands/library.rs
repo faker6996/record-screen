@@ -1,9 +1,13 @@
 use std::{
+    fs,
     path::{Path, PathBuf},
     process::Command,
+    time::SystemTime,
 };
 
+use app_core::SessionSummary;
 use storage::expand_home_path;
+use time::{OffsetDateTime, UtcOffset, macros::format_description};
 
 fn ensure_existing_target(path: &Path) -> Result<(), String> {
     if path.exists() {
@@ -97,6 +101,65 @@ fn reveal_path(path: &Path) -> Result<(), String> {
 
     #[allow(unreachable_code)]
     Err("Revealing recordings is not supported on this platform".to_string())
+}
+
+pub fn scan_recent_recordings(output_directory: &str) -> Vec<SessionSummary> {
+    let directory = expand_home_path(output_directory);
+    let Ok(entries) = fs::read_dir(&directory) else {
+        return Vec::new();
+    };
+
+    let mut sessions = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+            if !matches!(extension.as_str(), "mp4" | "mov" | "mkv" | "webm") {
+                return None;
+            }
+
+            let metadata = entry.metadata().ok()?;
+            let modified = metadata.modified().ok().unwrap_or(SystemTime::UNIX_EPOCH);
+            let filename = path.file_name()?.to_string_lossy().to_string();
+
+            Some((modified, SessionSummary {
+                id: format!("file-{}", filename),
+                title: filename,
+                started_at: format_modified_at(modified),
+                duration_label: String::new(),
+                location: path.display().to_string(),
+                size_label: format_size(metadata.len()),
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    sessions.sort_by(|left, right| right.0.cmp(&left.0));
+    sessions.truncate(20);
+    sessions.into_iter().map(|(_, session)| session).collect()
+}
+
+fn format_modified_at(modified_at: SystemTime) -> String {
+    let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+    let format = format_description!("[month repr:short] [day], [year] · [hour]:[minute]");
+
+    OffsetDateTime::from(modified_at)
+        .to_offset(local_offset)
+        .format(&format)
+        .unwrap_or_else(|_| "Just now".to_string())
+}
+
+fn format_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = MB * 1024.0;
+
+    if bytes as f64 >= GB {
+        format!("{:.2} GB", bytes as f64 / GB)
+    } else if bytes as f64 >= MB {
+        format!("{:.1} MB", bytes as f64 / MB)
+    } else {
+        format!("{:.0} KB", bytes as f64 / KB)
+    }
 }
 
 #[tauri::command]

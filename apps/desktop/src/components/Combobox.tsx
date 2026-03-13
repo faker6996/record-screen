@@ -41,7 +41,9 @@ export function Combobox({
       return
     }
 
-    optionRefs.current[activeIndex]?.focus()
+    const activeOption = optionRefs.current[activeIndex]
+    activeOption?.focus()
+    activeOption?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex, isOpen])
 
   useEffect(() => {

@@ -1,6 +1,8 @@
 use app_core::{RecorderSnapshot, RecorderStatus};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::{emit_recorder_state, with_core};
+
 pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const HUD_WINDOW_LABEL: &str = "hud";
 
@@ -24,11 +26,12 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
     let mut builder =
         WebviewWindowBuilder::new(app, HUD_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
             .title("Record Screen HUD")
-            .inner_size(340.0, 148.0)
-            .min_inner_size(280.0, 116.0)
+            .inner_size(356.0, 92.0)
+            .min_inner_size(320.0, 84.0)
             .visible(false)
             .resizable(false)
             .always_on_top(true)
+            .transparent(true)
             .decorations(false)
             .skip_taskbar(true)
             .shadow(true);
@@ -46,7 +49,10 @@ pub fn show_hud(app: &AppHandle) -> Result<(), String> {
 
     if let Some(window) = app.get_webview_window(HUD_WINDOW_LABEL) {
         window.show().map_err(|error| error.to_string())?;
-        window.set_focus().map_err(|error| error.to_string())?;
+    }
+
+    if let Ok(snapshot) = with_core(app, |core| core.snapshot()) {
+        emit_recorder_state(app, &snapshot);
     }
 
     Ok(())
@@ -60,9 +66,19 @@ pub fn hide_hud(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub fn sync_hud_visibility(app: &AppHandle, snapshot: &RecorderSnapshot) -> Result<(), String> {
+pub fn sync_hud_visibility(
+    app: &AppHandle,
+    snapshot: &RecorderSnapshot,
+    show_hud_during_recording: bool,
+) -> Result<(), String> {
     match snapshot.status {
         RecorderStatus::Idle => hide_hud(app),
-        RecorderStatus::Recording | RecorderStatus::Paused => show_hud(app),
+        RecorderStatus::Recording | RecorderStatus::Paused => {
+            if show_hud_during_recording {
+                show_hud(app)
+            } else {
+                hide_hud(app)
+            }
+        }
     }
 }

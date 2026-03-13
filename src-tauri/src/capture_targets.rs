@@ -1,5 +1,9 @@
 use capture::CaptureTargetOption;
 
+pub fn initial_capture_targets() -> Vec<CaptureTargetOption> {
+    vec![capture::full_desktop_target()]
+}
+
 pub fn available_capture_targets() -> Vec<CaptureTargetOption> {
     platform_capture_targets()
 }

@@ -49,6 +49,8 @@ pub struct CompletedRecording {
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapSnapshot {
     pub app_name: String,
+    pub app_author: String,
+    pub app_license: String,
     pub platform: String,
     pub launcher_window_label: String,
     pub recorder: RecorderSnapshot,
@@ -85,24 +87,7 @@ impl Default for AppCore {
             paused_at: None,
             accumulated_paused: Duration::default(),
             shortcuts: default_shortcuts(),
-            recent_sessions: vec![
-                SessionSummary {
-                    id: "session-001".to_string(),
-                    title: "Product walkthrough".to_string(),
-                    started_at: "Mar 12, 2026 · 20:30".to_string(),
-                    duration_label: "14 min".to_string(),
-                    location: "~/Movies/Record Screen/product-walkthrough.mp4".to_string(),
-                    size_label: "426 MB".to_string(),
-                },
-                SessionSummary {
-                    id: "session-002".to_string(),
-                    title: "Bug repro clip".to_string(),
-                    started_at: "Mar 11, 2026 · 17:05".to_string(),
-                    duration_label: "5 min".to_string(),
-                    location: "~/Movies/Record Screen/bug-repro.mov".to_string(),
-                    size_label: "118 MB".to_string(),
-                },
-            ],
+            recent_sessions: vec![],
         }
     }
 }
@@ -124,6 +109,8 @@ impl AppCore {
     ) -> BootstrapSnapshot {
         BootstrapSnapshot {
             app_name: "Record Screen".to_string(),
+            app_author: "Tran Van Bach".to_string(),
+            app_license: "MIT".to_string(),
             platform: platform.to_string(),
             launcher_window_label: "main".to_string(),
             recorder: self.current_snapshot(),
@@ -243,6 +230,14 @@ impl AppCore {
 
     pub fn update_launch_on_login(&mut self, launch_on_login: bool) -> AppSettings {
         self.settings.launch_on_login = launch_on_login;
+        self.settings.clone()
+    }
+
+    pub fn update_show_hud_during_recording(
+        &mut self,
+        show_hud_during_recording: bool,
+    ) -> AppSettings {
+        self.settings.show_hud_during_recording = show_hud_during_recording;
         self.settings.clone()
     }
 

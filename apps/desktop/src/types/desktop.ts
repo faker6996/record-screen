@@ -15,6 +15,7 @@ export interface AppSettings {
   qualityPreset: string
   micEnabled: boolean
   launchOnLogin: boolean
+  showHudDuringRecording: boolean
   captureTargetId: string
 }
 
@@ -55,6 +56,8 @@ export interface ShortcutBinding {
 
 export interface BootstrapSnapshot {
   appName: string
+  appAuthor: string
+  appLicense: string
   platform: string
   launcherWindowLabel: string
   recorder: RecorderSnapshot

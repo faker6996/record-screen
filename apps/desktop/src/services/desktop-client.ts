@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import type {
   AppSettings,
   BootstrapSnapshot,
+  CaptureTargetOption,
   PermissionCheck,
   RecorderSnapshot,
   ShortcutBinding,
@@ -17,6 +18,8 @@ declare global {
 
 const mockSnapshot: BootstrapSnapshot = {
   appName: 'Record Screen',
+  appAuthor: 'Tran Van Bach',
+  appLicense: 'MIT',
   platform: 'web-preview',
   launcherWindowLabel: 'main',
   recorder: {
@@ -33,6 +36,7 @@ const mockSnapshot: BootstrapSnapshot = {
     qualityPreset: '1080p / 60 fps',
     micEnabled: true,
     launchOnLogin: true,
+    showHudDuringRecording: true,
     captureTargetId: 'full-desktop',
   },
   captureTargets: [
@@ -138,6 +142,8 @@ async function command<T>(
     switch (name) {
       case 'get_bootstrap':
         return structuredClone(mockSnapshot) as T
+      case 'get_capture_targets':
+        return structuredClone(mockSnapshot.captureTargets) as T
       case 'toggle_recording':
         mockSnapshot.recorder.status =
           mockSnapshot.recorder.status === 'idle' ? 'recording' : 'idle'
@@ -177,6 +183,11 @@ async function command<T>(
       case 'update_launch_on_login':
         mockSnapshot.settings.launchOnLogin = Boolean(args?.launchOnLogin)
         return structuredClone(mockSnapshot.settings) as T
+      case 'update_show_hud_during_recording':
+        mockSnapshot.settings.showHudDuringRecording = Boolean(
+          args?.showHudDuringRecording,
+        )
+        return structuredClone(mockSnapshot.settings) as T
       case 'update_capture_target': {
         const captureTargetId = String(args?.captureTargetId ?? '')
         const captureTarget = mockSnapshot.captureTargets.find(
@@ -196,6 +207,8 @@ async function command<T>(
         }
         return structuredClone(mockSnapshot.settings) as T
       }
+      case 'pick_output_directory':
+        return structuredClone(mockSnapshot.settings) as T
       case 'reset_shortcuts':
         return structuredClone(mockSnapshot.shortcuts) as T
       case 'focus_launcher':
@@ -227,6 +240,9 @@ async function command<T>(
 export const desktopClient = {
   getBootstrap() {
     return command<BootstrapSnapshot>('get_bootstrap')
+  },
+  getCaptureTargets() {
+    return command<CaptureTargetOption[]>('get_capture_targets')
   },
   async getCurrentWindowLabel() {
     if (!isTauriRuntime()) {
@@ -261,11 +277,19 @@ export const desktopClient = {
   updateLaunchOnLogin(launchOnLogin: boolean) {
     return command<AppSettings>('update_launch_on_login', { launchOnLogin })
   },
+  updateShowHudDuringRecording(showHudDuringRecording: boolean) {
+    return command<AppSettings>('update_show_hud_during_recording', {
+      showHudDuringRecording,
+    })
+  },
   updateCaptureTarget(captureTargetId: string) {
     return command<AppSettings>('update_capture_target', { captureTargetId })
   },
   updateOutputDirectory(outputDirectory: string) {
     return command<AppSettings>('update_output_directory', { outputDirectory })
+  },
+  pickOutputDirectory() {
+    return command<AppSettings | null>('pick_output_directory')
   },
   getPermissions() {
     return command<PermissionCheck[]>('get_permissions')

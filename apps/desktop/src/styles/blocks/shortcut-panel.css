@@ -1,94 +1,87 @@
 .shortcut-panel {
   width: min(100%, 860px);
   display: grid;
-  gap: 16px;
+  gap: 20px;
+  padding: 6px 4px 2px;
 }
 
-.shortcut-panel__hero {
-  display: grid;
-  gap: 16px;
-  padding: 22px;
-  border-radius: 28px;
-  border: 1px solid var(--color-border-soft);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--color-accent-soft) 46%, transparent), transparent 60%),
-    var(--color-surface-1);
+.shortcut-panel__header h3 {
+  margin: 0 0 8px;
+  font-size: 1.92rem;
+  line-height: 1;
+  letter-spacing: -0.05em;
 }
 
-.shortcut-panel__hero-copy h3 {
-  margin: 6px 0 4px;
-  font-size: 1.48rem;
-  line-height: 1.03;
-  letter-spacing: -0.04em;
-}
-
-.shortcut-panel__hero-copy p:last-child {
+.shortcut-panel__header p {
   margin: 0;
 }
 
-.shortcut-panel__hero-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.shortcut-panel__list {
+  display: grid;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 22px;
+  background: var(--color-surface-1);
+  overflow: hidden;
 }
 
-.shortcut-panel__toolbar {
+.shortcut-panel__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 20px 18px;
+}
+
+.shortcut-panel__copy {
+  min-width: 0;
+}
+
+.shortcut-panel__copy strong {
+  display: block;
+  font-size: 1.02rem;
+  font-weight: 620;
+}
+
+.shortcut-panel__keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.shortcut-panel__divider {
+  position: absolute;
+  right: 18px;
+  bottom: 0;
+  left: 18px;
+  height: 1px;
+  background: color-mix(in srgb, var(--color-border-soft) 88%, transparent);
+}
+
+.shortcut-panel__actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.shortcut-panel__list {
-  display: grid;
-  gap: 12px;
-}
+@media (max-width: 720px) {
+  .shortcut-panel {
+    gap: 18px;
+    padding: 0;
+  }
 
-.shortcut-panel__item {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 22px;
-  background: rgba(8, 8, 10, 0.58);
-  padding: 16px 18px;
-}
-
-.shortcut-panel__copy {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.shortcut-panel__marker {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.18);
-  color: #fecaca;
-}
-
-.shortcut-panel__copy p {
-  color: var(--text-muted);
-  margin: 4px 0 0;
-}
-
-.shortcut-panel__marker svg {
-  width: 18px;
-  height: 18px;
-}
-
-.shortcut-panel__keys {
-  display: flex;
-  flex-wrap: wrap;
-}
-
-@media (max-width: 980px) {
   .shortcut-panel__item {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .shortcut-panel__keys {
+    justify-content: flex-start;
+  }
+
+  .shortcut-panel__actions {
+    justify-content: stretch;
   }
 }
