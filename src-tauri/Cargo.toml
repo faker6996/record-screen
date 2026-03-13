@@ -24,3 +24,9 @@ time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 capture-macos = { path = "../crates/capture-macos" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+capture-linux = { path = "../crates/capture-linux" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+capture-windows = { path = "../crates/capture-windows" }

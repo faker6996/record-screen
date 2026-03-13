@@ -17,15 +17,14 @@ pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 }
 
 pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
-    let settings = with_core(app, |core| {
-        core.bootstrap(crate::bootstrap::platform_name()).settings
-    })?;
+    let settings = with_core(app, |core| core.settings())?;
     let output_path = storage::next_recording_path(&settings.output_directory)
         .map_err(|error| error.to_string())?;
     let controller = create_capture_controller(RecordingOptions {
         output_path: output_path.clone(),
         quality_preset: settings.quality_preset,
         mic_enabled: settings.mic_enabled,
+        capture_target_id: settings.capture_target_id,
     })?;
     let active = controller.active_recording().clone();
 
@@ -214,11 +213,32 @@ fn create_capture_controller(
     ))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn create_capture_controller(
+    options: RecordingOptions,
+) -> Result<Box<dyn CaptureController>, String> {
+    Ok(Box::new(
+        capture_linux::FfmpegLinuxCapture::start(options).map_err(|error| error.to_string())?,
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn create_capture_controller(
+    options: RecordingOptions,
+) -> Result<Box<dyn CaptureController>, String> {
+    Ok(Box::new(
+        capture_windows::FfmpegWindowsCapture::start(options).map_err(|error| error.to_string())?,
+    ))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn create_capture_controller(
     _options: RecordingOptions,
 ) -> Result<Box<dyn CaptureController>, String> {
-    Err("real recording backend is only implemented for macOS right now".to_string())
+    Err(
+        "real recording backend is currently implemented for macOS, Linux, and Windows."
+            .to_string(),
+    )
 }
 
 fn file_stem(path: &Path) -> String {

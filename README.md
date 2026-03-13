@@ -12,14 +12,15 @@ Implemented now:
 - launcher, HUD, tray menu, settings, recent sessions
 - Rust app state as the source of truth
 - macOS recording MVP using `ffmpeg + AVFoundation`
+- Linux recording MVP using `ffmpeg + x11grab + pulse`
+- Windows recording MVP using `ffmpeg + gdigrab + dshow`
+- capture target selection for full desktop, a single display, or a single window where the platform backend supports it
 - macOS permission flow for `Screen recording` and `Microphone`
 - GitHub Actions build workflow for macOS, Windows, and Linux installers
 - frontend CSS structure split into `foundation`, `shared`, and `blocks`
 
 Not implemented yet:
 
-- native Windows capture backend
-- native Linux capture backend
 - production-grade encoder pipeline beyond the current macOS MVP path
 - full review/export workflow
 
@@ -33,8 +34,8 @@ crates/
   app-core/         Recorder state and session summaries
   capture/          Shared capture abstractions
   capture-macos/    macOS recording backend
-  capture-windows/  Windows backend scaffold
-  capture-linux/    Linux backend scaffold
+  capture-windows/  Windows recording backend
+  capture-linux/    Linux recording backend
   permissions/      Permission probing and request flow
   shortcuts/        Shortcut bindings
   storage/          Settings and output-path helpers
@@ -57,7 +58,7 @@ Prerequisites:
 - [Node.js](https://nodejs.org/)
 - [Rust](https://www.rust-lang.org/)
 - macOS developers should also have Xcode Command Line Tools
-- `ffmpeg` is currently required for the macOS recording MVP
+- `ffmpeg` is required for the current macOS, Linux, and Windows recording paths
 
 Install dependencies:
 
@@ -101,7 +102,7 @@ cargo check
 
 ## macOS Notes
 
-The current real recording path is macOS-first.
+The current real recording path is implemented for macOS.
 
 Requirements:
 
@@ -109,11 +110,34 @@ Requirements:
 - `Screen Recording` permission must be granted
 - if microphone narration is enabled, `Microphone` permission must also be granted
 
+## Linux Notes
+
+The Linux MVP path currently targets X11 sessions.
+
+Requirements:
+
+- `ffmpeg` must be installed and available on `PATH`
+- the app must run inside an X11 desktop session with `DISPLAY` set
+- microphone narration uses the default PulseAudio / PipeWire source when available
+- the launcher can target the full desktop, a single monitor, or an individual window discovered from X11
+
 The launcher permission panel can:
 
 - refresh permission status
 - request access
 - open the matching macOS Privacy page
+
+## Windows Notes
+
+The Windows MVP path uses `gdigrab` for the desktop video stream and `dshow` for microphone capture.
+
+Requirements:
+
+- `ffmpeg` must be installed and available on `PATH`
+- PowerShell must be available so the app can enumerate displays, windows, and control pause / resume
+- microphone narration uses the first matching DirectShow microphone device reported by `ffmpeg`
+
+The launcher can target the full desktop, a single monitor, or a single top-level window discovered from the current desktop session.
 
 ## Documentation
 

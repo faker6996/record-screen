@@ -42,6 +42,43 @@
   margin: 0 0 18px;
 }
 
+.recorder-panel__targets {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.recorder-panel__targets-copy strong {
+  display: block;
+}
+
+.recorder-panel__target-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.recorder-panel__target-chip {
+  min-height: 74px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  display: grid;
+  justify-items: start;
+  text-align: left;
+  gap: 6px;
+}
+
+.recorder-panel__target-chip small {
+  color: inherit;
+  opacity: 0.78;
+}
+
+.recorder-panel__target-chip:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .recorder-panel__actions {
   display: flex;
   flex-wrap: wrap;

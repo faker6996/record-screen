@@ -2,19 +2,20 @@ use app_core::BootstrapSnapshot;
 use shortcuts::ShortcutBinding;
 use tauri::{AppHandle, State};
 
-use crate::{AppState, bootstrap, register_shortcuts};
+use crate::{AppState, bootstrap, capture_targets, register_shortcuts};
 
 #[tauri::command]
 pub fn get_bootstrap(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<BootstrapSnapshot, String> {
+    let capture_targets = capture_targets::available_capture_targets();
     let core = state
         .core
         .lock()
         .map_err(|_| "failed to lock app state".to_string())?;
     let platform = bootstrap::platform_name();
-    let mut snapshot = core.bootstrap(platform);
+    let mut snapshot = core.bootstrap(platform, capture_targets);
     snapshot.permissions = permissions::probe_permissions(platform);
 
     let _ = app;

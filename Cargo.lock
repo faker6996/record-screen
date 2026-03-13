@@ -51,6 +51,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 name = "app-core"
 version = "0.1.0"
 dependencies = [
+ "capture",
  "permissions",
  "serde",
  "shortcuts",
@@ -242,12 +243,17 @@ dependencies = [
 name = "capture"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "capture-linux"
 version = "0.1.0"
+dependencies = [
+ "capture",
+ "libc",
+]
 
 [[package]]
 name = "capture-macos"
@@ -261,6 +267,11 @@ dependencies = [
 [[package]]
 name = "capture-windows"
 version = "0.1.0"
+dependencies = [
+ "capture",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "cargo-platform"
@@ -2793,7 +2804,9 @@ version = "0.1.0"
 dependencies = [
  "app-core",
  "capture",
+ "capture-linux",
  "capture-macos",
+ "capture-windows",
  "permissions",
  "serde",
  "serde_json",

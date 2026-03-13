@@ -15,6 +15,13 @@ export interface AppSettings {
   qualityPreset: string
   micEnabled: boolean
   launchOnLogin: boolean
+  captureTargetId: string
+}
+
+export interface CaptureTargetOption {
+  id: string
+  label: string
+  description: string
 }
 
 export interface SessionSummary {
@@ -52,6 +59,7 @@ export interface BootstrapSnapshot {
   launcherWindowLabel: string
   recorder: RecorderSnapshot
   settings: AppSettings
+  captureTargets: CaptureTargetOption[]
   qualityPresets: string[]
   shortcuts: ShortcutBinding[]
   permissions: PermissionCheck[]

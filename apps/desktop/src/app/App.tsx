@@ -48,6 +48,7 @@ export default function App() {
     snapshot,
     toggleMicrophone,
     toggleRecording,
+    updateCaptureTarget,
     updateLaunchOnLogin,
     updateOutputDirectory,
     updateQualityPreset,
@@ -123,10 +124,13 @@ export default function App() {
       <div className="launcher__layout">
         <div className="launcher__column launcher__column--primary">
           <RecorderPanel
+            captureTargets={snapshot.captureTargets}
             onPauseResume={pauseResume}
+            onUpdateCaptureTarget={updateCaptureTarget}
             onToggleMicrophone={toggleMicrophone}
             onToggleRecording={toggleRecording}
             recorder={snapshot.recorder}
+            selectedCaptureTargetId={snapshot.settings.captureTargetId}
           />
           <ShortcutPanel
             onFocusLauncher={focusLauncher}

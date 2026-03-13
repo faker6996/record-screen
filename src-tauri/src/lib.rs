@@ -1,4 +1,5 @@
 mod bootstrap;
+mod capture_targets;
 mod commands;
 mod recording;
 mod tray;
@@ -149,6 +150,7 @@ pub fn run() {
             commands::recorder::toggle_microphone,
             commands::recorder::toggle_recording,
             commands::settings::update_launch_on_login,
+            commands::settings::update_capture_target,
             commands::settings::update_output_directory,
             commands::settings::update_quality_preset,
             commands::window::focus_launcher,

@@ -13,6 +13,7 @@ pub struct AppSettings {
     pub quality_preset: String,
     pub mic_enabled: bool,
     pub launch_on_login: bool,
+    pub capture_target_id: String,
 }
 
 impl Default for AppSettings {
@@ -22,6 +23,7 @@ impl Default for AppSettings {
             quality_preset: "1080p / 60 fps".to_string(),
             mic_enabled: true,
             launch_on_login: true,
+            capture_target_id: "full-desktop".to_string(),
         }
     }
 }

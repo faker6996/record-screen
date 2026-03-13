@@ -1,18 +1,27 @@
 import { Kbd } from '../../../components/Kbd'
-import type { RecorderSnapshot } from '../../../types/desktop'
+import type {
+  CaptureTargetOption,
+  RecorderSnapshot,
+} from '../../../types/desktop'
 
 interface RecorderPanelProps {
+  captureTargets: CaptureTargetOption[]
   recorder: RecorderSnapshot
   onPauseResume: () => Promise<void>
+  onUpdateCaptureTarget: (captureTargetId: string) => Promise<void>
   onToggleMicrophone: () => Promise<void>
   onToggleRecording: () => Promise<void>
+  selectedCaptureTargetId: string
 }
 
 export function RecorderPanel({
+  captureTargets,
   recorder,
   onPauseResume,
+  onUpdateCaptureTarget,
   onToggleMicrophone,
   onToggleRecording,
+  selectedCaptureTargetId,
 }: RecorderPanelProps) {
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
@@ -64,7 +73,30 @@ export function RecorderPanel({
         </article>
       </div>
 
-          {recorder.activeOutputPath ? (
+      <div className="recorder-panel__targets">
+        <div className="recorder-panel__targets-copy">
+          <span className="metric-label">Capture target</span>
+          <strong>Choose full desktop or a single display before recording</strong>
+        </div>
+        <div className="recorder-panel__target-grid">
+          {captureTargets.map((target) => (
+            <button
+              className={`chip recorder-panel__target-chip ${
+                target.id === selectedCaptureTargetId ? 'chip--active' : ''
+              }`}
+              disabled={!isIdle}
+              key={target.id}
+              onClick={() => void onUpdateCaptureTarget(target.id)}
+              type="button"
+            >
+              <span>{target.label}</span>
+              <small>{target.description}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {recorder.activeOutputPath ? (
         <p className="subtle-copy recorder-panel__file">
           Active file: {recorder.activeOutputPath}
         </p>

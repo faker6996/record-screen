@@ -22,7 +22,7 @@ const mockSnapshot: BootstrapSnapshot = {
   recorder: {
     status: 'idle',
     elapsedLabel: 'Ready when you are',
-    activeTarget: 'Entire display',
+    activeTarget: 'Full desktop',
     activeOutputPath: null,
     qualityPreset: '1080p / 60 fps',
     outputDirectory: '~/Movies/Record Screen',
@@ -33,7 +33,25 @@ const mockSnapshot: BootstrapSnapshot = {
     qualityPreset: '1080p / 60 fps',
     micEnabled: true,
     launchOnLogin: true,
+    captureTargetId: 'full-desktop',
   },
+  captureTargets: [
+    {
+      id: 'full-desktop',
+      label: 'Full desktop',
+      description: 'Record the entire active desktop layout.',
+    },
+    {
+      id: 'monitor:display-1',
+      label: 'Display 1',
+      description: 'Record only the primary display.',
+    },
+    {
+      id: 'monitor:display-2',
+      label: 'Display 2',
+      description: 'Record only the secondary display.',
+    },
+  ],
   qualityPresets: [
     '720p / 30 fps',
     '1080p / 60 fps',
@@ -159,6 +177,17 @@ async function command<T>(
       case 'update_launch_on_login':
         mockSnapshot.settings.launchOnLogin = Boolean(args?.launchOnLogin)
         return structuredClone(mockSnapshot.settings) as T
+      case 'update_capture_target': {
+        const captureTargetId = String(args?.captureTargetId ?? '')
+        const captureTarget = mockSnapshot.captureTargets.find(
+          (target) => target.id === captureTargetId,
+        )
+        if (captureTarget) {
+          mockSnapshot.settings.captureTargetId = captureTarget.id
+          mockSnapshot.recorder.activeTarget = captureTarget.label
+        }
+        return structuredClone(mockSnapshot.settings) as T
+      }
       case 'update_output_directory': {
         const outputDirectory = String(args?.outputDirectory ?? '').trim()
         if (outputDirectory) {
@@ -229,6 +258,9 @@ export const desktopClient = {
   },
   updateLaunchOnLogin(launchOnLogin: boolean) {
     return command<AppSettings>('update_launch_on_login', { launchOnLogin })
+  },
+  updateCaptureTarget(captureTargetId: string) {
+    return command<AppSettings>('update_capture_target', { captureTargetId })
   },
   updateOutputDirectory(outputDirectory: string) {
     return command<AppSettings>('update_output_directory', { outputDirectory })

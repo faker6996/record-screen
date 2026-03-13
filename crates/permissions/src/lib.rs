@@ -32,6 +32,7 @@ pub enum PermissionError {
 pub fn probe_permissions(platform: &str) -> Vec<PermissionCheck> {
     match platform {
         "macos" => macos::probe_permissions(),
+        "linux" => linux::probe_permissions(),
         _ => default_permissions(platform),
     }
 }
@@ -269,5 +270,118 @@ mod macos {
             .recv_timeout(Duration::from_secs(120))
             .map(|_| ())
             .map_err(|error| PermissionError::RequestFailed(error.to_string()))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod macos {
+    use crate::{PermissionCheck, PermissionError, default_permissions};
+
+    pub fn probe_permissions() -> Vec<PermissionCheck> {
+        default_permissions("macos")
+    }
+
+    pub fn request_permission(_permission_name: &str) -> Result<(), PermissionError> {
+        Err(PermissionError::UnsupportedPlatform)
+    }
+
+    pub fn open_permission_settings(_permission_name: &str) -> Result<(), PermissionError> {
+        Err(PermissionError::UnsupportedPlatform)
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::{env, process::Command};
+
+    use crate::{PermissionCheck, PermissionStatus};
+
+    pub fn probe_permissions() -> Vec<PermissionCheck> {
+        vec![
+            PermissionCheck {
+                name: "Launcher readiness".to_string(),
+                status: PermissionStatus::Granted,
+                guidance: "The app shell is ready to react to shortcuts and UI commands."
+                    .to_string(),
+            },
+            x11_display_check(),
+            microphone_check(),
+        ]
+    }
+
+    fn x11_display_check() -> PermissionCheck {
+        match env::var("DISPLAY") {
+            Ok(display) if !display.trim().is_empty() => PermissionCheck {
+                name: "X11 display access".to_string(),
+                status: PermissionStatus::Granted,
+                guidance: format!(
+                    "X11 session detected on {display}. Screen recording can start immediately from the current desktop session."
+                ),
+            },
+            _ => {
+                let guidance = if env::var("WAYLAND_DISPLAY").is_ok() {
+                    "Wayland was detected, but the current recorder backend is implemented through X11grab. Log into an X11 session to test real recording.".to_string()
+                } else {
+                    "No DISPLAY environment variable was found. Start the app from the active X11 desktop session to allow screen capture.".to_string()
+                };
+
+                PermissionCheck {
+                    name: "X11 display access".to_string(),
+                    status: PermissionStatus::Unsupported,
+                    guidance,
+                }
+            }
+        }
+    }
+
+    fn microphone_check() -> PermissionCheck {
+        let output = Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "pulse",
+                "-i",
+                "default",
+                "-t",
+                "0.1",
+                "-f",
+                "null",
+                "-",
+            ])
+            .output();
+
+        match output {
+            Ok(result) if result.status.success() => PermissionCheck {
+                name: "Microphone source".to_string(),
+                status: PermissionStatus::Granted,
+                guidance:
+                    "The default PulseAudio/PipeWire microphone source is available for narration."
+                        .to_string(),
+            },
+            Ok(_) => PermissionCheck {
+                name: "Microphone source".to_string(),
+                status: PermissionStatus::Pending,
+                guidance:
+                    "The default microphone source is not ready. You can still record the screen with microphone disabled.".to_string(),
+            },
+            Err(_) => PermissionCheck {
+                name: "Microphone source".to_string(),
+                status: PermissionStatus::Pending,
+                guidance:
+                    "Could not probe the default microphone source. If narration fails, disable the mic toggle before starting a recording.".to_string(),
+            },
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod linux {
+    use crate::PermissionCheck;
+    use crate::default_permissions;
+
+    pub fn probe_permissions() -> Vec<PermissionCheck> {
+        default_permissions("linux")
     }
 }

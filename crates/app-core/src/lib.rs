@@ -1,3 +1,4 @@
+use capture::CaptureTargetOption;
 use permissions::{PermissionCheck, default_permissions};
 use serde::{Deserialize, Serialize};
 use shortcuts::{ShortcutBinding, default_shortcuts};
@@ -52,6 +53,7 @@ pub struct BootstrapSnapshot {
     pub launcher_window_label: String,
     pub recorder: RecorderSnapshot,
     pub settings: AppSettings,
+    pub capture_targets: Vec<CaptureTargetOption>,
     pub quality_presets: Vec<String>,
     pub shortcuts: Vec<ShortcutBinding>,
     pub permissions: Vec<PermissionCheck>,
@@ -77,7 +79,7 @@ impl Default for AppCore {
         Self {
             settings: AppSettings::default(),
             status: RecorderStatus::Idle,
-            active_target: "Entire display".to_string(),
+            active_target: "Full desktop".to_string(),
             active_output_path: None,
             started_at: None,
             paused_at: None,
@@ -115,13 +117,18 @@ impl AppCore {
         ]
     }
 
-    pub fn bootstrap(&self, platform: &str) -> BootstrapSnapshot {
+    pub fn bootstrap(
+        &self,
+        platform: &str,
+        capture_targets: Vec<CaptureTargetOption>,
+    ) -> BootstrapSnapshot {
         BootstrapSnapshot {
             app_name: "Record Screen".to_string(),
             platform: platform.to_string(),
             launcher_window_label: "main".to_string(),
             recorder: self.current_snapshot(),
             settings: self.settings.clone(),
+            capture_targets,
             quality_presets: Self::quality_presets(),
             shortcuts: self.shortcuts.clone(),
             permissions: default_permissions(platform),
@@ -137,6 +144,10 @@ impl AppCore {
 
     pub fn recorder_status(&self) -> RecorderStatus {
         self.status
+    }
+
+    pub fn settings(&self) -> AppSettings {
+        self.settings.clone()
     }
 
     pub fn snapshot(&self) -> RecorderSnapshot {
@@ -232,6 +243,19 @@ impl AppCore {
 
     pub fn update_launch_on_login(&mut self, launch_on_login: bool) -> AppSettings {
         self.settings.launch_on_login = launch_on_login;
+        self.settings.clone()
+    }
+
+    pub fn update_capture_target(
+        &mut self,
+        capture_target_id: String,
+        capture_target_label: String,
+    ) -> AppSettings {
+        if !capture_target_id.trim().is_empty() {
+            self.settings.capture_target_id = capture_target_id;
+            self.active_target = capture_target_label;
+        }
+
         self.settings.clone()
     }
 

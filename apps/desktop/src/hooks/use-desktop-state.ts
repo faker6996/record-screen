@@ -252,6 +252,24 @@ export function useDesktopState() {
     }
   }
 
+  async function updateCaptureTarget(captureTargetId: string) {
+    try {
+      const settings = await desktopClient.updateCaptureTarget(captureTargetId)
+      startTransition(() => {
+        setSnapshot((current) => updateSettingsSnapshot(current, settings))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update capture target.',
+        )
+      })
+    }
+  }
+
   async function updateOutputDirectory(outputDirectory: string) {
     try {
       const settings = await desktopClient.updateOutputDirectory(outputDirectory)
@@ -336,6 +354,7 @@ export function useDesktopState() {
     requestPermission,
     showHud: desktopClient.showHud,
     toggleMicrophone,
+    updateCaptureTarget,
     toggleRecording,
     updateLaunchOnLogin,
     updateOutputDirectory,
