@@ -10,6 +10,13 @@ export interface RecorderSnapshot {
   micEnabled: boolean
 }
 
+export interface MicCheckSnapshot {
+  active: boolean
+  level: number
+  hasSignal: boolean
+  error: string | null
+}
+
 export interface AppSettings {
   outputDirectory: string
   qualityPreset: string

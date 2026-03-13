@@ -5,6 +5,7 @@ import type {
   AppSettings,
   BootstrapSnapshot,
   CaptureTargetOption,
+  MicCheckSnapshot,
   PermissionCheck,
   RecorderSnapshot,
   ShortcutBinding,
@@ -131,6 +132,28 @@ const mockSnapshot: BootstrapSnapshot = {
   ],
 }
 
+let mockMicCheckState: MicCheckSnapshot = {
+  active: false,
+  level: 0,
+  hasSignal: false,
+  error: null,
+}
+
+let mockMicCheckTimer: number | null = null
+
+function stopMockMicCheck() {
+  if (mockMicCheckTimer !== null) {
+    window.clearInterval(mockMicCheckTimer)
+    mockMicCheckTimer = null
+  }
+  mockMicCheckState = {
+    active: false,
+    level: 0,
+    hasSignal: false,
+    error: null,
+  }
+}
+
 function isTauriRuntime() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
@@ -173,6 +196,18 @@ async function command<T>(
         mockSnapshot.recorder.micEnabled = !mockSnapshot.recorder.micEnabled
         mockSnapshot.settings.micEnabled = mockSnapshot.recorder.micEnabled
         return structuredClone(mockSnapshot.recorder) as T
+      case 'start_mic_check':
+        stopMockMicCheck()
+        mockMicCheckState = {
+          active: true,
+          level: 0.14,
+          hasSignal: true,
+          error: null,
+        }
+        return structuredClone(mockMicCheckState) as T
+      case 'stop_mic_check':
+        stopMockMicCheck()
+        return structuredClone(mockMicCheckState) as T
       case 'update_quality_preset': {
         const qualityPreset = String(args?.qualityPreset ?? '')
         if (mockSnapshot.qualityPresets.includes(qualityPreset)) {
@@ -266,6 +301,12 @@ export const desktopClient = {
   pauseResume() {
     return command<RecorderSnapshot | null>('pause_resume')
   },
+  startMicCheck() {
+    return command<MicCheckSnapshot>('start_mic_check')
+  },
+  stopMicCheck() {
+    return command<MicCheckSnapshot>('stop_mic_check')
+  },
   toggleMicrophone() {
     return command<RecorderSnapshot>('toggle_microphone')
   },
@@ -330,6 +371,37 @@ export const desktopClient = {
     const unlisten = await listen<string>('recorder://runtime-error', (event) => {
       listener(event.payload)
     })
+    return unlisten
+  },
+  async subscribeMicCheckState(listener: (snapshot: MicCheckSnapshot) => void) {
+    if (!isTauriRuntime()) {
+      listener(structuredClone(mockMicCheckState))
+      mockMicCheckTimer = window.setInterval(() => {
+        if (!mockMicCheckState.active) {
+          return
+        }
+
+        const nextLevel = 0.08 + Math.random() * 0.72
+        mockMicCheckState = {
+          active: true,
+          level: nextLevel,
+          hasSignal: nextLevel >= 0.1,
+          error: null,
+        }
+        listener(structuredClone(mockMicCheckState))
+      }, 180)
+
+      return () => {
+        stopMockMicCheck()
+      }
+    }
+
+    const unlisten = await listen<MicCheckSnapshot>(
+      'recorder://mic-check-state',
+      (event) => {
+        listener(event.payload)
+      },
+    )
     return unlisten
   },
   async subscribeBootstrapRefreshRequest(

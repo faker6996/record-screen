@@ -23,6 +23,7 @@ pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 }
 
 pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
+    let _ = crate::mic_check::stop_mic_check(app);
     let settings = with_core(app, |core| core.settings())?;
     let output_path = storage::next_recording_path(&settings.output_directory)
         .map_err(|error| error.to_string())?;

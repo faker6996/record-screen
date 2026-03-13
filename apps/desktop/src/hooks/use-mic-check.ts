@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { desktopClient } from '../services/desktop-client'
+import type { MicCheckSnapshot } from '../types/desktop'
 
 interface MicCheckState {
   active: boolean
@@ -8,147 +10,58 @@ interface MicCheckState {
   supported: boolean
 }
 
-const SIGNAL_THRESHOLD = 0.045
-const LEVEL_SCALE = 4.8
-
 export function useMicCheck() {
   const [state, setState] = useState<MicCheckState>({
     active: false,
     error: null,
     hasSignal: false,
     level: 0,
-    supported:
-      typeof navigator !== 'undefined' &&
-      !!navigator.mediaDevices?.getUserMedia &&
-      typeof window !== 'undefined' &&
-      !!window.AudioContext,
+    supported: true,
   })
-  const streamRef = useRef<MediaStream | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const frameRef = useRef<number | null>(null)
 
-  const stop = useCallback(async () => {
-    if (frameRef.current !== null) {
-      window.cancelAnimationFrame(frameRef.current)
-      frameRef.current = null
-    }
-
-    if (sourceRef.current) {
-      sourceRef.current.disconnect()
-      sourceRef.current = null
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
-    }
-
-    if (audioContextRef.current) {
-      try {
-        await audioContextRef.current.close()
-      } catch {
-        // Ignore shutdown races during teardown.
-      }
-      audioContextRef.current = null
-    }
-
-    analyserRef.current = null
-
+  const applySnapshot = useCallback((snapshot: MicCheckSnapshot) => {
     setState((current) => ({
       ...current,
-      active: false,
-      hasSignal: false,
-      level: 0,
+      active: snapshot.active,
+      error: snapshot.error,
+      hasSignal: snapshot.hasSignal,
+      level: snapshot.level,
     }))
   }, [])
 
-  const start = useCallback(async () => {
-    if (
-      typeof navigator === 'undefined' ||
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof window === 'undefined' ||
-      !window.AudioContext
-    ) {
+  const stop = useCallback(async () => {
+    try {
+      const snapshot = await desktopClient.stopMicCheck()
+      applySnapshot(snapshot)
+    } catch (error) {
       setState((current) => ({
         ...current,
         active: false,
-        error: 'Mic testing is not supported on this device.',
+        error:
+          error instanceof Error ? error.message : 'Unable to stop microphone test.',
         hasSignal: false,
         level: 0,
-        supported: false,
       }))
-      return
     }
+  }, [applySnapshot])
 
-    await stop()
-
+  const start = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-        video: false,
-      })
-      const audioContext = new window.AudioContext()
-      const source = audioContext.createMediaStreamSource(stream)
-      const analyser = audioContext.createAnalyser()
-      analyser.fftSize = 512
-      analyser.smoothingTimeConstant = 0.82
-      source.connect(analyser)
-
-      streamRef.current = stream
-      audioContextRef.current = audioContext
-      sourceRef.current = source
-      analyserRef.current = analyser
-
-      const samples = new Uint8Array(analyser.fftSize)
-
-      const tick = () => {
-        const activeAnalyser = analyserRef.current
-        if (!activeAnalyser) {
-          return
-        }
-
-        activeAnalyser.getByteTimeDomainData(samples)
-
-        let sumSquares = 0
-        for (const sample of samples) {
-          const normalized = (sample - 128) / 128
-          sumSquares += normalized * normalized
-        }
-
-        const rms = Math.sqrt(sumSquares / samples.length)
-        const normalizedLevel = Math.min(1, rms * LEVEL_SCALE)
-        const hasSignal = normalizedLevel >= SIGNAL_THRESHOLD
-
-        setState((current) => ({
-          ...current,
-          active: true,
-          error: null,
-          hasSignal,
-          level: normalizedLevel,
-          supported: true,
-        }))
-
-        frameRef.current = window.requestAnimationFrame(tick)
-      }
-
-      frameRef.current = window.requestAnimationFrame(tick)
+      const snapshot = await desktopClient.startMicCheck()
+      applySnapshot(snapshot)
     } catch (error) {
-      await stop()
       setState((current) => ({
         ...current,
+        active: false,
         error:
           error instanceof Error
             ? error.message
             : 'Unable to access the default microphone.',
+        hasSignal: false,
+        level: 0,
       }))
     }
-  }, [stop])
+  }, [applySnapshot])
 
   const toggle = useCallback(async () => {
     if (state.active) {
@@ -160,10 +73,19 @@ export function useMicCheck() {
   }, [start, state.active, stop])
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined
+
+    void desktopClient.subscribeMicCheckState((snapshot) => {
+      applySnapshot(snapshot)
+    }).then((dispose) => {
+      unlisten = dispose
+    })
+
     return () => {
+      unlisten?.()
       void stop()
     }
-  }, [stop])
+  }, [applySnapshot, stop])
 
   return {
     ...state,

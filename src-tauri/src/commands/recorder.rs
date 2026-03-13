@@ -29,3 +29,13 @@ pub fn toggle_microphone(
     emit_recorder_state(&app, &snapshot);
     Ok(snapshot)
 }
+
+#[tauri::command]
+pub fn start_mic_check(app: AppHandle) -> Result<crate::mic_check::MicCheckSnapshot, String> {
+    crate::mic_check::start_mic_check(&app)
+}
+
+#[tauri::command]
+pub fn stop_mic_check(app: AppHandle) -> Result<crate::mic_check::MicCheckSnapshot, String> {
+    crate::mic_check::stop_mic_check(&app)
+}

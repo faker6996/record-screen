@@ -1,6 +1,7 @@
 mod bootstrap;
 mod capture_targets;
 mod commands;
+mod mic_check;
 mod recording;
 mod tray;
 mod window;
@@ -18,6 +19,7 @@ use tauri_plugin_global_shortcut::{
 pub struct AppState {
     core: Mutex<AppCore>,
     recorder: Mutex<Option<Box<dyn CaptureController>>>,
+    mic_check: Mutex<Option<mic_check::MicCheckProcess>>,
 }
 
 pub(crate) fn with_core<T>(
@@ -118,6 +120,7 @@ pub fn run() {
         .manage(AppState {
             core: Mutex::new(AppCore::default()),
             recorder: Mutex::new(None),
+            mic_check: Mutex::new(None),
         })
         .plugin(
             GlobalShortcutBuilder::new()
@@ -157,6 +160,8 @@ pub fn run() {
             commands::permissions::open_permission_settings,
             commands::permissions::request_permission,
             commands::recorder::pause_resume,
+            commands::recorder::start_mic_check,
+            commands::recorder::stop_mic_check,
             commands::recorder::toggle_microphone,
             commands::recorder::toggle_recording,
             commands::settings::update_launch_on_login,

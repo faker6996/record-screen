@@ -1,4 +1,4 @@
-import { AudioLines, Mic, MicOff, Monitor, Pause, Play } from 'lucide-react'
+import { AudioLines, Mic, MicOff, Monitor, Music2, Pause, Play } from 'lucide-react'
 import { useEffect } from 'react'
 import { Combobox } from '../../../components/Combobox'
 import { Kbd } from '../../../components/Kbd'
@@ -47,6 +47,10 @@ export function RecorderPanel({
   const micMeterSteps = Array.from({ length: 12 }, (_, index) => {
     const threshold = (index + 1) / 12
     return micLevel >= threshold
+  })
+  const micNoteStates = Array.from({ length: 3 }, (_, index) => {
+    const threshold = 0.16 + index * 0.18
+    return micCheckActive && hasSignal && micLevel >= threshold
   })
   const micCheckLabel = micCheckError
     ? micCheckError
@@ -172,6 +176,23 @@ export function RecorderPanel({
           </button>
 
           <div className="recorder-panel__mic-check">
+            <div
+              className={`recorder-panel__mic-notes ${
+                micCheckActive ? 'recorder-panel__mic-notes--listening' : ''
+              } ${hasSignal ? 'recorder-panel__mic-notes--active' : ''}`}
+              aria-hidden="true"
+            >
+              {micNoteStates.map((isActive, index) => (
+                <span
+                  className={`recorder-panel__mic-note ${
+                    isActive ? 'recorder-panel__mic-note--active' : ''
+                  }`}
+                  key={index}
+                >
+                  <Music2 size={16} strokeWidth={1.9} />
+                </span>
+              ))}
+            </div>
             <div className="recorder-panel__mic-meter" aria-hidden="true">
               {micMeterSteps.map((isActive, index) => (
                 <span
