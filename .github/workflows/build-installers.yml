@@ -237,6 +237,64 @@ jobs:
             --title "Record Screen $TAG_NAME" \
             --generate-notes
 
+  publish-homebrew-tap:
+    name: Publish Homebrew tap
+    runs-on: ubuntu-22.04
+    needs:
+      - build-installers
+      - publish-release
+      - tag-version
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.tag-version.outputs.tag != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Preflight secret check
+        id: preflight
+        shell: bash
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "HOMEBREW_TAP_TOKEN is not configured. Skipping Homebrew tap publish."
+            exit 0
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download macOS artifact
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/download-artifact@v5
+        with:
+          name: record-screen-macos-dmg
+          path: release-assets/macos
+
+      - name: Publish Homebrew tap
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_REPOSITORY: ${{ vars.HOMEBREW_TAP_REPOSITORY }}
+          HOMEBREW_TAP_BRANCH: ${{ vars.HOMEBREW_TAP_BRANCH }}
+          TAG_NAME: ${{ needs.tag-version.outputs.tag }}
+          VERSION: ${{ needs.tag-version.outputs.version }}
+        run: |
+          chmod +x scripts/publish-homebrew-tap.sh scripts/render-homebrew-cask.sh
+          DMG_PATH="$(find release-assets/macos -type f -name '*.dmg' | head -n 1)"
+          if [ -z "$DMG_PATH" ]; then
+            echo "No .dmg artifact found."
+            exit 1
+          fi
+
+          scripts/publish-homebrew-tap.sh
+
+      - name: Skip notice
+        if: steps.preflight.outputs.ready != 'true'
+        run: echo "Homebrew tap publish skipped because HOMEBREW_TAP_TOKEN is not configured."
+
   publish-apt-repo:
     name: Publish APT repo to GitHub Pages
     runs-on: ubuntu-22.04

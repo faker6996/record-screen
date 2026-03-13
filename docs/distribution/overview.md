@@ -48,7 +48,8 @@ macOS can be distributed through Homebrew Cask, but that requires a published ca
 - a custom tap maintained by this project
 - or the community `homebrew-cask` catalog
 
-This repository does not publish a Homebrew tap yet. The supported install path today is the DMG.
+This repository now includes an automated custom tap publish path for a dedicated `homebrew-tap` repository once the required token is configured.
+The direct DMG install path still remains valid.
 
 ## Runtime dependency policy
 

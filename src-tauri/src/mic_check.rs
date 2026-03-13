@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 use std::{
     io::{BufRead, BufReader},
     process::{Child, Command, Stdio},
@@ -30,6 +31,7 @@ impl MicCheckSnapshot {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn listening() -> Self {
         Self {
             active: true,
@@ -39,6 +41,7 @@ impl MicCheckSnapshot {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn error(message: String) -> Self {
         Self {
             active: false,

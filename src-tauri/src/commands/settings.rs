@@ -261,6 +261,7 @@ fn open_directory_picker(current_directory: &str) -> Result<Option<PathBuf>, Str
     Err("directory picking is not supported on this platform".to_string())
 }
 
+#[cfg(target_os = "linux")]
 fn command_exists(command_name: &str) -> bool {
     env::var_os("PATH")
         .map(|path| {

@@ -33,14 +33,15 @@ On first launch:
 
 ## Homebrew status
 
-Homebrew distribution is possible through a cask, but this repository does not publish one yet.
-The realistic future install command would look like:
+Homebrew distribution is supported through a custom tap publish flow once the repository token is configured.
+The intended install command is:
 
 ```bash
-brew install --cask <tap>/record-screen
+brew tap faker6996/tap
+brew install --cask faker6996/tap/record-screen
 ```
 
-That requires maintaining a Homebrew tap or submitting a cask upstream.
+The direct DMG install path still works even if the Homebrew tap is not configured yet.
 
 ## Uninstall
 
