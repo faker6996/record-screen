@@ -10,6 +10,17 @@ Record Screen ships a different package format per operating system:
 
 ## Package manager support
 
+## GitHub Releases vs GitHub Packages
+
+For this project, desktop binaries should be published as GitHub Release assets:
+
+- macOS: `.dmg`
+- Linux: `.deb`
+- Windows: setup `.exe`
+
+The GitHub `Packages` section is designed for supported registries such as container, npm, Maven, NuGet, and similar ecosystems.
+It is not the primary distribution channel for desktop installer files, so it is normal for the `Packages` section to remain empty even when release packaging is fully configured.
+
 ### Linux and `apt`
 
 Linux users can install the downloaded Debian package with:
@@ -24,6 +35,11 @@ To support `apt install record-screen` without a local file path, the project wo
 - a signed APT repository
 - repository metadata generation
 - a published installation key and source list instructions
+
+The repository skeleton for that future flow now exists in:
+
+- [`scripts/build-apt-repo.sh`](../../scripts/build-apt-repo.sh)
+- [`docs/distribution/apt-repo.md`](./apt-repo.md)
 
 ### macOS and Homebrew
 

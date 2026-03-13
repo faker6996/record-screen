@@ -5,8 +5,8 @@ on:
   push:
     branches:
       - '**'
-    tags-ignore:
-      - '*'
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -148,3 +148,74 @@ jobs:
       - name: Report existing version tag
         if: steps.tag_check.outputs.exists == 'true'
         run: echo "Tag ${{ steps.version.outputs.tag }} already exists. Skipping auto-tag."
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-22.04
+    needs: build-installers
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: record-screen-macos-dmg
+          path: release-assets/macos
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: record-screen-windows-setup
+          path: release-assets/windows
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: record-screen-linux-deb
+          path: release-assets/linux
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          find release-assets -type f | sort > /tmp/release-files.txt
+          while IFS= read -r file; do
+            sha256sum "$file"
+          done < /tmp/release-files.txt > release-assets/SHA256SUMS.txt
+          cat release-assets/SHA256SUMS.txt
+
+      - name: Ensure GitHub CLI is available
+        shell: bash
+        run: |
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+
+          sudo apt-get update
+          sudo apt-get install -y gh
+          gh --version
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" \
+              release-assets/macos/* \
+              release-assets/windows/* \
+              release-assets/linux/* \
+              release-assets/SHA256SUMS.txt \
+              --clobber
+            exit 0
+          fi
+
+          gh release create "$TAG_NAME" \
+            release-assets/macos/* \
+            release-assets/windows/* \
+            release-assets/linux/* \
+            release-assets/SHA256SUMS.txt \
+            --title "Record Screen $TAG_NAME" \
+            --generate-notes

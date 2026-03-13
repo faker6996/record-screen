@@ -156,6 +156,7 @@ Dive deeper into the project's design and conventions:
 - 💅 **Frontend:** [`docs/frontend/styleguide.md`](docs/frontend/styleguide.md)
 - 📦 **Distribution overview:** [`docs/distribution/overview.md`](docs/distribution/overview.md)
 - 🐧 **Linux install guide:** [`docs/distribution/linux.md`](docs/distribution/linux.md)
+- 🧰 **APT repository guide:** [`docs/distribution/apt-repo.md`](docs/distribution/apt-repo.md)
 - 🍺 **Homebrew cask template:** [`docs/distribution/homebrew.md`](docs/distribution/homebrew.md)
 - 🍏 **macOS install guide:** [`docs/distribution/macos.md`](docs/distribution/macos.md)
 - 🪟 **Windows install guide:** [`docs/distribution/windows.md`](docs/distribution/windows.md)

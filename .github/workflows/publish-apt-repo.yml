@@ -1,0 +1,137 @@
+name: Publish APT Repository
+
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build-repo:
+    name: Build APT repo for Pages
+    runs-on: ubuntu-22.04
+    outputs:
+      ready: ${{ steps.preflight.outputs.ready }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Preflight secret check
+        id: preflight
+        shell: bash
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "APT_GPG_PRIVATE_KEY is not configured. Skipping APT repo publish."
+            exit 0
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure GitHub CLI is available
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        run: |
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+
+          sudo apt-get update
+          sudo apt-get install -y gh
+          gh --version
+
+      - name: Install APT repo build dependencies
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+      - name: Download Linux release asset
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          mkdir -p release-input/linux
+          gh release download "$TAG_NAME" --pattern "*.deb" --dir release-input/linux
+          find release-input/linux -type f | sort
+
+      - name: Build APT repository
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          APT_REPO_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/apt
+          APT_ORIGIN: Record Screen
+          APT_LABEL: Record Screen
+        run: |
+          DEB_PATH="$(find release-input/linux -type f -name '*.deb' | head -n 1)"
+          if [ -z "$DEB_PATH" ]; then
+            echo "No .deb asset found in release."
+            exit 1
+          fi
+
+          scripts/build-apt-repo.sh "$DEB_PATH" pages-site/apt
+
+      - name: Add root index
+        if: steps.preflight.outputs.ready == 'true'
+        shell: bash
+        run: |
+          cat > pages-site/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>Record Screen Packages</title>
+            </head>
+            <body>
+              <h1>Record Screen Packages</h1>
+              <ul>
+                <li><a href="./apt/">APT repository</a></li>
+              </ul>
+            </body>
+          </html>
+          EOF
+
+      - name: Configure Pages
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages-site
+
+      - name: Skip notice
+        if: steps.preflight.outputs.ready != 'true'
+        run: echo "APT repo publish skipped because signing secrets are not configured."
+
+  deploy-pages:
+    name: Deploy APT repo to GitHub Pages
+    runs-on: ubuntu-22.04
+    needs: build-repo
+    if: needs.build-repo.outputs.ready == 'true'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
