@@ -1,5 +1,5 @@
 use app_core::{RecorderSnapshot, RecorderStatus};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Error as TauriError, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::{emit_recorder_state, with_core};
 
@@ -31,16 +31,24 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
             .visible(false)
             .resizable(false)
             .always_on_top(true)
-            .transparent(true)
             .decorations(false)
             .skip_taskbar(true)
             .shadow(true);
 
-    if let Some(icon) = app.default_window_icon().cloned() {
-        builder = builder.icon(icon).map_err(|error| error.to_string())?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.transparent(true);
     }
 
-    builder.build().map_err(|error| error.to_string())?;
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder
+            .icon(icon)
+            .map_err(|error: TauriError| error.to_string())?;
+    }
+
+    builder
+        .build()
+        .map_err(|error: TauriError| error.to_string())?;
     Ok(())
 }
 
