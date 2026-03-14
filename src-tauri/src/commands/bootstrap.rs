@@ -1,9 +1,9 @@
 use app_core::BootstrapSnapshot;
-use capture::CaptureTargetOption;
+use capture::{AudioInputOption, CaptureTargetOption};
 use shortcuts::ShortcutBinding;
 use tauri::{AppHandle, State};
 
-use crate::{AppState, bootstrap, capture_targets, register_shortcuts};
+use crate::{AppState, audio_inputs, bootstrap, capture_targets, register_shortcuts};
 
 #[tauri::command]
 pub fn get_bootstrap(
@@ -11,12 +11,21 @@ pub fn get_bootstrap(
     state: State<'_, AppState>,
 ) -> Result<BootstrapSnapshot, String> {
     let capture_targets = capture_targets::initial_capture_targets();
-    let core = state
+    let audio_inputs = audio_inputs::initial_audio_inputs();
+    let mut core = state
         .core
         .lock()
         .map_err(|_| "failed to lock app state".to_string())?;
+    let current_audio_input_id = core.settings().audio_input_id;
+    if let Some(next_audio_input_id) =
+        audio_inputs::normalize_audio_input_selection(&current_audio_input_id, &audio_inputs)
+    {
+        if next_audio_input_id != current_audio_input_id {
+            core.update_audio_input(next_audio_input_id);
+        }
+    }
     let platform = bootstrap::platform_name();
-    let mut snapshot = core.bootstrap(platform, capture_targets);
+    let mut snapshot = core.bootstrap(platform, capture_targets, audio_inputs);
     snapshot.permissions = permissions::probe_permissions(platform);
     snapshot.recent_sessions =
         crate::commands::library::scan_recent_recordings(&snapshot.settings.output_directory);
@@ -28,6 +37,11 @@ pub fn get_bootstrap(
 #[tauri::command]
 pub fn get_capture_targets() -> Result<Vec<CaptureTargetOption>, String> {
     Ok(capture_targets::available_capture_targets())
+}
+
+#[tauri::command]
+pub fn get_audio_inputs() -> Result<Vec<AudioInputOption>, String> {
+    Ok(audio_inputs::available_audio_inputs())
 }
 
 #[tauri::command]

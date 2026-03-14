@@ -10,8 +10,9 @@ mod platform {
     };
 
     use capture::{
-        ActiveRecording, CaptureController, CaptureError, CaptureTargetOption,
-        FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions, full_desktop_target,
+        ActiveRecording, AudioInputOption, CaptureController, CaptureError, CaptureTargetOption,
+        DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
+        default_audio_input, full_desktop_target, resolve_audio_input_id,
     };
     use serde::Deserialize;
 
@@ -216,6 +217,12 @@ mod platform {
         targets
     }
 
+    pub fn list_audio_inputs() -> Vec<AudioInputOption> {
+        let mut inputs = vec![default_audio_input()];
+        inputs.extend(discover_audio_inputs().unwrap_or_default());
+        inputs
+    }
+
     fn resolve_target(target_id: &str) -> Result<ResolvedTarget, CaptureError> {
         let monitors = query_monitors().unwrap_or_default();
 
@@ -334,21 +341,18 @@ mod platform {
         command.arg("-i").arg(&target.source);
 
         if options.mic_enabled {
-            if let Ok(device_name) = discover_audio_device() {
-                command
-                    .arg("-f")
-                    .arg("dshow")
-                    .arg("-thread_queue_size")
-                    .arg("1024")
-                    .arg("-i")
-                    .arg(format!("audio={device_name}"))
-                    .arg("-c:a")
-                    .arg("aac")
-                    .arg("-b:a")
-                    .arg("192k");
-            } else {
-                command.arg("-an");
-            }
+            let device_name = discover_audio_device(&options.audio_input_id)?;
+            command
+                .arg("-f")
+                .arg("dshow")
+                .arg("-thread_queue_size")
+                .arg("1024")
+                .arg("-i")
+                .arg(format!("audio={device_name}"))
+                .arg("-c:a")
+                .arg("aac")
+                .arg("-b:a")
+                .arg("192k");
         } else {
             command.arg("-an");
         }
@@ -439,7 +443,32 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
         )
     }
 
-    fn discover_audio_device() -> Result<String, CaptureError> {
+    fn discover_audio_device(selected_audio_input_id: &str) -> Result<String, CaptureError> {
+        let audio_inputs = discover_audio_inputs()?;
+        if audio_inputs.is_empty() {
+            return Err(CaptureError::BackendUnavailable(
+                "ffmpeg did not expose any DirectShow audio input device".to_string(),
+            ));
+        }
+
+        if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
+            return resolve_audio_input_id(selected_audio_input_id, &audio_inputs).ok_or_else(
+                || {
+                    CaptureError::BackendUnavailable(
+                        "ffmpeg did not expose any DirectShow audio input device".to_string(),
+                    )
+                },
+            );
+        }
+
+        resolve_audio_input_id(selected_audio_input_id, &audio_inputs).ok_or_else(|| {
+            CaptureError::BackendUnavailable(format!(
+                "the selected microphone input `{selected_audio_input_id}` is no longer available"
+            ))
+        })
+    }
+
+    fn discover_audio_inputs() -> Result<Vec<AudioInputOption>, CaptureError> {
         let output = Command::new("ffmpeg")
             .args(["-list_devices", "true", "-f", "dshow", "-i", "dummy"])
             .output()
@@ -447,7 +476,7 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
 
         let listing = String::from_utf8_lossy(&output.stderr);
         let mut in_audio_section = false;
-        let mut first_audio = None;
+        let mut audio_inputs = Vec::new();
 
         for line in listing.lines() {
             if line.contains("DirectShow audio devices") {
@@ -466,19 +495,21 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
             let Some(device_name) = parse_ffmpeg_quoted_device(line) else {
                 continue;
             };
-            if first_audio.is_none() {
-                first_audio = Some(device_name.clone());
-            }
-            if device_name.to_lowercase().contains("microphone") {
-                return Ok(device_name);
-            }
+
+            audio_inputs.push(AudioInputOption {
+                id: device_name.clone(),
+                label: device_name.clone(),
+                description: format!("DirectShow input: {device_name}"),
+            });
         }
 
-        first_audio.ok_or_else(|| {
-            CaptureError::BackendUnavailable(
+        if audio_inputs.is_empty() {
+            return Err(CaptureError::BackendUnavailable(
                 "ffmpeg did not expose any DirectShow audio input device".to_string(),
-            )
-        })
+            ));
+        }
+
+        Ok(audio_inputs)
     }
 
     fn parse_ffmpeg_quoted_device(line: &str) -> Option<String> {
@@ -583,7 +614,7 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
 }
 
 #[cfg(target_os = "windows")]
-pub use platform::{FfmpegWindowsCapture, list_capture_targets};
+pub use platform::{FfmpegWindowsCapture, list_audio_inputs, list_capture_targets};
 
 #[cfg(not(target_os = "windows"))]
 pub struct FfmpegWindowsCapture;
@@ -591,6 +622,11 @@ pub struct FfmpegWindowsCapture;
 #[cfg(not(target_os = "windows"))]
 pub fn list_capture_targets() -> Vec<capture::CaptureTargetOption> {
     vec![capture::full_desktop_target()]
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn list_audio_inputs() -> Vec<capture::AudioInputOption> {
+    vec![capture::default_audio_input()]
 }
 
 pub fn backend_name() -> &'static str {

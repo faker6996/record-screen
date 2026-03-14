@@ -26,6 +26,7 @@ fn linux_smoke_recording_creates_output_file() {
             .unwrap_or(false),
         capture_target_id: env::var("RECORD_SCREEN_SMOKE_TARGET_ID")
             .unwrap_or_else(|_| "full-desktop".to_string()),
+        audio_input_id: capture::DEFAULT_AUDIO_INPUT_ID.to_string(),
     };
 
     let mut controller =

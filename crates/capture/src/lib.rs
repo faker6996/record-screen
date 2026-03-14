@@ -7,10 +7,19 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const FULL_DESKTOP_TARGET_ID: &str = "full-desktop";
+pub const DEFAULT_AUDIO_INPUT_ID: &str = "default";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureTargetOption {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioInputOption {
     pub id: String,
     pub label: String,
     pub description: String,
@@ -22,6 +31,7 @@ pub struct RecordingOptions {
     pub quality_preset: String,
     pub mic_enabled: bool,
     pub capture_target_id: String,
+    pub audio_input_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -77,5 +87,126 @@ pub fn full_desktop_target() -> CaptureTargetOption {
         label: "Full desktop".to_string(),
         description: "Record the entire active desktop layout across all connected displays."
             .to_string(),
+    }
+}
+
+pub fn default_audio_input() -> AudioInputOption {
+    AudioInputOption {
+        id: DEFAULT_AUDIO_INPUT_ID.to_string(),
+        label: "Default input".to_string(),
+        description: "Use the system default microphone or audio input device.".to_string(),
+    }
+}
+
+pub fn resolve_audio_input_id(
+    selected_audio_input_id: &str,
+    audio_inputs: &[AudioInputOption],
+) -> Option<String> {
+    if audio_inputs.is_empty() {
+        return None;
+    }
+
+    if selected_audio_input_id != DEFAULT_AUDIO_INPUT_ID {
+        return audio_inputs
+            .iter()
+            .find(|input| input.id == selected_audio_input_id)
+            .map(|input| input.id.clone());
+    }
+
+    preferred_audio_input(audio_inputs)
+        .or_else(|| {
+            audio_inputs
+                .iter()
+                .find(|input| input.id == DEFAULT_AUDIO_INPUT_ID)
+        })
+        .map(|input| input.id.clone())
+}
+
+pub fn preferred_audio_input(audio_inputs: &[AudioInputOption]) -> Option<&AudioInputOption> {
+    audio_inputs
+        .iter()
+        .filter(|input| input.id != DEFAULT_AUDIO_INPUT_ID)
+        .max_by_key(|input| audio_input_score(input))
+}
+
+fn audio_input_score(input: &AudioInputOption) -> i32 {
+    let haystack = format!(
+        "{} {}",
+        input.label.to_ascii_lowercase(),
+        input.description.to_ascii_lowercase()
+    );
+
+    let mut score = 0;
+
+    if haystack.contains("microphone") || haystack.contains("mic") {
+        score += 120;
+    }
+    if haystack.contains("built-in") || haystack.contains("internal") {
+        score += 20;
+    }
+    if haystack.contains("usb") || haystack.contains("interface") {
+        score += 18;
+    }
+    if haystack.contains("headset") || haystack.contains("airpods") {
+        score += 14;
+    }
+    if haystack.contains("array") {
+        score += 10;
+    }
+    if haystack.contains("monitor")
+        || haystack.contains("stereo mix")
+        || haystack.contains("what u hear")
+        || haystack.contains("loopback")
+        || haystack.contains("speaker")
+        || haystack.contains("output")
+    {
+        score -= 140;
+    }
+
+    score
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AudioInputOption, DEFAULT_AUDIO_INPUT_ID, resolve_audio_input_id};
+
+    #[test]
+    fn resolves_default_to_best_microphone_candidate() {
+        let audio_inputs = vec![
+            AudioInputOption {
+                id: DEFAULT_AUDIO_INPUT_ID.to_string(),
+                label: "Default input".to_string(),
+                description: "System default microphone".to_string(),
+            },
+            AudioInputOption {
+                id: "monitor.loopback".to_string(),
+                label: "Monitor of Built-in Audio".to_string(),
+                description: "Loopback output".to_string(),
+            },
+            AudioInputOption {
+                id: "usb-mic".to_string(),
+                label: "USB Microphone".to_string(),
+                description: "External USB microphone".to_string(),
+            },
+        ];
+
+        assert_eq!(
+            resolve_audio_input_id(DEFAULT_AUDIO_INPUT_ID, &audio_inputs).as_deref(),
+            Some("usb-mic")
+        );
+    }
+
+    #[test]
+    fn preserves_explicit_audio_input_when_available() {
+        let audio_inputs = vec![AudioInputOption {
+            id: "built-in".to_string(),
+            label: "Built-in Microphone".to_string(),
+            description: "Internal microphone".to_string(),
+        }];
+
+        assert_eq!(
+            resolve_audio_input_id("built-in", &audio_inputs).as_deref(),
+            Some("built-in")
+        );
     }
 }

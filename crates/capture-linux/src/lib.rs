@@ -9,8 +9,9 @@ use std::{
 };
 
 use capture::{
-    ActiveRecording, CaptureController, CaptureError, CaptureTargetOption, FULL_DESKTOP_TARGET_ID,
-    RecordingArtifact, RecordingOptions, full_desktop_target,
+    ActiveRecording, AudioInputOption, CaptureController, CaptureError, CaptureTargetOption,
+    DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
+    default_audio_input, full_desktop_target, resolve_audio_input_id,
 };
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
@@ -220,6 +221,12 @@ pub fn list_capture_targets() -> Vec<CaptureTargetOption> {
     targets
 }
 
+pub fn list_audio_inputs() -> Vec<AudioInputOption> {
+    let mut inputs = vec![default_audio_input()];
+    inputs.extend(query_audio_inputs().unwrap_or_default());
+    inputs
+}
+
 fn resolve_target(target_id: &str) -> Result<ResolvedTarget, CaptureError> {
     let monitors = query_monitors().unwrap_or_default();
 
@@ -330,13 +337,14 @@ fn spawn_ffmpeg(
         .arg(format!("{input}+{},{}", target.origin_x, target.origin_y));
 
     if options.mic_enabled {
+        let audio_input = resolve_audio_input(&options.audio_input_id)?;
         command
             .arg("-f")
             .arg("pulse")
             .arg("-thread_queue_size")
             .arg("1024")
             .arg("-i")
-            .arg("default");
+            .arg(audio_input);
     }
 
     command
@@ -391,6 +399,68 @@ fn spawn_ffmpeg(
     }
 
     Ok((child, stdin))
+}
+
+fn resolve_audio_input(audio_input_id: &str) -> Result<String, CaptureError> {
+    let audio_inputs = query_audio_inputs()?;
+
+    if audio_input_id == DEFAULT_AUDIO_INPUT_ID {
+        return resolve_audio_input_id(audio_input_id, &audio_inputs)
+            .or_else(|| {
+                audio_inputs
+                    .iter()
+                    .find(|input| input.id == DEFAULT_AUDIO_INPUT_ID)
+                    .map(|input| input.id.clone())
+            })
+            .or_else(|| Some("default".to_string()))
+            .ok_or_else(|| {
+                CaptureError::BackendUnavailable(
+                    "ffmpeg could not find any usable PulseAudio microphone source".to_string(),
+                )
+            });
+    }
+
+    resolve_audio_input_id(audio_input_id, &audio_inputs).ok_or_else(|| {
+        CaptureError::BackendUnavailable(format!(
+            "the selected microphone input `{audio_input_id}` is no longer available"
+        ))
+    })
+}
+
+fn query_audio_inputs() -> Result<Vec<AudioInputOption>, CaptureError> {
+    let output = Command::new("pactl")
+        .args(["list", "short", "sources"])
+        .output()
+        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+
+    if !output.status.success() {
+        return Err(CaptureError::BackendUnavailable(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let mut inputs = Vec::new();
+
+    for line in listing.lines() {
+        let mut columns = line.split('\t');
+        let _index = columns.next();
+        let Some(name) = columns.next() else {
+            continue;
+        };
+
+        if name.ends_with(".monitor") {
+            continue;
+        }
+
+        inputs.push(AudioInputOption {
+            id: name.to_string(),
+            label: name.to_string(),
+            description: format!("PulseAudio source: {name}"),
+        });
+    }
+
+    Ok(inputs)
 }
 
 fn query_monitors() -> Result<Vec<MonitorDescriptor>, CaptureError> {

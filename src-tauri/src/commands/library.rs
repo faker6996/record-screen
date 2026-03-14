@@ -33,7 +33,9 @@ fn run_command(mut command: Command, action_label: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    Err(format!("Failed to {action_label}: process exited with {status}"))
+    Err(format!(
+        "Failed to {action_label}: process exited with {status}"
+    ))
 }
 
 #[cfg(target_os = "linux")]
@@ -147,14 +149,17 @@ pub fn scan_recent_recordings(output_directory: &str) -> Vec<SessionSummary> {
             let modified = metadata.modified().ok().unwrap_or(SystemTime::UNIX_EPOCH);
             let filename = path.file_name()?.to_string_lossy().to_string();
 
-            Some((modified, SessionSummary {
-                id: format!("file-{}", filename),
-                title: filename,
-                started_at: format_modified_at(modified),
-                duration_label: String::new(),
-                location: path.display().to_string(),
-                size_label: format_size(metadata.len()),
-            }))
+            Some((
+                modified,
+                SessionSummary {
+                    id: format!("file-{}", filename),
+                    title: filename,
+                    started_at: format_modified_at(modified),
+                    duration_label: String::new(),
+                    location: path.display().to_string(),
+                    size_label: format_size(metadata.len()),
+                },
+            ))
         })
         .collect::<Vec<_>>();
 

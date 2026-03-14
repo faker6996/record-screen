@@ -1,6 +1,7 @@
 import { startTransition, useEffect, useRef, useState } from 'react'
 import { desktopClient } from '../services/desktop-client'
 import type {
+  AudioInputOption,
   AppSettings,
   BootstrapSnapshot,
   CaptureTargetOption,
@@ -76,6 +77,20 @@ function updateCaptureTargetsSnapshot(
   }
 }
 
+function updateAudioInputsSnapshot(
+  snapshot: BootstrapSnapshot | null,
+  audioInputs: AudioInputOption[],
+) {
+  if (!snapshot) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    audioInputs,
+  }
+}
+
 export function useDesktopState() {
   const [snapshot, setSnapshot] = useState<BootstrapSnapshot | null>(null)
   const [currentWindowLabel, setCurrentWindowLabel] = useState('main')
@@ -111,6 +126,7 @@ export function useDesktopState() {
           setIsLoading(false)
         })
         void refreshCaptureTargets()
+        void refreshAudioInputs()
       } catch (loadError) {
         if (isDisposed) {
           return
@@ -138,6 +154,7 @@ export function useDesktopState() {
           setActionError(null)
         })
         void refreshCaptureTargets()
+        void refreshAudioInputs()
       } catch (refreshError) {
         if (isDisposed) {
           return
@@ -172,6 +189,21 @@ export function useDesktopState() {
         })
       } catch {
         // Keep the initial fallback target list if discovery fails.
+      }
+    }
+
+    async function refreshAudioInputs() {
+      try {
+        const audioInputs = await desktopClient.getAudioInputs()
+        if (isDisposed) {
+          return
+        }
+
+        startTransition(() => {
+          setSnapshot((current) => updateAudioInputsSnapshot(current, audioInputs))
+        })
+      } catch {
+        // Keep the initial fallback list if discovery fails.
       }
     }
 
@@ -397,6 +429,24 @@ export function useDesktopState() {
     }
   }
 
+  async function updateAudioInput(audioInputId: string) {
+    try {
+      const settings = await desktopClient.updateAudioInput(audioInputId)
+      startTransition(() => {
+        setSnapshot((current) => updateSettingsSnapshot(current, settings))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update microphone input.',
+        )
+      })
+    }
+  }
+
   async function updateOutputDirectory(outputDirectory: string) {
     try {
       const settings = await desktopClient.updateOutputDirectory(outputDirectory)
@@ -540,6 +590,7 @@ export function useDesktopState() {
     showHud: desktopClient.showHud,
     toggleMicrophone,
     updateCaptureTarget,
+    updateAudioInput,
     updateShowHudDuringRecording,
     toggleRecording,
     updateLaunchOnLogin,

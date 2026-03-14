@@ -1,14 +1,13 @@
-#[cfg(target_os = "linux")]
 use std::{
     io::{BufRead, BufReader},
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStderr, Command, Stdio},
     thread,
 };
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::AppState;
+use crate::{AppState, audio_inputs};
 
 const MIC_CHECK_EVENT: &str = "recorder://mic-check-state";
 
@@ -31,7 +30,6 @@ impl MicCheckSnapshot {
         }
     }
 
-    #[cfg(target_os = "linux")]
     fn listening() -> Self {
         Self {
             active: true,
@@ -41,7 +39,6 @@ impl MicCheckSnapshot {
         }
     }
 
-    #[cfg(target_os = "linux")]
     fn error(message: String) -> Self {
         Self {
             active: false,
@@ -53,79 +50,12 @@ impl MicCheckSnapshot {
 }
 
 pub struct MicCheckProcess {
-    #[cfg(target_os = "linux")]
     child: Child,
 }
 
 pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
     let _ = stop_mic_check(app);
-
-    #[cfg(target_os = "linux")]
-    {
-        start_linux_mic_check(app)
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        Err("Native mic check is currently implemented for Linux only.".to_string())
-    }
-}
-
-pub fn stop_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
-    let state = app.state::<AppState>();
-    let mut mic_check = state
-        .mic_check
-        .lock()
-        .map_err(|_| "failed to lock mic check runtime".to_string())?;
-
-    #[cfg(target_os = "linux")]
-    if let Some(mut process) = mic_check.take() {
-        let _ = process.child.kill();
-        let _ = process.child.wait();
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = mic_check.take();
-
-    let snapshot = MicCheckSnapshot::inactive();
-    emit_mic_check_state(app, &snapshot);
-    Ok(snapshot)
-}
-
-pub fn emit_mic_check_state(app: &AppHandle, snapshot: &MicCheckSnapshot) {
-    let _ = app.emit(MIC_CHECK_EVENT, snapshot);
-}
-
-#[cfg(target_os = "linux")]
-fn start_linux_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
-    let mut command = Command::new("ffmpeg");
-    command
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "info",
-            "-nostdin",
-            "-f",
-            "pulse",
-            "-i",
-            "default",
-            "-af",
-            "astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level",
-            "-f",
-            "null",
-            "-",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("failed to start microphone check: {error}"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "failed to read microphone monitor output".to_string())?;
+    let (child, stderr) = spawn_platform_mic_check(app)?;
 
     {
         let state = app.state::<AppState>();
@@ -166,7 +96,138 @@ fn start_linux_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
     Ok(snapshot)
 }
 
+pub fn stop_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
+    let state = app.state::<AppState>();
+    let mut mic_check = state
+        .mic_check
+        .lock()
+        .map_err(|_| "failed to lock mic check runtime".to_string())?;
+
+    if let Some(mut process) = mic_check.take() {
+        let _ = process.child.kill();
+        let _ = process.child.wait();
+    }
+
+    let snapshot = MicCheckSnapshot::inactive();
+    emit_mic_check_state(app, &snapshot);
+    Ok(snapshot)
+}
+
+pub fn emit_mic_check_state(app: &AppHandle, snapshot: &MicCheckSnapshot) {
+    let _ = app.emit(MIC_CHECK_EVENT, snapshot);
+}
+
+fn selected_audio_input_id(app: &AppHandle) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    let core = state
+        .core
+        .lock()
+        .map_err(|_| "failed to lock app state".to_string())?;
+    let selected_audio_input_id = core.settings().audio_input_id;
+    let available_audio_inputs = audio_inputs::available_audio_inputs();
+
+    audio_inputs::normalize_audio_input_selection(&selected_audio_input_id, &available_audio_inputs)
+        .ok_or_else(|| "Unable to find a usable microphone input.".to_string())
+}
+
 #[cfg(target_os = "linux")]
+fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
+    let audio_input = selected_audio_input_id(app)?;
+    let mut command = Command::new("ffmpeg");
+    command
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "info",
+            "-nostdin",
+            "-f",
+            "pulse",
+            "-i",
+            &audio_input,
+            "-af",
+            "astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level",
+            "-f",
+            "null",
+            "-",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    spawn_probe_process(command)
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
+    let audio_input = selected_audio_input_id(app)?;
+    let mut command = Command::new("ffmpeg");
+    command
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "info",
+            "-nostdin",
+            "-f",
+            "avfoundation",
+            "-i",
+            &format!(":{audio_input}"),
+            "-af",
+            "astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level",
+            "-f",
+            "null",
+            "-",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    spawn_probe_process(command)
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
+    let audio_input = selected_audio_input_id(app)?;
+    let mut command = Command::new("ffmpeg");
+    command
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "info",
+            "-nostdin",
+            "-f",
+            "dshow",
+            "-i",
+            &format!("audio={audio_input}"),
+            "-af",
+            "astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level",
+            "-f",
+            "null",
+            "-",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    spawn_probe_process(command)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn spawn_platform_mic_check(_app: &AppHandle) -> Result<(Child, ChildStderr), String> {
+    Err("Native mic check is currently implemented for macOS, Linux, and Windows.".to_string())
+}
+
+fn spawn_probe_process(mut command: Command) -> Result<(Child, ChildStderr), String> {
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("failed to start microphone check: {error}"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to read microphone monitor output".to_string())?;
+
+    Ok((child, stderr))
+}
+
 fn parse_rms_level(line: &str) -> Option<f32> {
     let (_, value) = line.split_once("lavfi.astats.Overall.RMS_level=")?;
     let normalized = match value.trim() {
@@ -180,19 +241,27 @@ fn parse_rms_level(line: &str) -> Option<f32> {
     Some(normalized)
 }
 
-#[cfg(target_os = "linux")]
 fn detect_probe_error(line: &str) -> Option<String> {
     let lowered = line.to_ascii_lowercase();
-    if lowered.contains("permission denied") || lowered.contains("not allowed") {
-        return Some("Microphone access was denied by the desktop audio stack.".to_string());
+    if lowered.contains("permission denied")
+        || lowered.contains("not allowed")
+        || lowered.contains("not authorized")
+        || lowered.contains("operation not permitted")
+    {
+        return Some("Microphone access was denied by the operating system.".to_string());
     }
 
     if lowered.contains("no such process")
         || lowered.contains("no such file or directory")
         || lowered.contains("cannot open audio device")
         || lowered.contains("input/output error")
+        || lowered.contains("could not find audio only device")
+        || lowered.contains("audio device")
+        || lowered.contains("directshow audio")
+        || lowered.contains("avfoundation")
+        || lowered.contains("pulse")
     {
-        return Some("The default microphone source is not available right now.".to_string());
+        return Some("The selected microphone input is not available right now.".to_string());
     }
 
     None

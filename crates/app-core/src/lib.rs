@@ -1,4 +1,4 @@
-use capture::CaptureTargetOption;
+use capture::{AudioInputOption, CaptureTargetOption};
 use permissions::{PermissionCheck, default_permissions};
 use serde::{Deserialize, Serialize};
 use shortcuts::{ShortcutBinding, default_shortcuts};
@@ -56,6 +56,7 @@ pub struct BootstrapSnapshot {
     pub recorder: RecorderSnapshot,
     pub settings: AppSettings,
     pub capture_targets: Vec<CaptureTargetOption>,
+    pub audio_inputs: Vec<AudioInputOption>,
     pub quality_presets: Vec<String>,
     pub shortcuts: Vec<ShortcutBinding>,
     pub permissions: Vec<PermissionCheck>,
@@ -106,6 +107,7 @@ impl AppCore {
         &self,
         platform: &str,
         capture_targets: Vec<CaptureTargetOption>,
+        audio_inputs: Vec<AudioInputOption>,
     ) -> BootstrapSnapshot {
         BootstrapSnapshot {
             app_name: "Record Screen".to_string(),
@@ -116,6 +118,7 @@ impl AppCore {
             recorder: self.current_snapshot(),
             settings: self.settings.clone(),
             capture_targets,
+            audio_inputs,
             quality_presets: Self::quality_presets(),
             shortcuts: self.shortcuts.clone(),
             permissions: default_permissions(platform),
@@ -249,6 +252,14 @@ impl AppCore {
         if !capture_target_id.trim().is_empty() {
             self.settings.capture_target_id = capture_target_id;
             self.active_target = capture_target_label;
+        }
+
+        self.settings.clone()
+    }
+
+    pub fn update_audio_input(&mut self, audio_input_id: String) -> AppSettings {
+        if !audio_input_id.trim().is_empty() {
+            self.settings.audio_input_id = audio_input_id;
         }
 
         self.settings.clone()

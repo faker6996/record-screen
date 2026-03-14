@@ -7,7 +7,7 @@ use std::{
 use storage::{AppSettings, expand_home_path};
 use tauri::{AppHandle, State};
 
-use crate::{AppState, capture_targets, emit_recorder_state};
+use crate::{AppState, audio_inputs, capture_targets, emit_recorder_state};
 
 #[tauri::command]
 pub fn update_quality_preset(
@@ -103,6 +103,31 @@ pub fn update_capture_target(
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
         let settings = core.update_capture_target(capture_target.id, capture_target.label);
+        let recorder = core.snapshot();
+        (settings, recorder)
+    };
+
+    emit_recorder_state(&app, &recorder);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn update_audio_input(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    audio_input_id: String,
+) -> Result<AppSettings, String> {
+    let audio_input = audio_inputs::available_audio_inputs()
+        .into_iter()
+        .find(|input| input.id == audio_input_id)
+        .ok_or_else(|| "selected microphone input is not available".to_string())?;
+
+    let (settings, recorder) = {
+        let mut core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        let settings = core.update_audio_input(audio_input.id);
         let recorder = core.snapshot();
         (settings, recorder)
     };
@@ -264,13 +289,14 @@ fn open_directory_picker(current_directory: &str) -> Result<Option<PathBuf>, Str
 #[cfg(target_os = "linux")]
 fn command_exists(command_name: &str) -> bool {
     env::var_os("PATH")
-        .map(|path| {
-            env::split_paths(&path).any(|directory| directory.join(command_name).is_file())
-        })
+        .map(|path| env::split_paths(&path).any(|directory| directory.join(command_name).is_file()))
         .unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]
 fn escape_applescript_path(path: &Path) -> String {
-    path.display().to_string().replace('\\', "\\\\").replace('\"', "\\\"")
+    path.display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('\"', "\\\"")
 }

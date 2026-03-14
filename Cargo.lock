@@ -2800,7 +2800,7 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "record-screen-desktop"
-version = "0.1.8"
+version = "0.1.10"
 dependencies = [
  "app-core",
  "capture",
@@ -3357,6 +3357,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 name = "storage"
 version = "0.1.0"
 dependencies = [
+ "capture",
  "serde",
  "thiserror 2.0.18",
 ]

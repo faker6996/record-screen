@@ -21,12 +21,19 @@ export interface AppSettings {
   outputDirectory: string
   qualityPreset: string
   micEnabled: boolean
+  audioInputId: string
   launchOnLogin: boolean
   showHudDuringRecording: boolean
   captureTargetId: string
 }
 
 export interface CaptureTargetOption {
+  id: string
+  label: string
+  description: string
+}
+
+export interface AudioInputOption {
   id: string
   label: string
   description: string
@@ -70,6 +77,7 @@ export interface BootstrapSnapshot {
   recorder: RecorderSnapshot
   settings: AppSettings
   captureTargets: CaptureTargetOption[]
+  audioInputs: AudioInputOption[]
   qualityPresets: string[]
   shortcuts: ShortcutBinding[]
   permissions: PermissionCheck[]

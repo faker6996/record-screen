@@ -1,31 +1,39 @@
-import { AudioLines, Mic, MicOff, Monitor, Music2, Pause, Play } from 'lucide-react'
+import { AudioLines, Mic, Monitor, Pause, Play } from 'lucide-react'
 import { useEffect } from 'react'
 import { Combobox } from '../../../components/Combobox'
-import { Kbd } from '../../../components/Kbd'
 import { useMicCheck } from '../../../hooks/use-mic-check'
 import type {
+  AudioInputOption,
   CaptureTargetOption,
   RecorderSnapshot,
 } from '../../../types/desktop'
 
 interface RecorderPanelProps {
+  audioInputs: AudioInputOption[]
   captureTargets: CaptureTargetOption[]
   recorder: RecorderSnapshot
   onPauseResume: () => Promise<void>
+  onUpdateAudioInput: (audioInputId: string) => Promise<void>
   onUpdateCaptureTarget: (captureTargetId: string) => Promise<void>
   onToggleMicrophone: () => Promise<void>
   onToggleRecording: () => Promise<void>
+  selectedAudioInputId: string
   selectedCaptureTargetId: string
+  runtimeError: string | null
 }
 
 export function RecorderPanel({
+  audioInputs,
   captureTargets,
   recorder,
   onPauseResume,
+  onUpdateAudioInput,
   onUpdateCaptureTarget,
   onToggleMicrophone,
   onToggleRecording,
+  selectedAudioInputId,
   selectedCaptureTargetId,
+  runtimeError,
 }: RecorderPanelProps) {
   const {
     active: micCheckActive,
@@ -36,22 +44,15 @@ export function RecorderPanel({
     toggle: toggleMicCheck,
     stop: stopMicCheck,
   } = useMicCheck()
+
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
-  const title = isIdle
-    ? 'Ready to record'
-    : isPaused
-      ? 'Paused and waiting'
-      : 'Recording right now'
   const recordLabel = isIdle ? 'REC' : 'STOP'
-  const micMeterSteps = Array.from({ length: 12 }, (_, index) => {
-    const threshold = (index + 1) / 12
-    return micLevel >= threshold
-  })
-  const micNoteStates = Array.from({ length: 3 }, (_, index) => {
-    const threshold = 0.16 + index * 0.18
-    return micCheckActive && hasSignal && micLevel >= threshold
-  })
+  const selectedCaptureTarget =
+    captureTargets.find((target) => target.id === selectedCaptureTargetId) ?? null
+  const selectedAudioInput =
+    audioInputs.find((input) => input.id === selectedAudioInputId) ?? null
+  const micLevelPercent = recorder.micEnabled ? Math.round(micLevel * 100) : 0
   const micCheckLabel = micCheckError
     ? micCheckError
     : micCheckActive
@@ -59,8 +60,14 @@ export function RecorderPanel({
         ? 'Mic detected'
         : 'Listening for input'
       : recorder.micEnabled
-        ? 'Default Input'
+        ? selectedAudioInput?.label ?? 'Default input'
         : 'Microphone muted'
+  const title = isIdle ? 'Ready to Record' : isPaused ? 'Paused' : 'Recording'
+  const copy = isIdle
+    ? 'Select your target and start capturing.'
+    : isPaused
+      ? 'Capture is paused. Resume when you are ready.'
+      : 'Recording is in progress. Stop when your session is complete.'
 
   useEffect(() => {
     if (!isIdle && micCheckActive) {
@@ -69,7 +76,30 @@ export function RecorderPanel({
   }, [isIdle, micCheckActive, stopMicCheck])
 
   return (
-    <section className="recorder-panel" aria-label={title}>
+    <section className="recorder-panel" aria-label="Recorder controls">
+      <header className="recorder-panel__intro">
+        <h2 className="recorder-panel__title">{title}</h2>
+        <p className="recorder-panel__copy">{copy}</p>
+        <div className="recorder-panel__status-row">
+          <span
+            className={`recorder-panel__status-pill recorder-panel__status-pill--${recorder.status}`}
+          >
+            {recorder.status}
+          </span>
+          <span className="recorder-panel__status-meta">{selectedCaptureTarget?.label}</span>
+          <span className="recorder-panel__status-meta">
+            {recorder.micEnabled ? selectedAudioInput?.label ?? 'Default input' : 'Mic off'}
+          </span>
+        </div>
+      </header>
+
+      {runtimeError ? (
+        <section className="recorder-panel__error" role="alert">
+          <strong>Recorder issue</strong>
+          <p>{runtimeError}</p>
+        </section>
+      ) : null}
+
       <div className="recorder-panel__hero">
         <div className="recorder-panel__record-shell">
           <div
@@ -85,48 +115,31 @@ export function RecorderPanel({
           </button>
         </div>
 
-        <div className="recorder-panel__hero-meta">
-          <strong className="recorder-panel__timer">{recorder.elapsedLabel}</strong>
-          <div className="recorder-panel__hero-actions">
+        {!isIdle ? (
+          <div className="recorder-panel__runtime">
+            <strong className="recorder-panel__timer">{recorder.elapsedLabel}</strong>
             <button
-              className="button button--secondary recorder-panel__hero-button"
-              disabled={isIdle}
+              className="recorder-panel__pause-button"
               onClick={() => void onPauseResume()}
               type="button"
             >
               {isPaused ? (
-                <Play aria-hidden="true" size={16} strokeWidth={1.9} />
+                <Play aria-hidden="true" size={18} strokeWidth={2} />
               ) : (
-                <Pause aria-hidden="true" size={16} strokeWidth={1.9} />
+                <Pause aria-hidden="true" size={18} strokeWidth={2} />
               )}
-              {isPaused ? 'Resume' : 'Pause'}
-            </button>
-            <button
-              className="button button--secondary recorder-panel__hero-button"
-              onClick={() => void onToggleMicrophone()}
-              type="button"
-            >
-              {recorder.micEnabled ? (
-                <Mic aria-hidden="true" size={16} strokeWidth={1.9} />
-              ) : (
-                <MicOff aria-hidden="true" size={16} strokeWidth={1.9} />
-              )}
-              {recorder.micEnabled ? 'Mic on' : 'Mic off'}
             </button>
           </div>
-        </div>
+        ) : null}
       </div>
 
       <div className="recorder-panel__control-grid">
         <section className="recorder-panel__control-card">
           <div className="recorder-panel__control-header">
-            <div>
-              <span className="metric-label recorder-panel__metric-label">
-                <Monitor aria-hidden="true" size={14} strokeWidth={1.9} />
-                Capture target
-              </span>
-              <strong>What to record</strong>
-            </div>
+            <span className="metric-label recorder-panel__metric-label">
+              <Monitor aria-hidden="true" size={16} strokeWidth={1.9} />
+              Capture target
+            </span>
           </div>
           <Combobox
             ariaLabel="Capture target"
@@ -142,72 +155,71 @@ export function RecorderPanel({
             value={selectedCaptureTargetId}
           />
           <p className="subtle-copy recorder-panel__helper">
-            {captureTargets.find((target) => target.id === selectedCaptureTargetId)?.description}
+            {selectedCaptureTarget?.description}
           </p>
         </section>
 
         <section className="recorder-panel__control-card">
-          <div className="recorder-panel__control-header">
-            <div>
-              <span className="metric-label recorder-panel__metric-label">
-                <Mic aria-hidden="true" size={14} strokeWidth={1.9} />
-                Microphone
-              </span>
-              <strong>Mic input</strong>
-            </div>
+          <div className="recorder-panel__control-header recorder-panel__control-header--split">
+            <span className="metric-label recorder-panel__metric-label">
+              <Mic aria-hidden="true" size={16} strokeWidth={1.9} />
+              Microphone
+            </span>
+            <button
+              aria-label={recorder.micEnabled ? 'Disable microphone' : 'Enable microphone'}
+              aria-pressed={recorder.micEnabled}
+              className={`recorder-panel__switch ${
+                recorder.micEnabled ? 'recorder-panel__switch--active' : ''
+              }`}
+              onClick={() => void onToggleMicrophone()}
+              type="button"
+            >
+              <span className="recorder-panel__switch-thumb" />
+            </button>
           </div>
 
-          <button
-            className={`recorder-panel__mic-toggle ${
-              recorder.micEnabled ? 'recorder-panel__mic-toggle--active' : ''
-            }`}
-            onClick={() => void onToggleMicrophone()}
-            type="button"
-          >
-            <span className="recorder-panel__mic-copy">
-              {recorder.micEnabled ? (
-                <Mic aria-hidden="true" size={16} strokeWidth={1.9} />
-              ) : (
-                <MicOff aria-hidden="true" size={16} strokeWidth={1.9} />
-              )}
-              {recorder.micEnabled ? 'Default Input' : 'Microphone muted'}
-            </span>
-            <strong>{recorder.micEnabled ? 'On' : 'Off'}</strong>
-          </button>
+          <Combobox
+            ariaLabel="Microphone input"
+            className="recorder-panel__target-combobox"
+            disabled={!recorder.micEnabled || !isIdle}
+            onChange={(nextAudioInputId) => {
+              void onUpdateAudioInput(nextAudioInputId)
+            }}
+            options={audioInputs.map((input) => ({
+              value: input.id,
+              label: input.label,
+            }))}
+            value={selectedAudioInputId}
+          />
+          <p className="subtle-copy recorder-panel__helper">
+            {selectedAudioInput?.description}
+          </p>
 
           <div className="recorder-panel__mic-check">
-            <div
-              className={`recorder-panel__mic-notes ${
-                micCheckActive ? 'recorder-panel__mic-notes--listening' : ''
-              } ${hasSignal ? 'recorder-panel__mic-notes--active' : ''}`}
-              aria-hidden="true"
-            >
-              {micNoteStates.map((isActive, index) => (
-                <span
-                  className={`recorder-panel__mic-note ${
-                    isActive ? 'recorder-panel__mic-note--active' : ''
+            <div className="recorder-panel__mic-level">
+              <div className="recorder-panel__mic-level-copy">
+                <span>Input Level</span>
+                <span>{micLevelPercent}%</span>
+              </div>
+              <div className="recorder-panel__mic-level-track" aria-hidden="true">
+                <div
+                  className={`recorder-panel__mic-level-fill ${
+                    micLevelPercent > 85
+                      ? 'recorder-panel__mic-level-fill--hot'
+                      : micLevelPercent > 65
+                        ? 'recorder-panel__mic-level-fill--warm'
+                        : ''
                   }`}
-                  key={index}
-                >
-                  <Music2 size={16} strokeWidth={1.9} />
-                </span>
-              ))}
-            </div>
-            <div className="recorder-panel__mic-meter" aria-hidden="true">
-              {micMeterSteps.map((isActive, index) => (
-                <span
-                  className={`recorder-panel__mic-meter-bar ${
-                    isActive ? 'recorder-panel__mic-meter-bar--active' : ''
-                  }`}
-                  key={index}
+                  style={{ width: `${micLevelPercent}%` }}
                 />
-              ))}
+              </div>
             </div>
+
             <div className="recorder-panel__mic-check-meta">
               <span className="subtle-copy">{micCheckLabel}</span>
               <button
                 className="button button--secondary recorder-panel__mic-check-button"
-                disabled={!micCheckSupported || !isIdle}
+                disabled={!recorder.micEnabled || !micCheckSupported || !isIdle}
                 onClick={() => void toggleMicCheck()}
                 type="button"
               >
@@ -226,13 +238,10 @@ export function RecorderPanel({
         </div>
       ) : null}
 
-      <div className="recorder-panel__footer">
-        <span className="recorder-panel__shortcut">
-          Global start/stop <Kbd>CmdOrCtrl</Kbd> <Kbd>Shift</Kbd> <Kbd>R</Kbd>
-        </span>
-        <span className="subtle-copy">
-          {recorder.qualityPreset} · {recorder.outputDirectory}
-        </span>
+      <div className="recorder-panel__meta">
+        <span>{recorder.qualityPreset}</span>
+        <span aria-hidden="true">•</span>
+        <span>{recorder.outputDirectory}</span>
       </div>
     </section>
   )

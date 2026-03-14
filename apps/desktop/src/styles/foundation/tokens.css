@@ -93,10 +93,64 @@ body {
   --panel-strong: var(--color-surface-3);
   --panel-border: var(--color-border-soft);
   --text-main: var(--color-text-primary);
+  --text-soft: var(--color-text-secondary);
   --text-muted: var(--color-text-tertiary);
   --accent: var(--color-accent);
   --success: var(--color-success);
   --danger: var(--color-danger);
   --pending: var(--color-warning);
   --shadow: 0 16px 42px var(--color-shadow);
+
+  --recorder-card-bg: color-mix(in srgb, var(--color-bg-base) 58%, transparent);
+  --recorder-card-border: color-mix(in srgb, var(--color-border-soft) 88%, transparent);
+  --recorder-card-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 3%, transparent);
+  --recorder-status-bg: color-mix(in srgb, var(--color-bg-overlay) 24%, var(--color-bg-base));
+  --recorder-status-border: var(--color-control-border-strong);
+  --recorder-status-fg: var(--text-main);
+  --recorder-status-recording-fg: color-mix(in srgb, var(--color-accent-strong) 72%, var(--text-main));
+  --recorder-status-recording-border: color-mix(in srgb, var(--color-accent) 42%, var(--color-control-border));
+  --recorder-status-paused-fg: color-mix(in srgb, var(--color-warning) 76%, var(--text-main));
+  --recorder-status-paused-border: color-mix(in srgb, var(--color-warning) 38%, var(--color-control-border));
+  --recorder-status-meta-bg: color-mix(in srgb, var(--color-bg-base) 46%, transparent);
+  --recorder-status-meta-border: var(--recorder-card-border);
+  --recorder-status-meta-fg: var(--text-muted);
+  --recorder-error-bg: color-mix(in srgb, var(--color-accent-soft) 74%, var(--color-bg-base));
+  --recorder-error-border: color-mix(in srgb, var(--color-danger) 28%, var(--color-border-soft));
+  --recorder-error-title: color-mix(in srgb, var(--color-danger) 74%, var(--text-main));
+  --recorder-error-text: color-mix(in srgb, var(--color-danger) 32%, var(--color-text-primary));
+  --recorder-glow-idle: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --recorder-glow-active: color-mix(in srgb, var(--color-accent) 42%, transparent);
+  --recorder-button-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-bg-overlay) 24%, var(--color-bg-base)) 0%,
+    color-mix(in srgb, var(--color-bg-base) 86%, black) 100%
+  );
+  --recorder-button-border: var(--color-control-border-strong);
+  --recorder-button-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 6%, transparent),
+    0 24px 48px color-mix(in srgb, var(--color-shadow) 82%, transparent);
+  --recorder-button-idle-bg: linear-gradient(
+    180deg,
+    var(--color-accent) 0%,
+    color-mix(in srgb, var(--color-accent) 72%, black) 100%
+  );
+  --recorder-button-idle-border: color-mix(in srgb, var(--color-accent-strong) 42%, transparent);
+  --recorder-button-label: var(--color-text-on-accent);
+  --recorder-button-live-fg: var(--color-accent);
+  --recorder-button-live-label: color-mix(in srgb, var(--color-accent-strong) 72%, var(--color-text-on-accent));
+  --recorder-switch-off: var(--color-control-border-strong);
+  --recorder-switch-on: var(--color-accent);
+  --recorder-switch-thumb: var(--color-bg-overlay);
+  --recorder-meter-track: color-mix(in srgb, var(--color-bg-base) 84%, black);
+  --recorder-meter-bar: color-mix(in srgb, var(--color-surface-strong) 92%, var(--color-bg-base));
+  --recorder-meter-bar-active: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-accent-strong) 82%, white) 0%,
+    var(--color-accent) 100%
+  );
+  --recorder-level-safe: linear-gradient(90deg, var(--color-success) 0%, color-mix(in srgb, var(--color-success) 78%, white) 100%);
+  --recorder-level-warm: linear-gradient(90deg, var(--color-warning) 0%, color-mix(in srgb, var(--color-warning) 72%, white) 100%);
+  --recorder-level-hot: linear-gradient(90deg, var(--color-accent) 0%, var(--color-danger) 100%);
+  --recorder-note-idle: color-mix(in srgb, var(--text-muted) 48%, transparent);
+  --recorder-note-active: var(--color-accent);
 }

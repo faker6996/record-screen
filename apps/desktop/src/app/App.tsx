@@ -128,6 +128,7 @@ export default function App() {
     snapshot,
     toggleMicrophone,
     toggleRecording,
+    updateAudioInput,
     updateCaptureTarget,
     updateLaunchOnLogin,
     updateOutputDirectory,
@@ -179,12 +180,16 @@ export default function App() {
       case 'recorder':
         return (
           <RecorderPanel
+            audioInputs={currentSnapshot.audioInputs}
             captureTargets={currentSnapshot.captureTargets}
             onPauseResume={pauseResume}
+            onUpdateAudioInput={updateAudioInput}
             onUpdateCaptureTarget={updateCaptureTarget}
             onToggleMicrophone={toggleMicrophone}
             onToggleRecording={toggleRecording}
             recorder={currentSnapshot.recorder}
+            runtimeError={actionError}
+            selectedAudioInputId={currentSnapshot.settings.audioInputId}
             selectedCaptureTargetId={currentSnapshot.settings.captureTargetId}
           />
         )
@@ -281,24 +286,22 @@ export default function App() {
           </div>
         </aside>
 
-        <section className="launcher-stage">
-          <header
-            className={`launcher-stage__header ${
-              activeTab === 'recorder'
-                ? 'launcher-stage__header--centered'
-                : 'launcher-stage__header--compact'
-            }`}
-          >
-            <div>
-              {activeTab !== 'recorder' ? (
+        <section
+          className={`launcher-stage ${
+            activeTab === 'recorder' ? 'launcher-stage--recorder' : ''
+          }`}
+        >
+          {activeTab !== 'recorder' ? (
+            <header className="launcher-stage__header launcher-stage__header--compact">
+              <div>
                 <p className="eyebrow">{activeTabConfig.eyebrow}</p>
-              ) : null}
-              <h1>{activeTabConfig.title}</h1>
-              <p className="launcher-stage__copy">{activeTabConfig.description}</p>
-            </div>
-          </header>
+                <h1>{activeTabConfig.title}</h1>
+                <p className="launcher-stage__copy">{activeTabConfig.description}</p>
+              </div>
+            </header>
+          ) : null}
 
-          {actionError ? (
+          {actionError && activeTab !== 'recorder' ? (
             <section className="panel launcher__error">
               <p className="eyebrow">Recorder issue</p>
               <p>{actionError}</p>

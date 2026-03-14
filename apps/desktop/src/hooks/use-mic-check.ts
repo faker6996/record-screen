@@ -56,7 +56,7 @@ export function useMicCheck() {
         error:
           error instanceof Error
             ? error.message
-            : 'Unable to access the default microphone.',
+            : 'Unable to access the selected microphone.',
         hasSignal: false,
         level: 0,
       }))

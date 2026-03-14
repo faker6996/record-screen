@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import type {
+  AudioInputOption,
   AppSettings,
   BootstrapSnapshot,
   CaptureTargetOption,
@@ -37,6 +38,7 @@ const mockSnapshot: BootstrapSnapshot = {
     outputDirectory: '~/Movies/Record Screen',
     qualityPreset: '1080p / 60 fps',
     micEnabled: true,
+    audioInputId: 'default',
     launchOnLogin: true,
     showHudDuringRecording: true,
     captureTargetId: 'full-desktop',
@@ -56,6 +58,23 @@ const mockSnapshot: BootstrapSnapshot = {
       id: 'monitor:display-2',
       label: 'Display 2',
       description: 'Record only the secondary display.',
+    },
+  ],
+  audioInputs: [
+    {
+      id: 'default',
+      label: 'Default input',
+      description: 'Use the system default microphone.',
+    },
+    {
+      id: 'built-in-mic',
+      label: 'Built-in Microphone',
+      description: 'MacBook Pro Microphone Array',
+    },
+    {
+      id: 'usb-audio',
+      label: 'USB Audio Interface',
+      description: 'External microphone over USB.',
     },
   ],
   qualityPresets: [
@@ -168,6 +187,8 @@ async function command<T>(
         return structuredClone(mockSnapshot) as T
       case 'get_capture_targets':
         return structuredClone(mockSnapshot.captureTargets) as T
+      case 'get_audio_inputs':
+        return structuredClone(mockSnapshot.audioInputs) as T
       case 'toggle_recording':
         mockSnapshot.recorder.status =
           mockSnapshot.recorder.status === 'idle' ? 'recording' : 'idle'
@@ -235,6 +256,16 @@ async function command<T>(
         }
         return structuredClone(mockSnapshot.settings) as T
       }
+      case 'update_audio_input': {
+        const audioInputId = String(args?.audioInputId ?? '')
+        const audioInput = mockSnapshot.audioInputs.find(
+          (input) => input.id === audioInputId,
+        )
+        if (audioInput) {
+          mockSnapshot.settings.audioInputId = audioInput.id
+        }
+        return structuredClone(mockSnapshot.settings) as T
+      }
       case 'update_output_directory': {
         const outputDirectory = String(args?.outputDirectory ?? '').trim()
         if (outputDirectory) {
@@ -279,6 +310,9 @@ export const desktopClient = {
   },
   getCaptureTargets() {
     return command<CaptureTargetOption[]>('get_capture_targets')
+  },
+  getAudioInputs() {
+    return command<AudioInputOption[]>('get_audio_inputs')
   },
   async getCurrentWindowLabel() {
     if (!isTauriRuntime()) {
@@ -326,6 +360,9 @@ export const desktopClient = {
   },
   updateCaptureTarget(captureTargetId: string) {
     return command<AppSettings>('update_capture_target', { captureTargetId })
+  },
+  updateAudioInput(audioInputId: string) {
+    return command<AppSettings>('update_audio_input', { audioInputId })
   },
   updateOutputDirectory(outputDirectory: string) {
     return command<AppSettings>('update_output_directory', { outputDirectory })

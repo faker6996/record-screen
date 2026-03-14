@@ -9,8 +9,12 @@ use std::{
 };
 
 use capture::{
-    ActiveRecording, CaptureController, CaptureError, RecordingArtifact, RecordingOptions,
+    ActiveRecording, AudioInputOption, CaptureController, CaptureError, CaptureTargetOption,
+    DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
+    default_audio_input, full_desktop_target, resolve_audio_input_id,
 };
+
+const MONITOR_TARGET_PREFIX: &str = "monitor:";
 
 pub struct FfmpegMacosCapture {
     active_recording: ActiveRecording,
@@ -23,8 +27,9 @@ pub struct FfmpegMacosCapture {
 
 impl FfmpegMacosCapture {
     pub fn start(options: RecordingOptions) -> Result<Self, CaptureError> {
-        let video_device = discover_screen_device()?;
-        let audio_device = discover_audio_device(options.mic_enabled)?;
+        let screen_input = resolve_screen_input(&options.capture_target_id)?;
+        let video_device = screen_input.id.clone();
+        let audio_device = discover_audio_device(&options.audio_input_id, options.mic_enabled)?;
         let input = format!("{video_device}:{audio_device}");
         let (width, height, fps) = quality_settings(&options.quality_preset);
         let started_at = SystemTime::now();
@@ -99,7 +104,7 @@ impl FfmpegMacosCapture {
                 backend_name: "macOS ffmpeg / AVFoundation".to_string(),
                 output_path: options.output_path,
                 started_at,
-                target_label: "Entire display".to_string(),
+                target_label: screen_input.label,
             },
             child,
             stdin,
@@ -125,6 +130,41 @@ impl FfmpegMacosCapture {
             bytes_written: metadata.len(),
         })
     }
+}
+
+pub fn list_capture_targets() -> Vec<CaptureTargetOption> {
+    let Ok(listing) = load_avfoundation_listing() else {
+        return vec![full_desktop_target()];
+    };
+
+    let screen_inputs = parse_screen_inputs(&listing);
+    if screen_inputs.is_empty() {
+        return vec![full_desktop_target()];
+    }
+
+    let mut targets = vec![CaptureTargetOption {
+        id: FULL_DESKTOP_TARGET_ID.to_string(),
+        label: "Primary display".to_string(),
+        description: "Use the first available macOS screen capture source.".to_string(),
+    }];
+
+    targets.extend(screen_inputs.into_iter().map(|screen| CaptureTargetOption {
+        id: format!("{MONITOR_TARGET_PREFIX}{}", screen.id),
+        label: screen.label,
+        description: screen.description,
+    }));
+
+    targets
+}
+
+pub fn list_audio_inputs() -> Vec<AudioInputOption> {
+    let Ok(listing) = load_avfoundation_listing() else {
+        return vec![default_audio_input()];
+    };
+
+    let mut inputs = vec![default_audio_input()];
+    inputs.extend(parse_audio_inputs(&listing));
+    inputs
 }
 
 impl CaptureController for FfmpegMacosCapture {
@@ -224,35 +264,70 @@ impl CaptureController for FfmpegMacosCapture {
     }
 }
 
-fn discover_screen_device() -> Result<String, CaptureError> {
-    let output = Command::new("ffmpeg")
-        .arg("-f")
-        .arg("avfoundation")
-        .arg("-list_devices")
-        .arg("true")
-        .arg("-i")
-        .arg("")
-        .output()
-        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+fn resolve_screen_input(capture_target_id: &str) -> Result<ScreenInput, CaptureError> {
+    let listing = load_avfoundation_listing()?;
+    let screen_inputs = parse_screen_inputs(&listing);
+    if screen_inputs.is_empty() {
+        return Err(CaptureError::BackendUnavailable(
+            "ffmpeg did not expose any avfoundation screen device".to_string(),
+        ));
+    }
 
-    let listing = String::from_utf8_lossy(&output.stderr);
-    let screen_line = listing
-        .lines()
-        .find(|line| line.contains("Capture screen"))
-        .ok_or_else(|| {
+    if capture_target_id == FULL_DESKTOP_TARGET_ID {
+        return screen_inputs.first().cloned().ok_or_else(|| {
             CaptureError::BackendUnavailable(
                 "ffmpeg did not expose any avfoundation screen device".to_string(),
             )
-        })?;
+        });
+    }
 
-    parse_device_index(screen_line)
+    let Some(screen_id) = capture_target_id.strip_prefix(MONITOR_TARGET_PREFIX) else {
+        return Err(CaptureError::BackendUnavailable(format!(
+            "unknown macOS capture target: {capture_target_id}"
+        )));
+    };
+
+    screen_inputs
+        .into_iter()
+        .find(|screen| screen.id == screen_id)
+        .ok_or_else(|| {
+            CaptureError::BackendUnavailable(format!(
+                "the selected display `{capture_target_id}` is no longer available"
+            ))
+        })
 }
 
-fn discover_audio_device(mic_enabled: bool) -> Result<String, CaptureError> {
+fn discover_audio_device(
+    selected_audio_input_id: &str,
+    mic_enabled: bool,
+) -> Result<String, CaptureError> {
     if !mic_enabled {
         return Ok("none".to_string());
     }
 
+    let audio_inputs = parse_audio_inputs(&load_avfoundation_listing()?);
+    if audio_inputs.is_empty() {
+        return Err(CaptureError::BackendUnavailable(
+            "ffmpeg did not expose any avfoundation microphone device".to_string(),
+        ));
+    }
+
+    if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
+        return resolve_audio_input_id(selected_audio_input_id, &audio_inputs).ok_or_else(|| {
+            CaptureError::BackendUnavailable(
+                "ffmpeg did not expose any avfoundation microphone device".to_string(),
+            )
+        });
+    }
+
+    resolve_audio_input_id(selected_audio_input_id, &audio_inputs).ok_or_else(|| {
+        CaptureError::BackendUnavailable(format!(
+            "the selected microphone input `{selected_audio_input_id}` is no longer available"
+        ))
+    })
+}
+
+fn load_avfoundation_listing() -> Result<String, CaptureError> {
     let output = Command::new("ffmpeg")
         .arg("-f")
         .arg("avfoundation")
@@ -263,23 +338,93 @@ fn discover_audio_device(mic_enabled: bool) -> Result<String, CaptureError> {
         .output()
         .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
 
-    let listing = String::from_utf8_lossy(&output.stderr);
-    let preferred = listing
-        .lines()
-        .find(|line| line.contains("Microphone") && !line.contains("iPhone"))
-        .or_else(|| listing.lines().find(|line| line.contains("Microphone")))
-        .ok_or_else(|| {
-            CaptureError::BackendUnavailable(
-                "ffmpeg did not expose any avfoundation microphone device".to_string(),
-            )
-        })?;
+    Ok(String::from_utf8_lossy(&output.stderr).into_owned())
+}
 
-    parse_device_index(preferred)
+fn parse_audio_inputs(listing: &str) -> Vec<AudioInputOption> {
+    let mut in_audio_section = false;
+    let mut inputs = Vec::new();
+
+    for line in listing.lines() {
+        if line.contains("AVFoundation audio devices") {
+            in_audio_section = true;
+            continue;
+        }
+
+        if line.contains("AVFoundation video devices") {
+            in_audio_section = false;
+            continue;
+        }
+
+        if !in_audio_section {
+            continue;
+        }
+
+        let Ok(id) = parse_device_index(line) else {
+            continue;
+        };
+        let label = parse_device_name(line);
+        if label.is_empty() {
+            continue;
+        }
+
+        inputs.push(AudioInputOption {
+            id,
+            description: format!("AVFoundation input: {label}"),
+            label,
+        });
+    }
+
+    inputs
+}
+
+#[derive(Debug, Clone)]
+struct ScreenInput {
+    id: String,
+    label: String,
+    description: String,
+}
+
+fn parse_screen_inputs(listing: &str) -> Vec<ScreenInput> {
+    let mut in_video_section = false;
+    let mut screens = Vec::new();
+
+    for line in listing.lines() {
+        if line.contains("AVFoundation video devices") {
+            in_video_section = true;
+            continue;
+        }
+
+        if line.contains("AVFoundation audio devices") {
+            in_video_section = false;
+            continue;
+        }
+
+        if !in_video_section || !line.contains("Capture screen") {
+            continue;
+        }
+
+        let Ok(id) = parse_device_index(line) else {
+            continue;
+        };
+        let raw_label = parse_device_name(line);
+        if raw_label.is_empty() {
+            continue;
+        }
+
+        screens.push(ScreenInput {
+            id,
+            label: raw_label.replacen("Capture screen", "Display", 1),
+            description: format!("AVFoundation source: {raw_label}"),
+        });
+    }
+
+    screens
 }
 
 fn parse_device_index(line: &str) -> Result<String, CaptureError> {
     let start = line
-        .find('[')
+        .rfind('[')
         .ok_or_else(|| CaptureError::BackendUnavailable(format!("invalid device line: {line}")))?;
     let end = line[start + 1..]
         .find(']')
@@ -287,6 +432,14 @@ fn parse_device_index(line: &str) -> Result<String, CaptureError> {
         .ok_or_else(|| CaptureError::BackendUnavailable(format!("invalid device line: {line}")))?;
 
     Ok(line[start + 1..end].to_string())
+}
+
+fn parse_device_name(line: &str) -> String {
+    let Some(index_end) = line.rfind(']') else {
+        return String::new();
+    };
+
+    line[index_end + 1..].trim().to_string()
 }
 
 fn quality_settings(preset: &str) -> (u32, u32, u32) {
