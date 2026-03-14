@@ -73,7 +73,13 @@ export function RecentSessionsPanel({
     )
 
     if (selectedSessionId && !sessions.some((session) => session.id === selectedSessionId)) {
-      closePreview()
+      previewRequestRef.current += 1
+      revokePlaybackSource()
+      setSelectedSessionId(null)
+      setPlaybackSource(null)
+      setPreviewState('idle')
+      setIsPlaying(false)
+      setPreviewErrorDetail(null)
     }
   }, [selectedSessionId, sessions])
 

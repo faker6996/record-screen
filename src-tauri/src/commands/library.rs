@@ -1,5 +1,4 @@
 use std::{
-    env,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -554,4 +553,171 @@ fn escape_applescript_path(path: &Path) -> String {
 #[cfg(target_os = "macos")]
 fn escape_applescript_text(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\"', "\\\"")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        env,
+        ffi::OsString,
+        sync::{Mutex, OnceLock},
+        time::{Duration, UNIX_EPOCH},
+    };
+
+    fn test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn unique_test_dir(name: &str) -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_nanos();
+        let directory = env::temp_dir().join(format!("record-screen-{name}-{suffix}"));
+        fs::create_dir_all(&directory).expect("create test directory");
+        directory
+    }
+
+    fn write_file(path: &Path, contents: &[u8]) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent directory");
+        }
+        fs::write(path, contents).expect("write test file");
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::set_var(key, value);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                unsafe {
+                    env::set_var(self.key, value);
+                }
+            } else {
+                unsafe {
+                    env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn prepend_path(directory: &Path) -> OsString {
+        let mut paths = vec![directory.to_path_buf()];
+        if let Some(existing) = env::var_os("PATH") {
+            paths.extend(env::split_paths(&existing));
+        }
+        env::join_paths(paths).expect("join PATH entries")
+    }
+
+    #[cfg(target_os = "linux")]
+    fn write_executable_script(path: &Path, contents: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        write_file(path, contents.as_bytes());
+        let mut permissions = fs::metadata(path).expect("script metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("set script permissions");
+    }
+
+    #[test]
+    fn scan_recent_recordings_sorts_latest_first_and_filters_extensions() {
+        let directory = unique_test_dir("scan-recent");
+        let older = directory.join("older.mp4");
+        let newer = directory.join("newer.webm");
+        let ignored = directory.join("notes.txt");
+
+        write_file(&older, b"older");
+        std::thread::sleep(Duration::from_millis(20));
+        write_file(&newer, b"newer");
+        write_file(&ignored, b"ignored");
+
+        let sessions = scan_recent_recordings(
+            directory
+                .to_str()
+                .expect("test directory should be valid utf-8"),
+        );
+
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].title, "newer.webm");
+        assert_eq!(sessions[1].title, "older.mp4");
+        assert!(sessions.iter().all(|session| !session.location.ends_with(".txt")));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn export_copy_uses_linux_save_dialog_and_copies_file() {
+        let _guard = test_lock().lock().expect("test lock");
+        let test_root = unique_test_dir("save-as");
+        let source = test_root.join("recording.mp4");
+        let destination = test_root.join("exports").join("saved-copy.mp4");
+        let bin_dir = test_root.join("bin");
+        let zenity = bin_dir.join("zenity");
+
+        write_file(&source, b"recording-payload");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable_script(
+            &zenity,
+            &format!(
+                "#!/usr/bin/env bash\nprintf '{}\\n'\n",
+                destination.display()
+            ),
+        );
+
+        let _path_guard = EnvVarGuard::set("PATH", prepend_path(&bin_dir));
+        let result = export_copy(&source).expect("export copy should succeed");
+
+        assert_eq!(
+            result,
+            Some(destination.display().to_string()),
+            "save-as should return the chosen destination"
+        );
+        assert_eq!(
+            fs::read(&destination).expect("destination contents"),
+            b"recording-payload"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn move_to_trash_uses_linux_handler() {
+        let _guard = test_lock().lock().expect("test lock");
+        let test_root = unique_test_dir("trash");
+        let source = test_root.join("recording-trash.mp4");
+        let trash_dir = test_root.join("trash-bin");
+        let bin_dir = test_root.join("bin");
+        let gio = bin_dir.join("gio");
+
+        write_file(&source, b"trash-payload");
+        fs::create_dir_all(&trash_dir).expect("create trash dir");
+        fs::create_dir_all(&bin_dir).expect("create bin dir");
+        write_executable_script(
+            &gio,
+            "#!/usr/bin/env bash\nset -euo pipefail\nif [ \"$1\" != \"trash\" ]; then exit 2; fi\nmkdir -p \"$TEST_TRASH_DIR\"\nmv \"$2\" \"$TEST_TRASH_DIR\"/\n",
+        );
+
+        let _path_guard = EnvVarGuard::set("PATH", prepend_path(&bin_dir));
+        let _trash_guard = EnvVarGuard::set("TEST_TRASH_DIR", trash_dir.as_os_str());
+        move_to_trash(&source).expect("trash should succeed");
+
+        assert!(!source.exists(), "source file should be gone after trash");
+        assert!(
+            trash_dir.join("recording-trash.mp4").exists(),
+            "fake trash handler should move the file into the configured trash directory"
+        );
+    }
 }
