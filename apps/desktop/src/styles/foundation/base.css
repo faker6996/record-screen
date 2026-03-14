@@ -18,11 +18,17 @@ body {
 }
 
 body[data-surface='hud'] {
+  min-height: 0;
+  overflow: hidden;
   background: transparent;
 }
 
 body[data-surface='hud'] #root,
 body[data-surface='hud'] .hud {
+  width: fit-content;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
   background: transparent;
 }
 

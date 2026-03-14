@@ -115,7 +115,7 @@ function HudLoadingState() {
 }
 
 function HudApp() {
-  const { error, focusLauncher, isLoading, pauseResume, recorder, toggleMicrophone, toggleRecording } =
+  const { error, isLoading, pauseResume, recorder, toggleMicrophone, toggleRecording } =
     useHudState()
 
   if (isLoading || !recorder) {
@@ -135,14 +135,13 @@ function HudApp() {
     )
   }
 
-  return (
-    <HudSurface
-      onFocusLauncher={focusLauncher}
-      onPauseResume={pauseResume}
-      onToggleMicrophone={toggleMicrophone}
-      onToggleRecording={toggleRecording}
-      recorder={recorder}
-    />
+    return (
+      <HudSurface
+        onPauseResume={pauseResume}
+        onToggleMicrophone={toggleMicrophone}
+        onToggleRecording={toggleRecording}
+        recorder={recorder}
+      />
   )
 }
 

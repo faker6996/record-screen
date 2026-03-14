@@ -1,9 +1,13 @@
-import { Mic, MicOff, Pause, Play, Scan, Square } from 'lucide-react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { Mic, MicOff, Move, Pause, Play, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
-  onFocusLauncher: () => Promise<void>
   onPauseResume: () => Promise<void>
   onToggleMicrophone: () => Promise<void>
   onToggleRecording: () => Promise<void>
@@ -71,7 +75,6 @@ function HudElapsed({
 }
 
 export function HudSurface({
-  onFocusLauncher,
   onPauseResume,
   onToggleMicrophone,
   onToggleRecording,
@@ -81,9 +84,31 @@ export function HudSurface({
   const isPaused = recorder.status === 'paused'
   const parsedElapsedSeconds = parseElapsedSeconds(recorder.elapsedLabel, recorder.status)
 
+  function handleHudPointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
+    const target = event.target as HTMLElement | null
+    if (target?.closest('button')) {
+      return
+    }
+
+    void getCurrentWindow().startDragging()
+  }
+
+  function handleDragHandleMouseDown(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
+    event.preventDefault()
+    void getCurrentWindow().startDragging()
+  }
+
   return (
     <main className="hud">
-      <section className="hud__card">
+      <section className="hud__card" onPointerDown={handleHudPointerDown}>
         <div
           className="hud__elapsed hud__drag-region"
           data-tauri-drag-region
@@ -103,7 +128,7 @@ export function HudSurface({
           <button
             aria-label={recorder.status === 'paused' ? 'Resume recording' : 'Pause recording'}
             aria-pressed={isPaused}
-            className={`button button--secondary hud__action-button ${
+            className={`button button--secondary hud__icon-button ${
               isPaused ? 'hud__icon-button--active' : ''
             }`}
             disabled={isIdle}
@@ -112,15 +137,9 @@ export function HudSurface({
             type="button"
           >
             {isPaused ? (
-              <>
-                <Play aria-hidden="true" size={16} strokeWidth={1.9} />
-                <span>Resume</span>
-              </>
+              <Play aria-hidden="true" size={16} strokeWidth={1.9} />
             ) : (
-              <>
-                <Pause aria-hidden="true" size={16} strokeWidth={1.9} />
-                <span>Pause</span>
-              </>
+              <Pause aria-hidden="true" size={16} strokeWidth={1.9} />
             )}
           </button>
           <button
@@ -154,13 +173,13 @@ export function HudSurface({
             )}
           </button>
           <button
-            aria-label="Open launcher"
+            aria-label="Move HUD"
             className="button button--secondary hud__icon-button"
-            onClick={() => void onFocusLauncher()}
-            title="Open launcher"
+            onMouseDown={handleDragHandleMouseDown}
+            title="Move HUD"
             type="button"
           >
-            <Scan aria-hidden="true" size={16} strokeWidth={1.9} />
+            <Move aria-hidden="true" size={16} strokeWidth={1.9} />
           </button>
         </div>
       </section>

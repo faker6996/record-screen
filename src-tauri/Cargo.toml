@@ -18,7 +18,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 shortcuts = { path = "../crates/shortcuts" }
 storage = { path = "../crates/storage" }
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 

@@ -1,8 +1,10 @@
+#[cfg(target_os = "linux")]
 use std::{
     env, fs,
     path::{Path, PathBuf},
 };
 
+#[cfg(target_os = "linux")]
 fn home_directory() -> Result<PathBuf, String> {
     env::var("HOME")
         .map(PathBuf::from)

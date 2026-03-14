@@ -27,19 +27,15 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
         WebviewWindowBuilder::new(app, HUD_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
             .title("Record Screen HUD")
             .initialization_script("window.__RECORD_SCREEN_SURFACE__ = 'hud';")
-            .inner_size(328.0, 80.0)
-            .min_inner_size(292.0, 72.0)
+            .inner_size(294.0, 62.0)
+            .min_inner_size(264.0, 56.0)
             .visible(false)
             .resizable(false)
             .always_on_top(true)
             .decorations(false)
             .skip_taskbar(true)
-            .shadow(true);
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        builder = builder.transparent(true);
-    }
+            .shadow(false)
+            .transparent(true);
 
     if let Some(icon) = app.default_window_icon().cloned() {
         builder = builder
