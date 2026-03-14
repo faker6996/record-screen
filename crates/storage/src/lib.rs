@@ -22,7 +22,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             output_directory: "~/Movies/Record Screen".to_string(),
-            quality_preset: "1080p / 60 fps".to_string(),
+            quality_preset: "1080p / 30 fps".to_string(),
             mic_enabled: true,
             audio_input_id: capture::DEFAULT_AUDIO_INPUT_ID.to_string(),
             launch_on_login: true,

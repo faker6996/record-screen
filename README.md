@@ -27,7 +27,7 @@
 <br>
 
 - **macOS:** `ffmpeg + AVFoundation`
-- **Linux:** `ffmpeg + x11grab + pulse`
+- **Linux:** `ffmpeg + x11grab + pulse` on X11/XWayland today, plus a native ScreenCast portal lifecycle client for future pure Wayland capture
 - **Windows:** `ffmpeg + gdigrab + dshow`
 </details>
 
@@ -130,19 +130,29 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 - If narration is enabled, must grant **Microphone** permission.
 
 ### 🐧 Linux
-- Targets X11 sessions.
+- Supports real recording on `X11` and `Wayland + XWayland`.
+- Pure `Wayland-only` capture is not finished yet, but the repo now includes:
+  - ScreenCast portal capability probing
+  - a native DBus lifecycle client for `CreateSession`, `SelectSources`, `Start`, and `OpenPipeWireRemote`
+  - PipeWire readiness probing
 - `ffmpeg` must be on `PATH`.
-- Must run inside an X11 desktop session with `DISPLAY` set.
+- Must run inside an X11 desktop session with `DISPLAY` set, or a Wayland session with XWayland compatibility enabled.
 - Microphone narration uses default PulseAudio/PipeWire source.
 - Can discover individual windows from X11.
 - Release packages are distributed as `.deb` files for `apt install ./record-screen_<version>_amd64.deb`.
-- The launcher permission panel can refresh permission status, request access, and open the matching macOS Privacy page (simulated behavior).
+- The launcher reports Linux readiness for:
+  - `ffmpeg`
+  - X11/XWayland access
+  - Wayland ScreenCast portal capability
+  - PipeWire readiness hints
+  - whether the remaining gap is stream ingestion rather than portal negotiation
+  - microphone availability
 
 ### 🪟 Windows
 - Uses `gdigrab` (desktop) and `dshow` (microphone).
 - `ffmpeg` must be on `PATH`.
 - **PowerShell** is required to enumerate monitors/windows and control pause/resume.
-- Uses the first matching DirectShow microphone device found by `ffmpeg`.
+- Auto-selects the best available DirectShow microphone when `Default input` is selected.
 - The launcher can target the full desktop, a single monitor, or a single top-level window.
 - Release packages are distributed as NSIS setup executables.
 
@@ -152,6 +162,8 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 Dive deeper into the project's design and conventions:
 - 📌 **Roadmap:** [`docs/roadmap/product-plan.md`](docs/roadmap/product-plan.md)
 - 🏛 **Architecture:** [`docs/architecture/overview.md`](docs/architecture/overview.md)
+- 🐧 **Linux Wayland status:** [`docs/architecture/linux-wayland.md`](docs/architecture/linux-wayland.md)
+  This doc now also includes the handoff checklist for continuing pure Wayland work on a Linux machine.
 - 📝 **Decisions:** [`docs/decisions/0001-launcher-and-hud-surfaces.md`](docs/decisions/0001-launcher-and-hud-surfaces.md)
 - 💅 **Frontend:** [`docs/frontend/styleguide.md`](docs/frontend/styleguide.md)
 - 📦 **Distribution overview:** [`docs/distribution/overview.md`](docs/distribution/overview.md)

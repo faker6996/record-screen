@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write},
     os::unix::process::ExitStatusExt,
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     thread,
     time::{Duration, SystemTime},
 };
@@ -15,6 +15,14 @@ use capture::{
 };
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
+const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const STARTUP_POLL_ATTEMPTS: usize = 6;
+
+#[derive(Clone, Copy)]
+struct VideoEncoderProfile {
+    codec: &'static str,
+    preset: Option<&'static str>,
+}
 
 pub struct FfmpegMacosCapture {
     active_recording: ActiveRecording,
@@ -32,6 +40,7 @@ impl FfmpegMacosCapture {
         let audio_device = discover_audio_device(&options.audio_input_id, options.mic_enabled)?;
         let input = format!("{video_device}:{audio_device}");
         let (width, height, fps) = quality_settings(&options.quality_preset);
+        let encoder = encoder_for_quality(&options.quality_preset);
         let started_at = SystemTime::now();
         let stderr_buffer = Arc::new(Mutex::new(String::new()));
 
@@ -51,11 +60,13 @@ impl FfmpegMacosCapture {
             .arg("-i")
             .arg(input)
             .arg("-c:v")
-            .arg("libx264")
-            .arg("-preset")
-            .arg("veryfast")
-            .arg("-pix_fmt")
-            .arg("yuv420p");
+            .arg(encoder.codec);
+
+        if let Some(preset) = encoder.preset {
+            command.arg("-preset").arg(preset);
+        }
+
+        command.arg("-pix_fmt").arg("yuv420p");
 
         if options.mic_enabled {
             command.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
@@ -87,21 +98,12 @@ impl FfmpegMacosCapture {
             });
         }
 
-        thread::sleep(Duration::from_millis(900));
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?
-        {
-            let stderr_log = read_stderr_buffer(&stderr_buffer);
-            return Err(CaptureError::SpawnFailed(describe_ffmpeg_failure(
-                status.code(),
-                &stderr_log,
-            )));
-        }
+        verify_process_started(&mut child, &stderr_buffer)?;
 
         Ok(Self {
             active_recording: ActiveRecording {
                 backend_name: "macOS ffmpeg / AVFoundation".to_string(),
+                encoder_label: encoder_label(&encoder),
                 output_path: options.output_path,
                 started_at,
                 target_label: screen_input.label,
@@ -133,38 +135,43 @@ impl FfmpegMacosCapture {
 }
 
 pub fn list_capture_targets() -> Vec<CaptureTargetOption> {
-    let Ok(listing) = load_avfoundation_listing() else {
-        return vec![full_desktop_target()];
-    };
-
-    let screen_inputs = parse_screen_inputs(&listing);
-    if screen_inputs.is_empty() {
-        return vec![full_desktop_target()];
-    }
-
-    let mut targets = vec![CaptureTargetOption {
-        id: FULL_DESKTOP_TARGET_ID.to_string(),
-        label: "Primary display".to_string(),
-        description: "Use the first available macOS screen capture source.".to_string(),
-    }];
-
-    targets.extend(screen_inputs.into_iter().map(|screen| CaptureTargetOption {
-        id: format!("{MONITOR_TARGET_PREFIX}{}", screen.id),
-        label: screen.label,
-        description: screen.description,
-    }));
-
-    targets
+    list_device_options().0
 }
 
 pub fn list_audio_inputs() -> Vec<AudioInputOption> {
+    list_device_options().1
+}
+
+pub fn list_device_options() -> (Vec<CaptureTargetOption>, Vec<AudioInputOption>) {
     let Ok(listing) = load_avfoundation_listing() else {
-        return vec![default_audio_input()];
+        return (vec![full_desktop_target()], vec![default_audio_input()]);
     };
+
+    let screen_inputs = parse_screen_inputs(&listing);
+    let mut targets = if screen_inputs.is_empty() {
+        vec![full_desktop_target()]
+    } else {
+        let mut targets = vec![CaptureTargetOption {
+            id: FULL_DESKTOP_TARGET_ID.to_string(),
+            label: "Primary display".to_string(),
+            description: "Use the first available macOS screen capture source.".to_string(),
+        }];
+        targets.extend(screen_inputs.into_iter().map(|screen| CaptureTargetOption {
+            id: format!("{MONITOR_TARGET_PREFIX}{}", screen.id),
+            label: screen.label,
+            description: screen.description,
+        }));
+        targets
+    };
+
+    if targets.is_empty() {
+        targets.push(full_desktop_target());
+    }
 
     let mut inputs = vec![default_audio_input()];
     inputs.extend(parse_audio_inputs(&listing));
-    inputs
+
+    (targets, inputs)
 }
 
 impl CaptureController for FfmpegMacosCapture {
@@ -445,10 +452,88 @@ fn parse_device_name(line: &str) -> String {
 fn quality_settings(preset: &str) -> (u32, u32, u32) {
     match preset {
         "720p / 30 fps" => (1280, 720, 30),
+        "1080p / 30 fps" => (1920, 1080, 30),
         "1440p / 60 fps" => (2560, 1440, 60),
         "4K / 60 fps" => (3840, 2160, 60),
         _ => (1920, 1080, 60),
     }
+}
+
+fn preferred_video_encoder() -> VideoEncoderProfile {
+    static ENCODER: OnceLock<VideoEncoderProfile> = OnceLock::new();
+    *ENCODER.get_or_init(|| {
+        let encoders = load_ffmpeg_encoders().unwrap_or_default();
+        if encoders.contains("h264_videotoolbox") {
+            VideoEncoderProfile {
+                codec: "h264_videotoolbox",
+                preset: None,
+            }
+        } else {
+            VideoEncoderProfile {
+                codec: "libx264",
+                preset: None,
+            }
+        }
+    })
+}
+
+fn encoder_for_quality(preset: &str) -> VideoEncoderProfile {
+    let preferred = preferred_video_encoder();
+    if preferred.codec == "libx264" {
+        VideoEncoderProfile {
+            codec: "libx264",
+            preset: Some(cpu_preset_for_quality(preset)),
+        }
+    } else {
+        preferred
+    }
+}
+
+fn cpu_preset_for_quality(preset: &str) -> &'static str {
+    match preset {
+        "4K / 60 fps" | "1440p / 60 fps" => "ultrafast",
+        "1080p / 60 fps" => "superfast",
+        _ => "veryfast",
+    }
+}
+
+fn encoder_label(profile: &VideoEncoderProfile) -> String {
+    match profile.preset {
+        Some(preset) => format!("{} · {}", profile.codec, preset),
+        None => profile.codec.to_string(),
+    }
+}
+
+fn load_ffmpeg_encoders() -> Result<String, CaptureError> {
+    let output = Command::new("ffmpeg")
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok(format!("{stdout}\n{stderr}").to_ascii_lowercase())
+}
+
+fn verify_process_started(
+    child: &mut Child,
+    stderr_buffer: &Arc<Mutex<String>>,
+) -> Result<(), CaptureError> {
+    for _ in 0..STARTUP_POLL_ATTEMPTS {
+        thread::sleep(STARTUP_POLL_INTERVAL);
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?
+        {
+            let stderr_log = read_stderr_buffer(stderr_buffer);
+            return Err(CaptureError::SpawnFailed(describe_ffmpeg_failure(
+                status.code(),
+                &stderr_log,
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn read_stderr_buffer(buffer: &Arc<Mutex<String>>) -> String {

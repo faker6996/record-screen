@@ -4,7 +4,7 @@ mod platform {
         fs,
         io::{Read, Write},
         process::{Child, ChildStdin, Command, Stdio},
-        sync::{Arc, Mutex},
+        sync::{Arc, Mutex, OnceLock},
         thread,
         time::{Duration, SystemTime},
     };
@@ -18,6 +18,14 @@ mod platform {
 
     const MONITOR_TARGET_PREFIX: &str = "monitor:";
     const WINDOW_TARGET_PREFIX: &str = "window:";
+    const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+    const STARTUP_POLL_ATTEMPTS: usize = 6;
+
+    #[derive(Clone, Copy)]
+    struct VideoEncoderProfile {
+        codec: &'static str,
+        preset: Option<&'static str>,
+    }
 
     pub struct FfmpegWindowsCapture {
         active_recording: ActiveRecording,
@@ -65,11 +73,13 @@ mod platform {
             let started_at = SystemTime::now();
             let stderr_buffer = Arc::new(Mutex::new(String::new()));
             let target = resolve_target(&options.capture_target_id)?;
+            let encoder = encoder_for_quality(&options.quality_preset);
             let (child, stdin) = spawn_ffmpeg(&options, &target, Arc::clone(&stderr_buffer))?;
 
             Ok(Self {
                 active_recording: ActiveRecording {
                     backend_name: "Windows ffmpeg / gdigrab".to_string(),
+                    encoder_label: encoder_label(&encoder),
                     output_path: options.output_path,
                     started_at,
                     target_label: target.label,
@@ -312,6 +322,7 @@ mod platform {
         stderr_buffer: Arc<Mutex<String>>,
     ) -> Result<(Child, Option<ChildStdin>), CaptureError> {
         let (width, height, fps) = quality_settings(&options.quality_preset);
+        let encoder = encoder_for_quality(&options.quality_preset);
         let mut command = Command::new("ffmpeg");
         command
             .arg("-y")
@@ -359,13 +370,19 @@ mod platform {
 
         command
             .arg("-c:v")
-            .arg("libx264")
-            .arg("-preset")
-            .arg("veryfast")
+            .arg(encoder.codec)
             .arg("-pix_fmt")
-            .arg("yuv420p")
-            .arg("-vf")
-            .arg(scale_filter(width, height))
+            .arg("yuv420p");
+
+        if let Some(preset) = encoder.preset {
+            command.arg("-preset").arg(preset);
+        }
+
+        if needs_scale_filter(target.video_size, width, height) {
+            command.arg("-vf").arg(scale_filter(width, height));
+        }
+
+        command
             .arg("-movflags")
             .arg("+faststart")
             .arg(options.output_path.as_os_str())
@@ -389,16 +406,7 @@ mod platform {
             });
         }
 
-        thread::sleep(Duration::from_millis(900));
-        if child
-            .try_wait()
-            .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?
-            .is_some()
-        {
-            return Err(CaptureError::SpawnFailed(describe_ffmpeg_failure(
-                &read_stderr_buffer(&stderr_buffer),
-            )));
-        }
+        verify_process_started(&mut child, &stderr_buffer)?;
 
         Ok((child, stdin))
     }
@@ -569,16 +577,100 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
     fn quality_settings(preset: &str) -> (u32, u32, u32) {
         match preset {
             "720p / 30 fps" => (1280, 720, 30),
+            "1080p / 30 fps" => (1920, 1080, 30),
             "1440p / 60 fps" => (2560, 1440, 60),
             "4K / 60 fps" => (3840, 2160, 60),
             _ => (1920, 1080, 60),
         }
     }
 
+    fn encoder_for_quality(preset: &str) -> VideoEncoderProfile {
+        let preferred = preferred_video_encoder();
+        if preferred.codec == "libx264" {
+            VideoEncoderProfile {
+                codec: "libx264",
+                preset: Some(cpu_preset_for_quality(preset)),
+            }
+        } else {
+            preferred
+        }
+    }
+
+    fn preferred_video_encoder() -> VideoEncoderProfile {
+        static ENCODER: OnceLock<VideoEncoderProfile> = OnceLock::new();
+        *ENCODER.get_or_init(|| {
+            let encoders = load_ffmpeg_encoders().unwrap_or_default();
+
+            for codec in ["h264_nvenc", "h264_qsv", "h264_amf", "h264_mf"] {
+                if encoders.contains(codec) {
+                    return VideoEncoderProfile {
+                        codec,
+                        preset: None,
+                    };
+                }
+            }
+
+            VideoEncoderProfile {
+                codec: "libx264",
+                preset: None,
+            }
+        })
+    }
+
+    fn cpu_preset_for_quality(preset: &str) -> &'static str {
+        match preset {
+            "4K / 60 fps" | "1440p / 60 fps" => "ultrafast",
+            "1080p / 60 fps" => "superfast",
+            _ => "veryfast",
+        }
+    }
+
+    fn needs_scale_filter(source_size: Option<(u32, u32)>, width: u32, height: u32) -> bool {
+        !matches!(source_size, Some((source_width, source_height)) if source_width == width && source_height == height)
+    }
+
     fn scale_filter(width: u32, height: u32) -> String {
         format!(
             "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2"
         )
+    }
+
+    fn load_ffmpeg_encoders() -> Result<String, CaptureError> {
+        let output = Command::new("ffmpeg")
+            .args(["-hide_banner", "-encoders"])
+            .output()
+            .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Ok(format!("{stdout}\n{stderr}").to_ascii_lowercase())
+    }
+
+    fn encoder_label(profile: &VideoEncoderProfile) -> String {
+        match profile.preset {
+            Some(preset) => format!("{} · {}", profile.codec, preset),
+            None => profile.codec.to_string(),
+        }
+    }
+
+    fn verify_process_started(
+        child: &mut Child,
+        stderr_buffer: &Arc<Mutex<String>>,
+    ) -> Result<(), CaptureError> {
+        for _ in 0..STARTUP_POLL_ATTEMPTS {
+            thread::sleep(STARTUP_POLL_INTERVAL);
+            if child
+                .try_wait()
+                .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?
+                .is_some()
+            {
+                return Err(CaptureError::SpawnFailed(describe_ffmpeg_failure(
+                    &read_stderr_buffer(stderr_buffer),
+                )));
+            }
+        }
+
+        Ok(())
     }
 
     fn read_stderr_buffer(buffer: &Arc<Mutex<String>>) -> String {

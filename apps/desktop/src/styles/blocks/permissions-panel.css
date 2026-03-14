@@ -51,8 +51,8 @@
   align-items: center;
   padding: 14px 16px;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(8, 8, 10, 0.58);
+  border: 1px solid var(--permissions-surface-border);
+  background: var(--permissions-surface-bg);
 }
 
 .permissions-panel__summary strong {
@@ -65,9 +65,9 @@
 }
 
 .permissions-panel__item {
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--permissions-surface-border);
   border-radius: 22px;
-  background: rgba(8, 8, 10, 0.58);
+  background: var(--permissions-surface-bg);
   padding: 16px 18px;
 }
 

@@ -30,13 +30,7 @@ sudo apt install ./record-screen_<version>_amd64.deb
 ```
 
 This uses `apt`, but it is not the same as publishing a first-class APT repository.
-To support `apt install record-screen` without a local file path, the project would still need:
-
-- a signed APT repository
-- repository metadata generation
-- a published installation key and source list instructions
-
-The repository skeleton for that future flow now exists in:
+The project now also contains a signed APT repository publish flow and the related metadata tooling in:
 
 - [`scripts/build-apt-repo.sh`](../../scripts/build-apt-repo.sh)
 - [`docs/distribution/apt-repo.md`](./apt-repo.md)

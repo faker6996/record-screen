@@ -155,7 +155,7 @@
   overflow: hidden;
   border-radius: 22px;
   border: 1px solid var(--color-border-soft);
-  background: #050507;
+  background: var(--media-stage-bg);
 }
 
 .sessions-panel__video-shell {
@@ -166,7 +166,7 @@
   width: 100%;
   max-height: min(68vh, 720px);
   display: block;
-  background: #000;
+  background: var(--media-frame-bg);
 }
 
 .sessions-panel__video-overlay,

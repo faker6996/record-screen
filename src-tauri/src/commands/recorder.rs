@@ -4,6 +4,15 @@ use tauri::{AppHandle, State};
 use crate::{AppState, emit_recorder_state};
 
 #[tauri::command]
+pub fn get_recorder_snapshot(state: State<'_, AppState>) -> Result<RecorderSnapshot, String> {
+    let core = state
+        .core
+        .lock()
+        .map_err(|_| "failed to lock app state".to_string())?;
+    Ok(core.snapshot())
+}
+
+#[tauri::command]
 pub fn toggle_recording(app: AppHandle) -> Result<RecorderSnapshot, String> {
     crate::recording::toggle_recording(&app)
 }

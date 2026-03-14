@@ -1,9 +1,11 @@
+mod wayland_portal;
+
 use std::{
     env, fs,
     io::{Read, Write},
     os::unix::process::ExitStatusExt,
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     thread,
     time::{Duration, SystemTime},
 };
@@ -16,6 +18,30 @@ use capture::{
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
 const WINDOW_TARGET_PREFIX: &str = "window:";
+const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const STARTUP_POLL_ATTEMPTS: usize = 6;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LinuxDesktopSession {
+    X11 {
+        display: String,
+    },
+    WaylandWithX11 {
+        wayland_display: String,
+        x11_display: String,
+    },
+    WaylandOnly {
+        wayland_display: String,
+    },
+    Headless,
+}
+
+#[derive(Clone)]
+struct VideoEncoderProfile {
+    codec: &'static str,
+    preset: Option<&'static str>,
+    vaapi_device: Option<String>,
+}
 
 pub struct FfmpegLinuxCapture {
     active_recording: ActiveRecording,
@@ -57,16 +83,34 @@ struct WindowDescriptor {
 
 impl FfmpegLinuxCapture {
     pub fn start(options: RecordingOptions) -> Result<Self, CaptureError> {
-        let display =
-            env::var("DISPLAY").map_err(|_| CaptureError::BackendUnavailable(missing_display()))?;
+        let session = current_desktop_session();
+        let display = match &session {
+            LinuxDesktopSession::X11 { display } => display.clone(),
+            LinuxDesktopSession::WaylandWithX11 { x11_display, .. } => x11_display.clone(),
+            LinuxDesktopSession::WaylandOnly { wayland_display } => {
+                return match wayland_portal::negotiate_runtime_session() {
+                    Ok(runtime_session) => Err(CaptureError::BackendUnavailable(
+                        wayland_portal::runtime_pending_copy(&runtime_session),
+                    )),
+                    Err(error) => Err(CaptureError::BackendUnavailable(format!(
+                        "Wayland session {wayland_display} could reach the ScreenCast portal path, but session negotiation did not complete: {error}"
+                    ))),
+                };
+            }
+            LinuxDesktopSession::Headless => {
+                return Err(CaptureError::BackendUnavailable(session.capture_guidance()));
+            }
+        };
         let started_at = SystemTime::now();
         let stderr_buffer = Arc::new(Mutex::new(String::new()));
         let target = resolve_target(&options.capture_target_id)?;
+        let encoder = encoder_for_quality(&options.quality_preset);
         let (child, stdin) = spawn_ffmpeg(&options, &display, &target, Arc::clone(&stderr_buffer))?;
 
         Ok(Self {
             active_recording: ActiveRecording {
-                backend_name: "Linux ffmpeg / x11grab".to_string(),
+                backend_name: session.backend_name(),
+                encoder_label: encoder_label(&encoder),
                 output_path: options.output_path,
                 started_at,
                 target_label: target.label,
@@ -314,6 +358,7 @@ fn spawn_ffmpeg(
 ) -> Result<(Child, Option<ChildStdin>), CaptureError> {
     let input = normalize_display(display);
     let (width, height, fps) = quality_settings(&options.quality_preset);
+    let encoder = encoder_for_quality(&options.quality_preset);
     let mut command = Command::new("ffmpeg");
     command
         .arg("-y")
@@ -325,6 +370,10 @@ fn spawn_ffmpeg(
         .arg(fps.to_string())
         .arg("-thread_queue_size")
         .arg("1024");
+
+    if let Some(device) = encoder.vaapi_device.as_deref() {
+        command.arg("-vaapi_device").arg(device);
+    }
 
     if let Some((source_width, source_height)) = target.video_size {
         command
@@ -347,15 +396,19 @@ fn spawn_ffmpeg(
             .arg(audio_input);
     }
 
-    command
-        .arg("-c:v")
-        .arg("libx264")
-        .arg("-preset")
-        .arg("veryfast")
-        .arg("-pix_fmt")
-        .arg("yuv420p")
-        .arg("-vf")
-        .arg(scale_filter(width, height));
+    command.arg("-c:v").arg(encoder.codec);
+
+    if encoder.codec != "h264_vaapi" {
+        command.arg("-pix_fmt").arg("yuv420p");
+    }
+
+    if let Some(preset) = encoder.preset {
+        command.arg("-preset").arg(preset);
+    }
+
+    if let Some(filter) = video_filter(target.video_size, width, height, &encoder) {
+        command.arg("-vf").arg(filter);
+    }
 
     if options.mic_enabled {
         command.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
@@ -387,16 +440,7 @@ fn spawn_ffmpeg(
         });
     }
 
-    thread::sleep(Duration::from_millis(900));
-    if child
-        .try_wait()
-        .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?
-        .is_some()
-    {
-        return Err(CaptureError::SpawnFailed(describe_ffmpeg_failure(
-            &read_stderr_buffer(&stderr_buffer),
-        )));
-    }
+    verify_process_started(&mut child, &stderr_buffer)?;
 
     Ok((child, stdin))
 }
@@ -610,19 +654,228 @@ fn normalize_display(display: &str) -> String {
     }
 }
 
+fn current_desktop_session() -> LinuxDesktopSession {
+    classify_desktop_session(
+        env::var("DISPLAY").ok().as_deref(),
+        env::var("WAYLAND_DISPLAY").ok().as_deref(),
+    )
+}
+
+fn classify_desktop_session(
+    display: Option<&str>,
+    wayland_display: Option<&str>,
+) -> LinuxDesktopSession {
+    let display = display
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let wayland_display = wayland_display
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    match (display, wayland_display) {
+        (Some(display), Some(wayland_display)) => LinuxDesktopSession::WaylandWithX11 {
+            wayland_display,
+            x11_display: display,
+        },
+        (Some(display), None) => LinuxDesktopSession::X11 { display },
+        (None, Some(wayland_display)) => LinuxDesktopSession::WaylandOnly { wayland_display },
+        (None, None) => LinuxDesktopSession::Headless,
+    }
+}
+
+impl LinuxDesktopSession {
+    fn backend_name(&self) -> String {
+        match self {
+            LinuxDesktopSession::X11 { .. } => "Linux ffmpeg / x11grab".to_string(),
+            LinuxDesktopSession::WaylandWithX11 { .. } => {
+                "Linux ffmpeg / x11grab (XWayland)".to_string()
+            }
+            LinuxDesktopSession::WaylandOnly { .. } => {
+                "Linux ScreenCast portal / PipeWire (session negotiation ready)".to_string()
+            }
+            LinuxDesktopSession::Headless => "Linux capture backend".to_string(),
+        }
+    }
+
+    fn capture_guidance(&self) -> String {
+        match self {
+            LinuxDesktopSession::WaylandOnly { wayland_display } => format!(
+                "Wayland session {wayland_display} was detected without an X11 DISPLAY. The repo now has a native ScreenCast portal lifecycle client, but the recorder still needs PipeWire stream ingestion before pure Wayland capture can run end-to-end."
+            ),
+            LinuxDesktopSession::Headless => {
+                "No X11 display was detected. This Linux backend currently records through X11grab, so it needs DISPLAY to be set (for example :0 or :1).".to_string()
+            }
+            LinuxDesktopSession::X11 { .. } | LinuxDesktopSession::WaylandWithX11 { .. } => {
+                "Linux capture could not resolve the current X11 display.".to_string()
+            }
+        }
+    }
+}
+
 fn quality_settings(preset: &str) -> (u32, u32, u32) {
     match preset {
         "720p / 30 fps" => (1280, 720, 30),
+        "1080p / 30 fps" => (1920, 1080, 30),
         "1440p / 60 fps" => (2560, 1440, 60),
         "4K / 60 fps" => (3840, 2160, 60),
         _ => (1920, 1080, 60),
     }
 }
 
+fn encoder_for_quality(preset: &str) -> VideoEncoderProfile {
+    let preferred = preferred_video_encoder();
+    if preferred.codec == "libx264" {
+        VideoEncoderProfile {
+            codec: "libx264",
+            preset: Some(cpu_preset_for_quality(preset)),
+            vaapi_device: None,
+        }
+    } else {
+        preferred
+    }
+}
+
+fn preferred_video_encoder() -> VideoEncoderProfile {
+    static ENCODER: OnceLock<VideoEncoderProfile> = OnceLock::new();
+    ENCODER
+        .get_or_init(|| {
+            let encoders = load_ffmpeg_encoders().unwrap_or_default();
+            let has_nvidia = Command::new("nvidia-smi")
+                .arg("--query-gpu=name")
+                .arg("--format=csv,noheader")
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false);
+
+            if has_nvidia && encoders.contains("h264_nvenc") {
+                VideoEncoderProfile {
+                    codec: "h264_nvenc",
+                    preset: None,
+                    vaapi_device: None,
+                }
+            } else if encoders.contains("h264_vaapi") {
+                if let Some(device) = preferred_vaapi_device() {
+                    VideoEncoderProfile {
+                        codec: "h264_vaapi",
+                        preset: None,
+                        vaapi_device: Some(device),
+                    }
+                } else {
+                    VideoEncoderProfile {
+                        codec: "libx264",
+                        preset: None,
+                        vaapi_device: None,
+                    }
+                }
+            } else {
+                VideoEncoderProfile {
+                    codec: "libx264",
+                    preset: None,
+                    vaapi_device: None,
+                }
+            }
+        })
+        .clone()
+}
+
+fn cpu_preset_for_quality(preset: &str) -> &'static str {
+    match preset {
+        "4K / 60 fps" | "1440p / 60 fps" => "ultrafast",
+        "1080p / 60 fps" => "superfast",
+        _ => "veryfast",
+    }
+}
+
+fn needs_scale_filter(source_size: Option<(u32, u32)>, width: u32, height: u32) -> bool {
+    !matches!(source_size, Some((source_width, source_height)) if source_width == width && source_height == height)
+}
+
+fn video_filter(
+    source_size: Option<(u32, u32)>,
+    width: u32,
+    height: u32,
+    encoder: &VideoEncoderProfile,
+) -> Option<String> {
+    if encoder.codec == "h264_vaapi" {
+        if needs_scale_filter(source_size, width, height) {
+            return Some(format!(
+                "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=nv12,hwupload"
+            ));
+        }
+
+        return Some("format=nv12,hwupload".to_string());
+    }
+
+    if needs_scale_filter(source_size, width, height) {
+        return Some(scale_filter(width, height));
+    }
+
+    None
+}
+
 fn scale_filter(width: u32, height: u32) -> String {
     format!(
         "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2"
     )
+}
+
+fn preferred_vaapi_device() -> Option<String> {
+    let render_directory = fs::read_dir("/dev/dri").ok()?;
+    let mut candidates = render_directory
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            if file_name.starts_with("renderD") {
+                Some(entry.path().display().to_string())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    candidates.sort();
+    candidates.into_iter().next()
+}
+
+fn load_ffmpeg_encoders() -> Result<String, CaptureError> {
+    let output = Command::new("ffmpeg")
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok(format!("{stdout}\n{stderr}").to_ascii_lowercase())
+}
+
+fn encoder_label(profile: &VideoEncoderProfile) -> String {
+    match profile.preset {
+        Some(preset) => format!("{} · {}", profile.codec, preset),
+        None => profile.codec.to_string(),
+    }
+}
+
+fn verify_process_started(
+    child: &mut Child,
+    stderr_buffer: &Arc<Mutex<String>>,
+) -> Result<(), CaptureError> {
+    for _ in 0..STARTUP_POLL_ATTEMPTS {
+        thread::sleep(STARTUP_POLL_INTERVAL);
+        if child
+            .try_wait()
+            .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?
+            .is_some()
+        {
+            return Err(CaptureError::SpawnFailed(describe_ffmpeg_failure(
+                &read_stderr_buffer(stderr_buffer),
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn read_stderr_buffer(buffer: &Arc<Mutex<String>>) -> String {
@@ -663,12 +916,12 @@ fn describe_ffmpeg_failure(stderr_log: &str) -> String {
 }
 
 fn missing_display() -> String {
-    "No X11 display was detected. This Linux backend currently records through X11grab, so it needs DISPLAY to be set (for example :0 or :1).".to_string()
+    current_desktop_session().capture_guidance()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_monitors, parse_windows};
+    use super::{LinuxDesktopSession, classify_desktop_session, parse_monitors, parse_windows};
 
     #[test]
     fn parses_xrandr_monitor_listing() {
@@ -702,5 +955,36 @@ mod tests {
         assert_eq!(windows[0].width, 1920);
         assert_eq!(windows[0].x, 1920);
         assert_eq!(windows[1].title, "Google Chrome");
+    }
+
+    #[test]
+    fn classifies_pure_x11_session() {
+        assert_eq!(
+            classify_desktop_session(Some(":0"), None),
+            LinuxDesktopSession::X11 {
+                display: ":0".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn classifies_xwayland_session() {
+        assert_eq!(
+            classify_desktop_session(Some(":1"), Some("wayland-0")),
+            LinuxDesktopSession::WaylandWithX11 {
+                wayland_display: "wayland-0".to_string(),
+                x11_display: ":1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn classifies_pure_wayland_session() {
+        assert_eq!(
+            classify_desktop_session(None, Some("wayland-1")),
+            LinuxDesktopSession::WaylandOnly {
+                wayland_display: "wayland-1".to_string()
+            }
+        );
     }
 }

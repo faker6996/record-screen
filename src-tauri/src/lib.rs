@@ -2,6 +2,8 @@ mod audio_inputs;
 mod bootstrap;
 mod capture_targets;
 mod commands;
+mod device_discovery;
+mod diagnostics;
 mod mic_check;
 mod recording;
 mod tray;
@@ -44,11 +46,8 @@ pub(crate) fn emit_runtime_error(app: &AppHandle, message: &str) {
     let _ = app.emit("recorder://runtime-error", message.to_string());
 }
 
-pub(crate) fn emit_bootstrap_refresh_request(app: &AppHandle, reason: &str) {
-    let _ = app.emit(
-        "recorder://bootstrap-refresh-requested",
-        serde_json::json!({ "reason": reason }),
-    );
+pub(crate) fn emit_recent_sessions_refresh_request(app: &AppHandle) {
+    let _ = app.emit("recorder://recent-sessions-refresh-requested", ());
 }
 
 fn command_or_control_modifier() -> Modifiers {
@@ -137,7 +136,6 @@ pub fn run() {
         .setup(|app| {
             register_shortcuts(app.handle())?;
             tray::create(app.handle())?;
-            window::ensure_hud_window(app.handle())?;
             window::focus_launcher(app.handle())?;
             Ok(())
         })
@@ -156,11 +154,13 @@ pub fn run() {
             commands::bootstrap::get_audio_inputs,
             commands::bootstrap::get_capture_targets,
             commands::bootstrap::reset_shortcuts,
+            commands::library::get_recent_recordings,
             commands::library::open_recording,
             commands::library::reveal_recording_in_folder,
             commands::permissions::get_permissions,
             commands::permissions::open_permission_settings,
             commands::permissions::request_permission,
+            commands::recorder::get_recorder_snapshot,
             commands::recorder::pause_resume,
             commands::recorder::start_mic_check,
             commands::recorder::stop_mic_check,

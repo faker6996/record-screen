@@ -5,7 +5,10 @@ use capture::{CaptureController, RecordingOptions};
 use tauri::{AppHandle, Manager};
 use time::{OffsetDateTime, UtcOffset, macros::format_description};
 
-use crate::{AppState, emit_recorder_state, emit_runtime_error, window, with_core};
+use crate::{
+    AppState, emit_recent_sessions_refresh_request, emit_recorder_state, emit_runtime_error,
+    window, with_core,
+};
 
 fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
     let show_hud_during_recording =
@@ -51,7 +54,11 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     }
 
     let snapshot = with_core(app, |core| {
-        core.start_recording(active.target_label, output_path.display().to_string())
+        core.start_recording(
+            active.target_label,
+            active.encoder_label,
+            output_path.display().to_string(),
+        )
     })?;
 
     sync_hud_for_current_settings(app, &snapshot);
@@ -61,19 +68,11 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 }
 
 pub fn stop_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
-    let mut controller = take_controller(app)?;
-    let completed = controller.stop().map_err(|error| error.to_string())?;
-    let summary = CompletedRecording {
-        title: file_stem(&completed.output_path),
-        started_at_label: format_started_at(completed.started_at),
-        duration: completed.duration,
-        location: completed.output_path.display().to_string(),
-        size_bytes: completed.bytes_written,
-    };
-
-    let snapshot = with_core(app, |core| core.stop_recording(Some(summary)))?;
+    let controller = take_controller(app)?;
+    let snapshot = with_core(app, |core| core.stop_recording(None))?;
     emit_recorder_state(app, &snapshot);
     sync_hud_for_current_settings(app, &snapshot);
+    spawn_stop_finalizer(app.clone(), controller);
     Ok(snapshot)
 }
 
@@ -132,6 +131,7 @@ fn spawn_recorder_ticker(app: AppHandle) {
                 Ok(Some(snapshot)) => {
                     emit_recorder_state(&app, &snapshot);
                     sync_hud_for_current_settings(&app, &snapshot);
+                    emit_recent_sessions_refresh_request(&app);
                     break;
                 }
                 Ok(None) => {}
@@ -210,6 +210,28 @@ fn take_controller(app: &AppHandle) -> Result<Box<dyn CaptureController>, String
     controller
         .take()
         .ok_or_else(|| "no active recorder process".to_string())
+}
+
+fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureController>) {
+    thread::spawn(move || match controller.stop() {
+        Ok(completed) => {
+            let summary = CompletedRecording {
+                title: file_stem(&completed.output_path),
+                started_at_label: format_started_at(completed.started_at),
+                duration: completed.duration,
+                location: completed.output_path.display().to_string(),
+                size_bytes: completed.bytes_written,
+            };
+
+            let _ = with_core(&app, |core| {
+                core.push_completed_recording(summary);
+            });
+            emit_recent_sessions_refresh_request(&app);
+        }
+        Err(error) => {
+            emit_runtime_error(&app, &error.to_string());
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]

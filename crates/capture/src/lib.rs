@@ -37,6 +37,7 @@ pub struct RecordingOptions {
 #[derive(Debug, Clone)]
 pub struct ActiveRecording {
     pub backend_name: String,
+    pub encoder_label: String,
     pub output_path: PathBuf,
     pub started_at: SystemTime,
     pub target_label: String,

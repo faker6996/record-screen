@@ -7,7 +7,10 @@ use std::{
 
 use app_core::SessionSummary;
 use storage::expand_home_path;
+use tauri::State;
 use time::{OffsetDateTime, UtcOffset, macros::format_description};
+
+use crate::AppState;
 
 fn ensure_existing_target(path: &Path) -> Result<(), String> {
     if path.exists() {
@@ -202,4 +205,26 @@ pub fn open_recording(recording_path: String) -> Result<(), String> {
 pub fn reveal_recording_in_folder(recording_path: String) -> Result<(), String> {
     let resolved_path = expand_home_path(&recording_path);
     reveal_path(&resolved_path)
+}
+
+#[tauri::command]
+pub fn get_recent_recordings(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, String> {
+    let output_directory = {
+        let core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        core.settings().output_directory
+    };
+
+    let sessions = scan_recent_recordings(&output_directory);
+
+    {
+        let mut core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        core.sync_recent_sessions(sessions.clone());
+    }
+    Ok(sessions)
 }

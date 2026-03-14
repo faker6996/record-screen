@@ -5,6 +5,7 @@ export interface RecorderSnapshot {
   elapsedLabel: string
   activeTarget: string
   activeOutputPath: string | null
+  activeEncoderLabel: string | null
   qualityPreset: string
   outputDirectory: string
   micEnabled: boolean
@@ -54,6 +55,12 @@ export interface PermissionCheck {
   guidance: string
 }
 
+export interface RuntimeDiagnostics {
+  summary: string
+  backendPath: string
+  readiness: string
+}
+
 export type ShortcutAction =
   | 'toggleRecording'
   | 'pauseRecording'
@@ -81,6 +88,7 @@ export interface BootstrapSnapshot {
   qualityPresets: string[]
   shortcuts: ShortcutBinding[]
   permissions: PermissionCheck[]
+  diagnostics: RuntimeDiagnostics
   recentSessions: SessionSummary[]
   roadmap: string[]
 }

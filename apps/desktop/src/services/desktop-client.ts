@@ -1,6 +1,5 @@
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import type {
   AudioInputOption,
   AppSettings,
@@ -9,9 +8,9 @@ import type {
   MicCheckSnapshot,
   PermissionCheck,
   RecorderSnapshot,
+  SessionSummary,
   ShortcutBinding,
 } from '../types/desktop'
-import type { BootstrapRefreshRequestPayload } from '../types/events'
 
 declare global {
   interface Window {
@@ -30,13 +29,14 @@ const mockSnapshot: BootstrapSnapshot = {
     elapsedLabel: 'Ready when you are',
     activeTarget: 'Full desktop',
     activeOutputPath: null,
-    qualityPreset: '1080p / 60 fps',
+    activeEncoderLabel: null,
+    qualityPreset: '1080p / 30 fps',
     outputDirectory: '~/Movies/Record Screen',
     micEnabled: true,
   },
   settings: {
     outputDirectory: '~/Movies/Record Screen',
-    qualityPreset: '1080p / 60 fps',
+    qualityPreset: '1080p / 30 fps',
     micEnabled: true,
     audioInputId: 'default',
     launchOnLogin: true,
@@ -79,6 +79,7 @@ const mockSnapshot: BootstrapSnapshot = {
   ],
   qualityPresets: [
     '720p / 30 fps',
+    '1080p / 30 fps',
     '1080p / 60 fps',
     '1440p / 60 fps',
     '4K / 60 fps',
@@ -125,6 +126,11 @@ const mockSnapshot: BootstrapSnapshot = {
       guidance: 'Native permission probing will activate when the Tauri shell is running.',
     },
   ],
+  diagnostics: {
+    summary: 'Preview runtime',
+    backendPath: 'Mock desktop client',
+    readiness: 'Web preview uses mocked launcher state and does not start a native recorder.',
+  },
   recentSessions: [
     {
       id: 'preview-1',
@@ -185,6 +191,8 @@ async function command<T>(
     switch (name) {
       case 'get_bootstrap':
         return structuredClone(mockSnapshot) as T
+      case 'get_recorder_snapshot':
+        return structuredClone(mockSnapshot.recorder) as T
       case 'get_capture_targets':
         return structuredClone(mockSnapshot.captureTargets) as T
       case 'get_audio_inputs':
@@ -196,6 +204,8 @@ async function command<T>(
           mockSnapshot.recorder.status === 'idle'
             ? null
             : '~/Movies/Record Screen/recording-preview.mp4'
+        mockSnapshot.recorder.activeEncoderLabel =
+          mockSnapshot.recorder.status === 'idle' ? null : 'h264_videotoolbox'
         mockSnapshot.recorder.elapsedLabel =
           mockSnapshot.recorder.status === 'idle'
             ? 'Ready when you are'
@@ -287,6 +297,8 @@ async function command<T>(
         return undefined as T
       case 'get_permissions':
         return structuredClone(mockSnapshot.permissions) as T
+      case 'get_recent_recordings':
+        return structuredClone(mockSnapshot.recentSessions) as T
       case 'request_permission': {
         const permissionName = String(args?.permissionName ?? '')
         mockSnapshot.permissions = mockSnapshot.permissions.map((permission) =>
@@ -308,17 +320,14 @@ export const desktopClient = {
   getBootstrap() {
     return command<BootstrapSnapshot>('get_bootstrap')
   },
+  getRecorderSnapshot() {
+    return command<RecorderSnapshot>('get_recorder_snapshot')
+  },
   getCaptureTargets() {
     return command<CaptureTargetOption[]>('get_capture_targets')
   },
   getAudioInputs() {
     return command<AudioInputOption[]>('get_audio_inputs')
-  },
-  async getCurrentWindowLabel() {
-    if (!isTauriRuntime()) {
-      return 'main'
-    }
-    return getCurrentWindow().label
   },
   focusLauncher() {
     return command<void>('focus_launcher')
@@ -373,6 +382,9 @@ export const desktopClient = {
   getPermissions() {
     return command<PermissionCheck[]>('get_permissions')
   },
+  getRecentRecordings() {
+    return command<SessionSummary[]>('get_recent_recordings')
+  },
   requestPermission(permissionName: string) {
     return command<PermissionCheck[]>('request_permission', { permissionName })
   },
@@ -410,6 +422,16 @@ export const desktopClient = {
     })
     return unlisten
   },
+  async subscribeRecentSessionsRefreshRequest(listener: () => void) {
+    if (!isTauriRuntime()) {
+      return () => undefined
+    }
+
+    const unlisten = await listen('recorder://recent-sessions-refresh-requested', () => {
+      listener()
+    })
+    return unlisten
+  },
   async subscribeMicCheckState(listener: (snapshot: MicCheckSnapshot) => void) {
     if (!isTauriRuntime()) {
       listener(structuredClone(mockMicCheckState))
@@ -435,21 +457,6 @@ export const desktopClient = {
 
     const unlisten = await listen<MicCheckSnapshot>(
       'recorder://mic-check-state',
-      (event) => {
-        listener(event.payload)
-      },
-    )
-    return unlisten
-  },
-  async subscribeBootstrapRefreshRequest(
-    listener: (payload: BootstrapRefreshRequestPayload) => void,
-  ) {
-    if (!isTauriRuntime()) {
-      return () => undefined
-    }
-
-    const unlisten = await listen<BootstrapRefreshRequestPayload>(
-      'recorder://bootstrap-refresh-requested',
       (event) => {
         listener(event.payload)
       },

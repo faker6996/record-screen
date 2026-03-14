@@ -104,7 +104,7 @@ export function PermissionsPanel({
               <span className={`pill pill-${permission.status}`}>{permission.status}</span>
             </div>
             <p>{permission.guidance}</p>
-            {permission.status !== 'granted' ? (
+            {permission.status === 'pending' ? (
               <div className="permissions-panel__actions">
                 <button
                   className="button button--secondary"

@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 capture = { path = "../capture" }
 libc = "0.2"
+zbus = { version = "5.14.0", features = ["blocking-api"] }

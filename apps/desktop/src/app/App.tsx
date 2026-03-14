@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Video,
 } from 'lucide-react'
+import { getAppSurface } from './surfaces'
 import { HudSurface } from '../features/launcher/components/HudSurface'
 import { PermissionsPanel } from '../features/permissions/components/PermissionsPanel'
 import { RecorderPanel } from '../features/recorder/components/RecorderPanel'
@@ -15,6 +16,7 @@ import { RecentSessionsPanel } from '../features/library/components/RecentSessio
 import { SettingsPanel } from '../features/settings/components/SettingsPanel'
 import { ShortcutPanel } from '../features/settings/components/ShortcutPanel'
 import { useDesktopState } from '../hooks/use-desktop-state'
+import { useHudState } from '../hooks/use-hud-state'
 
 type LauncherTab =
   | 'recorder'
@@ -99,7 +101,52 @@ function ErrorState({ message }: { message: string }) {
   )
 }
 
-export default function App() {
+function HudLoadingState() {
+  return (
+    <main className="hud">
+      <section className="hud__card">
+        <div className="hud__elapsed hud__drag-region" data-tauri-drag-region>
+          <span className="status-dot status-idle" />
+          <strong>00:00:00</strong>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function HudApp() {
+  const { error, focusLauncher, isLoading, pauseResume, recorder, toggleMicrophone, toggleRecording } =
+    useHudState()
+
+  if (isLoading || !recorder) {
+    return <HudLoadingState />
+  }
+
+  if (error) {
+    return (
+      <main className="hud">
+        <section className="hud__card">
+          <div className="hud__elapsed hud__drag-region" data-tauri-drag-region>
+            <span className="status-dot status-idle" />
+            <strong>HUD unavailable</strong>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <HudSurface
+      onFocusLauncher={focusLauncher}
+      onPauseResume={pauseResume}
+      onToggleMicrophone={toggleMicrophone}
+      onToggleRecording={toggleRecording}
+      recorder={recorder}
+    />
+  )
+}
+
+function LauncherApp() {
   const [activeTab, setActiveTab] = useState<LauncherTab>('recorder')
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     if (typeof window !== 'undefined' && window.matchMedia) {
@@ -112,7 +159,6 @@ export default function App() {
   })
   const {
     actionError,
-    currentWindowLabel,
     error,
     focusLauncher,
     isLoading,
@@ -137,13 +183,6 @@ export default function App() {
   } = useDesktopState()
 
   useEffect(() => {
-    document.body.dataset.surface = currentWindowLabel
-    return () => {
-      delete document.body.dataset.surface
-    }
-  }, [currentWindowLabel])
-
-  useEffect(() => {
     document.body.dataset.theme = themeMode
     return () => {
       delete document.body.dataset.theme
@@ -160,18 +199,6 @@ export default function App() {
 
   const currentSnapshot = snapshot
 
-  if (currentWindowLabel === 'hud') {
-    return (
-      <HudSurface
-        onFocusLauncher={focusLauncher}
-        onPauseResume={pauseResume}
-        onToggleMicrophone={toggleMicrophone}
-        onToggleRecording={toggleRecording}
-        recorder={currentSnapshot.recorder}
-      />
-    )
-  }
-
   const activeTabConfig =
     launcherTabs.find((tab) => tab.id === activeTab) ?? launcherTabs[0]
 
@@ -182,6 +209,7 @@ export default function App() {
           <RecorderPanel
             audioInputs={currentSnapshot.audioInputs}
             captureTargets={currentSnapshot.captureTargets}
+            diagnostics={currentSnapshot.diagnostics}
             onPauseResume={pauseResume}
             onUpdateAudioInput={updateAudioInput}
             onUpdateCaptureTarget={updateCaptureTarget}
@@ -315,4 +343,21 @@ export default function App() {
       </section>
     </main>
   )
+}
+
+export default function App() {
+  const surface = getAppSurface()
+
+  useEffect(() => {
+    document.body.dataset.surface = surface
+    return () => {
+      delete document.body.dataset.surface
+    }
+  }, [surface])
+
+  if (surface === 'hud') {
+    return <HudApp />
+  }
+
+  return <LauncherApp />
 }

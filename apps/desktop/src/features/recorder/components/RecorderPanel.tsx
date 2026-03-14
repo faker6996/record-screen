@@ -6,12 +6,14 @@ import type {
   AudioInputOption,
   CaptureTargetOption,
   RecorderSnapshot,
+  RuntimeDiagnostics,
 } from '../../../types/desktop'
 
 interface RecorderPanelProps {
   audioInputs: AudioInputOption[]
   captureTargets: CaptureTargetOption[]
   recorder: RecorderSnapshot
+  diagnostics: RuntimeDiagnostics
   onPauseResume: () => Promise<void>
   onUpdateAudioInput: (audioInputId: string) => Promise<void>
   onUpdateCaptureTarget: (captureTargetId: string) => Promise<void>
@@ -26,6 +28,7 @@ export function RecorderPanel({
   audioInputs,
   captureTargets,
   recorder,
+  diagnostics,
   onPauseResume,
   onUpdateAudioInput,
   onUpdateCaptureTarget,
@@ -240,9 +243,22 @@ export function RecorderPanel({
 
       <div className="recorder-panel__meta">
         <span>{recorder.qualityPreset}</span>
+        {recorder.activeEncoderLabel ? (
+          <>
+            <span aria-hidden="true">•</span>
+            <span>{recorder.activeEncoderLabel}</span>
+          </>
+        ) : null}
         <span aria-hidden="true">•</span>
         <span>{recorder.outputDirectory}</span>
       </div>
+
+      <div className="recorder-panel__meta">
+        <span>{diagnostics.summary}</span>
+        <span aria-hidden="true">•</span>
+        <span>{diagnostics.backendPath}</span>
+      </div>
+      <p className="subtle-copy recorder-panel__helper">{diagnostics.readiness}</p>
     </section>
   )
 }

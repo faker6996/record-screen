@@ -153,4 +153,9 @@ body {
   --recorder-level-hot: linear-gradient(90deg, var(--color-accent) 0%, var(--color-danger) 100%);
   --recorder-note-idle: color-mix(in srgb, var(--text-muted) 48%, transparent);
   --recorder-note-active: var(--color-accent);
+  --permissions-surface-bg: color-mix(in srgb, var(--color-bg-base) 58%, transparent);
+  --permissions-surface-border: color-mix(in srgb, var(--color-border-soft) 90%, transparent);
+  --media-stage-bg: color-mix(in srgb, var(--color-bg-base) 92%, black);
+  --media-frame-bg: color-mix(in srgb, var(--color-bg-base) 98%, black);
+  --settings-switch-thumb: var(--color-bg-overlay);
 }

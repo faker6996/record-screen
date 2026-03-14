@@ -16,18 +16,23 @@
 4. Commands and shortcut events mutate Rust state.
 5. Tauri emits recorder updates back to the UI.
 
-## Current Scaffold Scope
+## Current Integrated Scope
 
 - Launcher window and state wiring
-- Separate HUD window scaffold driven by Tauri window labels
+- Separate HUD surface with lightweight state path
 - Tray menu for launcher recall and recorder actions
-- Global shortcut registration scaffold
+- Global shortcut registration
 - Shared recorder snapshot model
-- Permissions and recent sessions placeholder data
+- Real capture backends per OS:
+  - macOS: `AVFoundation + ffmpeg`
+  - Windows: `gdigrab + dshow + ffmpeg`
+  - Linux X11/XWayland: `x11grab + pulse + ffmpeg`
+- Runtime diagnostics for active backend path and readiness
+- Linux Wayland ScreenCast portal / PipeWire readiness and lifecycle client
 
 ## Next Integration Targets
 
-- Native capture pipeline selection
+- Linux pure Wayland PipeWire stream ingestion through the existing ScreenCast portal lifecycle
 - Persistent settings storage
-- Real permission probing per OS
-- Floating HUD window
+- Richer diagnostics and benchmark telemetry
+- Deeper Windows permission and readiness hardening

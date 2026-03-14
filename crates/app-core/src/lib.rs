@@ -20,9 +20,18 @@ pub struct RecorderSnapshot {
     pub elapsed_label: String,
     pub active_target: String,
     pub active_output_path: Option<String>,
+    pub active_encoder_label: Option<String>,
     pub quality_preset: String,
     pub output_directory: String,
     pub mic_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDiagnostics {
+    pub summary: String,
+    pub backend_path: String,
+    pub readiness: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +69,7 @@ pub struct BootstrapSnapshot {
     pub quality_presets: Vec<String>,
     pub shortcuts: Vec<ShortcutBinding>,
     pub permissions: Vec<PermissionCheck>,
+    pub diagnostics: RuntimeDiagnostics,
     pub recent_sessions: Vec<SessionSummary>,
     pub roadmap: Vec<String>,
 }
@@ -70,6 +80,7 @@ pub struct AppCore {
     status: RecorderStatus,
     active_target: String,
     active_output_path: Option<String>,
+    active_encoder_label: Option<String>,
     started_at: Option<SystemTime>,
     paused_at: Option<SystemTime>,
     accumulated_paused: Duration,
@@ -84,6 +95,7 @@ impl Default for AppCore {
             status: RecorderStatus::Idle,
             active_target: "Full desktop".to_string(),
             active_output_path: None,
+            active_encoder_label: None,
             started_at: None,
             paused_at: None,
             accumulated_paused: Duration::default(),
@@ -97,6 +109,7 @@ impl AppCore {
     pub fn quality_presets() -> Vec<String> {
         vec![
             "720p / 30 fps".to_string(),
+            "1080p / 30 fps".to_string(),
             "1080p / 60 fps".to_string(),
             "1440p / 60 fps".to_string(),
             "4K / 60 fps".to_string(),
@@ -108,6 +121,7 @@ impl AppCore {
         platform: &str,
         capture_targets: Vec<CaptureTargetOption>,
         audio_inputs: Vec<AudioInputOption>,
+        diagnostics: RuntimeDiagnostics,
     ) -> BootstrapSnapshot {
         BootstrapSnapshot {
             app_name: "Record Screen".to_string(),
@@ -122,6 +136,7 @@ impl AppCore {
             quality_presets: Self::quality_presets(),
             shortcuts: self.shortcuts.clone(),
             permissions: default_permissions(platform),
+            diagnostics,
             recent_sessions: self.recent_sessions.clone(),
             roadmap: vec![
                 "Launcher shell and global shortcuts".to_string(),
@@ -147,11 +162,13 @@ impl AppCore {
     pub fn start_recording(
         &mut self,
         active_target: String,
+        active_encoder_label: String,
         output_path: String,
     ) -> RecorderSnapshot {
         self.status = RecorderStatus::Recording;
         self.active_target = active_target;
         self.active_output_path = Some(output_path);
+        self.active_encoder_label = Some(active_encoder_label);
         self.started_at = Some(SystemTime::now());
         self.paused_at = None;
         self.accumulated_paused = Duration::default();
@@ -161,26 +178,31 @@ impl AppCore {
     pub fn stop_recording(&mut self, completed: Option<CompletedRecording>) -> RecorderSnapshot {
         self.status = RecorderStatus::Idle;
         self.active_output_path = None;
+        self.active_encoder_label = None;
         self.started_at = None;
         self.paused_at = None;
         self.accumulated_paused = Duration::default();
 
         if let Some(recording) = completed {
-            self.recent_sessions.insert(
-                0,
-                SessionSummary {
-                    id: format!("session-{}", self.recent_sessions.len() + 1),
-                    title: recording.title,
-                    started_at: recording.started_at_label,
-                    duration_label: format_duration(recording.duration),
-                    location: recording.location,
-                    size_label: format_size(recording.size_bytes),
-                },
-            );
-            self.recent_sessions.truncate(10);
+            self.push_completed_recording(recording);
         }
 
         self.current_snapshot()
+    }
+
+    pub fn push_completed_recording(&mut self, recording: CompletedRecording) {
+        self.recent_sessions.insert(
+            0,
+            SessionSummary {
+                id: format!("session-{}", self.recent_sessions.len() + 1),
+                title: recording.title,
+                started_at: recording.started_at_label,
+                duration_label: format_duration(recording.duration),
+                location: recording.location,
+                size_label: format_size(recording.size_bytes),
+            },
+        );
+        self.recent_sessions.truncate(10);
     }
 
     pub fn pause_recording(&mut self) -> Option<RecorderSnapshot> {
@@ -215,6 +237,10 @@ impl AppCore {
     pub fn reset_shortcuts(&mut self) -> Vec<ShortcutBinding> {
         self.shortcuts = default_shortcuts();
         self.shortcuts.clone()
+    }
+
+    pub fn sync_recent_sessions(&mut self, recent_sessions: Vec<SessionSummary>) {
+        self.recent_sessions = recent_sessions;
     }
 
     pub fn update_quality_preset(&mut self, quality_preset: String) -> AppSettings {
@@ -278,6 +304,7 @@ impl AppCore {
             elapsed_label,
             active_target: self.active_target.clone(),
             active_output_path: self.active_output_path.clone(),
+            active_encoder_label: self.active_encoder_label.clone(),
             quality_preset: self.settings.quality_preset.clone(),
             output_directory: self.settings.output_directory.clone(),
             mic_enabled: self.settings.mic_enabled,
