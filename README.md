@@ -15,9 +15,13 @@
 ## ✨ Features
 
 - ⌨️ **Keyboard-First Interface** - Navigate and control entirely via global shortcuts.
+- ⌨️ **Configurable Shortcuts** - Remap core recorder shortcuts and re-register them without restarting the app.
 - 🎨 **Modern UI** - Sleek launcher, HUD, tray menu, and recent sessions manager.
 - 🦀 **Rust App State** - High-performance, memory-safe backend as the source of truth.
+- 🧾 **Local Runtime Log** - Persist launch/runtime/panic logs in the app config directory for debugging real machines.
 - 🎯 **Flexible Capture Targets** - Record the full desktop, a specific display, or an individual window.
+- ✂️ **Custom Region Capture** - Configure a reusable capture rectangle on backends that support launcher-defined cropping.
+- 🔊 **Audio Input + System Audio Mixing** - Choose a microphone and optionally mix a supported system-audio loopback source where the backend can do it.
 - 🔒 **Native Permissions** - Seamless flow for `Screen recording` and `Microphone` access on macOS.
 - 🚀 **Automated Builds** - GitHub Actions CI/CD for macOS DMG, Windows setup EXE, and Linux DEB packages.
 - 💅 **Scalable CSS** - Styled with a modular architecture (`foundation`, `shared`, `blocks`).
@@ -27,7 +31,7 @@
 <br>
 
 - **macOS:** `ffmpeg + AVFoundation`
-- **Linux:** `ffmpeg + x11grab + pulse` on X11/XWayland today, plus a native ScreenCast portal lifecycle client for future pure Wayland capture
+- **Linux:** `ffmpeg + x11grab + pulse` on X11/XWayland today, plus a native ScreenCast portal lifecycle client and experimental GStreamer PipeWire path for pure Wayland
 - **Windows:** `ffmpeg + gdigrab + dshow`
 </details>
 
@@ -128,13 +132,17 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 - `ffmpeg` must be installed and available on `PATH`.
 - Must grant **Screen Recording** permission.
 - If narration is enabled, must grant **Microphone** permission.
+- `Custom region` and `system audio mixing` are not wired into the macOS backend yet.
 
 ### 🐧 Linux
 - Supports real recording on `X11` and `Wayland + XWayland`.
-- Pure `Wayland-only` capture is not finished yet, but the repo now includes:
+- `Custom region` works on `X11` and `XWayland`, but not on pure `Wayland-only`.
+- `System audio mixing` works on the X11/XWayland PulseAudio path when a monitor source exists.
+- Pure `Wayland-only` capture is still experimental, but the repo now includes:
   - ScreenCast portal capability probing
   - a native DBus lifecycle client for `CreateSession`, `SelectSources`, `Start`, and `OpenPipeWireRemote`
   - PipeWire readiness probing
+  - an experimental `GStreamer + pipewiresrc` runtime path
 - `ffmpeg` must be on `PATH`.
 - Must run inside an X11 desktop session with `DISPLAY` set, or a Wayland session with XWayland compatibility enabled.
 - Microphone narration uses default PulseAudio/PipeWire source.
@@ -154,6 +162,8 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 - **PowerShell** is required to enumerate monitors/windows and control pause/resume.
 - Auto-selects the best available DirectShow microphone when `Default input` is selected.
 - The launcher can target the full desktop, a single monitor, or a single top-level window.
+- `Custom region` is available on the desktop path.
+- `System audio mixing` depends on Windows exposing a usable DirectShow loopback source such as `Stereo Mix`.
 - Release packages are distributed as NSIS setup executables.
 
 ---
@@ -161,6 +171,7 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 ## 📚 Documentation
 Dive deeper into the project's design and conventions:
 - 📌 **Roadmap:** [`docs/roadmap/product-plan.md`](docs/roadmap/product-plan.md)
+- 📋 **Product audit:** [`docs/reports/product-audit-2026-03-14.md`](docs/reports/product-audit-2026-03-14.md)
 - 🏛 **Architecture:** [`docs/architecture/overview.md`](docs/architecture/overview.md)
 - 🐧 **Linux Wayland status:** [`docs/architecture/linux-wayland.md`](docs/architecture/linux-wayland.md)
   This doc now also includes the handoff checklist for continuing pure Wayland work on a Linux machine.

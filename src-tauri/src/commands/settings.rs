@@ -100,7 +100,15 @@ pub fn update_capture_target(
     state: State<'_, AppState>,
     capture_target_id: String,
 ) -> Result<AppSettings, String> {
-    let capture_target = capture_targets::available_capture_targets()
+    let available_targets = {
+        let core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        capture_targets::available_capture_targets(&core.settings())
+    };
+
+    let capture_target = available_targets
         .into_iter()
         .find(|target| target.id == capture_target_id)
         .ok_or_else(|| "selected capture target is not available".to_string())?;
@@ -111,6 +119,37 @@ pub fn update_capture_target(
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
         let settings = core.update_capture_target(capture_target.id, capture_target.label);
+        let recorder = core.snapshot();
+        (settings, recorder)
+    };
+
+    emit_recorder_state(&app, &recorder);
+    persist_settings(&app)?;
+    if let Some(bounds) =
+        crate::target_preview::preview_bounds_for_target(&app, &capture_target_id)?
+    {
+        let _ = crate::window::show_target_preview(&app, bounds);
+    }
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn update_system_audio_enabled(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    system_audio_enabled: bool,
+) -> Result<AppSettings, String> {
+    let capabilities = crate::capture_capabilities::current_capture_capabilities();
+    if system_audio_enabled && !capabilities.supports_system_audio {
+        return Err(capabilities.system_audio_note);
+    }
+
+    let (settings, recorder) = {
+        let mut core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        let settings = core.update_system_audio_enabled(system_audio_enabled);
         let recorder = core.snapshot();
         (settings, recorder)
     };
@@ -131,12 +170,43 @@ pub fn update_audio_input(
         .find(|input| input.id == audio_input_id)
         .ok_or_else(|| "selected microphone input is not available".to_string())?;
 
+    if audio_input.kind == capture::AudioInputKind::System {
+        return Err(
+            "system-audio loopback sources are controlled by the `Include system audio` toggle, not the microphone selector."
+                .to_string(),
+        );
+    }
+
     let (settings, recorder) = {
         let mut core = state
             .core
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
         let settings = core.update_audio_input(audio_input.id);
+        let recorder = core.snapshot();
+        (settings, recorder)
+    };
+
+    emit_recorder_state(&app, &recorder);
+    persist_settings(&app)?;
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn update_custom_region(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    region_x: u32,
+    region_y: u32,
+    region_width: u32,
+    region_height: u32,
+) -> Result<AppSettings, String> {
+    let (settings, recorder) = {
+        let mut core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        let settings = core.update_custom_region(region_x, region_y, region_width, region_height);
         let recorder = core.snapshot();
         (settings, recorder)
     };

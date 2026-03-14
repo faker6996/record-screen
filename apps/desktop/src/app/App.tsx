@@ -12,6 +12,8 @@ import { getAppSurface } from './surfaces'
 import { HudSurface } from '../features/launcher/components/HudSurface'
 import { PermissionsPanel } from '../features/permissions/components/PermissionsPanel'
 import { RecorderPanel } from '../features/recorder/components/RecorderPanel'
+import { RegionSelectorSurface } from '../features/recorder/components/RegionSelectorSurface'
+import { TargetPreviewSurface } from '../features/recorder/components/TargetPreviewSurface'
 import { RecentSessionsPanel } from '../features/library/components/RecentSessionsPanel'
 import { SettingsPanel } from '../features/settings/components/SettingsPanel'
 import { ShortcutPanel } from '../features/settings/components/ShortcutPanel'
@@ -135,14 +137,22 @@ function HudApp() {
     )
   }
 
-    return (
-      <HudSurface
-        onPauseResume={pauseResume}
-        onToggleMicrophone={toggleMicrophone}
-        onToggleRecording={toggleRecording}
-        recorder={recorder}
-      />
+  return (
+    <HudSurface
+      onPauseResume={pauseResume}
+      onToggleMicrophone={toggleMicrophone}
+      onToggleRecording={toggleRecording}
+      recorder={recorder}
+    />
   )
+}
+
+function RegionSelectorApp() {
+  return <RegionSelectorSurface />
+}
+
+function TargetPreviewApp() {
+  return <TargetPreviewSurface />
 }
 
 function LauncherApp() {
@@ -172,15 +182,19 @@ function LauncherApp() {
     saveRecordingCopy,
     trashRecordings,
     showHud,
+    showRegionSelector,
     snapshot,
     toggleMicrophone,
     toggleRecording,
     updateAudioInput,
     updateCaptureTarget,
+    updateCustomRegion,
     updateLaunchOnLogin,
     updateOutputDirectory,
     updateQualityPreset,
+    updateShortcut,
     updateShowHudDuringRecording,
+    updateSystemAudioEnabled,
   } = useDesktopState()
 
   useEffect(() => {
@@ -211,6 +225,7 @@ function LauncherApp() {
             audioInputs={currentSnapshot.audioInputs}
             captureTargets={currentSnapshot.captureTargets}
             diagnostics={currentSnapshot.diagnostics}
+            onOpenRegionSelector={showRegionSelector}
             onPauseResume={pauseResume}
             onUpdateAudioInput={updateAudioInput}
             onUpdateCaptureTarget={updateCaptureTarget}
@@ -220,6 +235,7 @@ function LauncherApp() {
             runtimeError={actionError}
             selectedAudioInputId={currentSnapshot.settings.audioInputId}
             selectedCaptureTargetId={currentSnapshot.settings.captureTargetId}
+            systemAudioEnabled={currentSnapshot.settings.systemAudioEnabled}
           />
         )
       case 'recent':
@@ -235,12 +251,17 @@ function LauncherApp() {
       case 'settings':
         return (
           <SettingsPanel
+            diagnostics={currentSnapshot.diagnostics}
+            hasSystemAudioSource={currentSnapshot.audioInputs.some((input) => input.kind === 'system')}
+            onOpenRegionSelector={showRegionSelector}
             onPickOutputDirectory={pickOutputDirectory}
             onUpdateThemeMode={setThemeMode}
             onUpdateLaunchOnLogin={updateLaunchOnLogin}
             onUpdateOutputDirectory={updateOutputDirectory}
             onUpdateQualityPreset={updateQualityPreset}
+            onUpdateCustomRegion={updateCustomRegion}
             onUpdateShowHudDuringRecording={updateShowHudDuringRecording}
+            onUpdateSystemAudioEnabled={updateSystemAudioEnabled}
             qualityPresets={currentSnapshot.qualityPresets}
             settings={currentSnapshot.settings}
             themeMode={themeMode}
@@ -251,6 +272,7 @@ function LauncherApp() {
           <ShortcutPanel
             onFocusLauncher={focusLauncher}
             onReset={resetShortcuts}
+            onUpdateShortcut={updateShortcut}
             shortcuts={currentSnapshot.shortcuts}
           />
         )
@@ -362,6 +384,14 @@ export default function App() {
 
   if (surface === 'hud') {
     return <HudApp />
+  }
+
+  if (surface === 'region-selector') {
+    return <RegionSelectorApp />
+  }
+
+  if (surface === 'target-preview') {
+    return <TargetPreviewApp />
   }
 
   return <LauncherApp />

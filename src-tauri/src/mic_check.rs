@@ -132,12 +132,7 @@ fn selected_audio_input_id(app: &AppHandle) -> Result<String, String> {
             .map(|input| input.id.as_str() == capture::DEFAULT_AUDIO_INPUT_ID)
             .unwrap_or(false)
     {
-        return Err(
-            available_audio_inputs[0]
-                .description
-                .trim()
-                .to_string(),
-        );
+        return Err(available_audio_inputs[0].description.trim().to_string());
     }
 
     audio_inputs::normalize_audio_input_selection(&selected_audio_input_id, &available_audio_inputs)

@@ -9,3 +9,5 @@
 @import './blocks/settings-panel.css';
 @import './blocks/sessions-panel.css';
 @import './blocks/hud.css';
+@import './blocks/region-selector.css';
+@import './blocks/target-preview.css';

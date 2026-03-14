@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use shortcuts::{ShortcutAction, ShortcutBinding, default_shortcuts};
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -12,10 +13,15 @@ pub struct AppSettings {
     pub output_directory: String,
     pub quality_preset: String,
     pub mic_enabled: bool,
+    pub system_audio_enabled: bool,
     pub audio_input_id: String,
     pub launch_on_login: bool,
     pub show_hud_during_recording: bool,
     pub capture_target_id: String,
+    pub region_x: u32,
+    pub region_y: u32,
+    pub region_width: u32,
+    pub region_height: u32,
 }
 
 impl Default for AppSettings {
@@ -24,10 +30,15 @@ impl Default for AppSettings {
             output_directory: "~/Movies/Record Screen".to_string(),
             quality_preset: "1080p / 30 fps".to_string(),
             mic_enabled: true,
+            system_audio_enabled: false,
             audio_input_id: capture::DEFAULT_AUDIO_INPUT_ID.to_string(),
             launch_on_login: false,
             show_hud_during_recording: true,
             capture_target_id: "full-desktop".to_string(),
+            region_x: 160,
+            region_y: 120,
+            region_width: 1280,
+            region_height: 720,
         }
     }
 }
@@ -46,6 +57,14 @@ pub enum StorageError {
     ParseSettings(serde_json::Error),
     #[error("failed to serialize app settings: {0}")]
     SerializeSettings(serde_json::Error),
+    #[error("failed to read shortcuts: {0}")]
+    ReadShortcuts(std::io::Error),
+    #[error("failed to write shortcuts: {0}")]
+    WriteShortcuts(std::io::Error),
+    #[error("failed to parse shortcuts: {0}")]
+    ParseShortcuts(serde_json::Error),
+    #[error("failed to serialize shortcuts: {0}")]
+    SerializeShortcuts(serde_json::Error),
 }
 
 pub fn expand_home_path(input: &str) -> PathBuf {
@@ -80,6 +99,10 @@ pub fn app_settings_path() -> PathBuf {
     app_config_directory().join("settings.json")
 }
 
+pub fn shortcuts_path() -> PathBuf {
+    app_config_directory().join("shortcuts.json")
+}
+
 pub fn load_app_settings() -> Result<AppSettings, StorageError> {
     let path = app_settings_path();
     if !path.exists() {
@@ -98,6 +121,48 @@ pub fn save_app_settings(settings: &AppSettings) -> Result<(), StorageError> {
     fs::write(app_settings_path(), payload).map_err(StorageError::WriteSettings)
 }
 
+pub fn load_shortcuts() -> Result<Vec<ShortcutBinding>, StorageError> {
+    let path = shortcuts_path();
+    if !path.exists() {
+        return Ok(default_shortcuts());
+    }
+
+    let contents = fs::read_to_string(&path).map_err(StorageError::ReadShortcuts)?;
+    let shortcuts: Vec<ShortcutBinding> =
+        serde_json::from_str(&contents).map_err(StorageError::ParseShortcuts)?;
+
+    Ok(normalize_shortcuts(shortcuts))
+}
+
+pub fn save_shortcuts(shortcuts: &[ShortcutBinding]) -> Result<(), StorageError> {
+    let directory = app_config_directory();
+    fs::create_dir_all(&directory).map_err(StorageError::CreateConfigDirectory)?;
+    let payload =
+        serde_json::to_string_pretty(shortcuts).map_err(StorageError::SerializeShortcuts)?;
+    fs::write(shortcuts_path(), payload).map_err(StorageError::WriteShortcuts)
+}
+
+fn normalize_shortcuts(shortcuts: Vec<ShortcutBinding>) -> Vec<ShortcutBinding> {
+    let defaults = default_shortcuts();
+
+    ShortcutAction::ALL
+        .into_iter()
+        .map(|action| {
+            shortcuts
+                .iter()
+                .find(|binding| binding.action == action)
+                .cloned()
+                .or_else(|| {
+                    defaults
+                        .iter()
+                        .find(|binding| binding.action == action)
+                        .cloned()
+                })
+                .expect("default shortcut bindings are complete")
+        })
+        .collect()
+}
+
 pub fn next_recording_path(input: &str) -> Result<PathBuf, StorageError> {
     let directory = ensure_output_directory(input)?;
     let timestamp = SystemTime::now()
@@ -110,7 +175,7 @@ pub fn next_recording_path(input: &str) -> Result<PathBuf, StorageError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppSettings, app_settings_path};
+    use super::{AppSettings, app_settings_path, shortcuts_path};
 
     #[test]
     fn default_launch_on_login_is_disabled() {
@@ -120,5 +185,10 @@ mod tests {
     #[test]
     fn settings_path_ends_with_settings_json() {
         assert!(app_settings_path().ends_with("settings.json"));
+    }
+
+    #[test]
+    fn shortcuts_path_ends_with_shortcuts_json() {
+        assert!(shortcuts_path().ends_with("shortcuts.json"));
     }
 }

@@ -23,11 +23,41 @@ body[data-surface='hud'] {
   background: transparent;
 }
 
+body[data-surface='region-selector'] {
+  min-height: 100vh;
+  overflow: hidden;
+  background: transparent;
+}
+
+body[data-surface='target-preview'] {
+  min-height: 100vh;
+  overflow: hidden;
+  background: transparent;
+}
+
 body[data-surface='hud'] #root,
 body[data-surface='hud'] .hud {
   width: fit-content;
   min-height: 0;
   height: auto;
+  overflow: hidden;
+  background: transparent;
+}
+
+body[data-surface='region-selector'] #root,
+body[data-surface='region-selector'] .region-selector {
+  width: 100%;
+  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body[data-surface='target-preview'] #root,
+body[data-surface='target-preview'] .target-preview {
+  width: 100%;
+  min-height: 100vh;
+  height: 100%;
   overflow: hidden;
   background: transparent;
 }

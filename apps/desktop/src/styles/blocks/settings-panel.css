@@ -116,6 +116,20 @@
   cursor: pointer;
 }
 
+.settings-panel__toggle--disabled {
+  opacity: 0.72;
+}
+
+.settings-panel__toggle--disabled input {
+  cursor: not-allowed;
+}
+
+.settings-panel__region-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .settings-panel__switch {
   width: 46px;
   height: 26px;
@@ -164,6 +178,10 @@
 
   .settings-panel__field-row {
     grid-template-columns: 1fr;
+  }
+
+  .settings-panel__region-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .settings-panel__browse-button {

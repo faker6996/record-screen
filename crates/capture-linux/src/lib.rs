@@ -12,9 +12,10 @@ use std::{
 };
 
 use capture::{
-    ActiveRecording, AudioInputOption, CaptureController, CaptureError, CaptureTargetOption,
-    DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
-    default_audio_input, full_desktop_target, resolve_audio_input_id,
+    ActiveRecording, AudioInputKind, AudioInputOption, CUSTOM_REGION_TARGET_ID, CaptureController,
+    CaptureError, CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID,
+    RecordingArtifact, RecordingOptions, default_audio_input, full_desktop_target,
+    preferred_system_audio_input, resolve_audio_input_id,
 };
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
@@ -96,7 +97,7 @@ impl FfmpegLinuxCapture {
         let stderr_buffer = Arc::new(Mutex::new(String::new()));
         let (target_label, encoder_label, process_kind, child, stdin) = match &session {
             LinuxDesktopSession::X11 { display } => {
-                let target = resolve_target(&options.capture_target_id)?;
+                let target = resolve_target(&options)?;
                 let encoder = encoder_for_quality(&options.quality_preset);
                 let (child, stdin) =
                     spawn_ffmpeg(&options, display, &target, Arc::clone(&stderr_buffer))?;
@@ -109,7 +110,7 @@ impl FfmpegLinuxCapture {
                 )
             }
             LinuxDesktopSession::WaylandWithX11 { x11_display, .. } => {
-                let target = resolve_target(&options.capture_target_id)?;
+                let target = resolve_target(&options)?;
                 let encoder = encoder_for_quality(&options.quality_preset);
                 let (child, stdin) =
                     spawn_ffmpeg(&options, x11_display, &target, Arc::clone(&stderr_buffer))?;
@@ -125,6 +126,11 @@ impl FfmpegLinuxCapture {
                 if options.capture_target_id != FULL_DESKTOP_TARGET_ID {
                     return Err(CaptureError::BackendUnavailable(format!(
                         "Wayland session {wayland_display} currently records through the ScreenCast portal chooser. Window and monitor targeting from the launcher is not wired into the pure Wayland path yet."
+                    )));
+                }
+                if options.system_audio_enabled {
+                    return Err(CaptureError::BackendUnavailable(format!(
+                        "Wayland session {wayland_display} currently uses the experimental ScreenCast portal + GStreamer path, and system-audio mixing is not wired into that runtime yet."
                     )));
                 }
 
@@ -321,7 +327,83 @@ pub fn list_audio_inputs() -> Vec<AudioInputOption> {
     inputs
 }
 
-fn resolve_target(target_id: &str) -> Result<ResolvedTarget, CaptureError> {
+pub fn preview_target_bounds(
+    capture_target_id: &str,
+    region_x: u32,
+    region_y: u32,
+    region_width: u32,
+    region_height: u32,
+) -> Result<(i32, i32, u32, u32), CaptureError> {
+    let target = resolve_target(&RecordingOptions {
+        output_path: std::env::temp_dir().join("record-screen-preview.mp4"),
+        quality_preset: "1080p / 30 fps".to_string(),
+        mic_enabled: false,
+        system_audio_enabled: false,
+        capture_target_id: capture_target_id.to_string(),
+        audio_input_id: DEFAULT_AUDIO_INPUT_ID.to_string(),
+        region_x,
+        region_y,
+        region_width,
+        region_height,
+    })?;
+    let (width, height) = target.video_size.unwrap_or((640, 360));
+    Ok((target.origin_x, target.origin_y, width, height))
+}
+
+pub fn custom_region_support_summary() -> (bool, String) {
+    match current_desktop_session() {
+        LinuxDesktopSession::X11 { .. } => (
+            true,
+            "Custom region capture is available through the native X11 path.".to_string(),
+        ),
+        LinuxDesktopSession::WaylandWithX11 { .. } => (
+            true,
+            "Custom region capture is available through the XWayland compatibility path."
+                .to_string(),
+        ),
+        LinuxDesktopSession::WaylandOnly { .. } => (
+            false,
+            "Pure Wayland recording currently uses the ScreenCast portal chooser, so launcher-defined custom regions are not wired in yet."
+                .to_string(),
+        ),
+        LinuxDesktopSession::Headless => (
+            false,
+            "Custom region capture needs an active desktop session.".to_string(),
+        ),
+    }
+}
+
+pub fn system_audio_support_summary() -> (bool, String) {
+    match current_desktop_session() {
+        LinuxDesktopSession::X11 { .. } | LinuxDesktopSession::WaylandWithX11 { .. } => {
+            match resolve_system_audio_input() {
+                Ok(_) => (
+                    true,
+                    "A PulseAudio/PipeWire monitor source is available for system-audio mixing."
+                        .to_string(),
+                ),
+                Err(error) => (
+                    false,
+                    format!(
+                        "Linux could not find a usable PulseAudio/PipeWire monitor source. {error}"
+                    ),
+                ),
+            }
+        }
+        LinuxDesktopSession::WaylandOnly { .. } => (
+            false,
+            "Pure Wayland recording currently uses the experimental ScreenCast portal + GStreamer path, and system-audio mixing is not wired into that runtime yet."
+                .to_string(),
+        ),
+        LinuxDesktopSession::Headless => (
+            false,
+            "System-audio mixing needs an active desktop session.".to_string(),
+        ),
+    }
+}
+
+fn resolve_target(options: &RecordingOptions) -> Result<ResolvedTarget, CaptureError> {
+    let target_id = options.capture_target_id.as_str();
     let monitors = query_monitors().unwrap_or_default();
 
     if target_id == FULL_DESKTOP_TARGET_ID {
@@ -344,6 +426,18 @@ fn resolve_target(target_id: &str) -> Result<ResolvedTarget, CaptureError> {
                 origin_x: window.x,
                 origin_y: window.y,
                 video_size: Some((window.width, window.height)),
+            });
+        }
+
+        if target_id == CUSTOM_REGION_TARGET_ID {
+            return Ok(ResolvedTarget {
+                label: format!(
+                    "Custom region · {}, {} · {} x {}",
+                    options.region_x, options.region_y, options.region_width, options.region_height
+                ),
+                origin_x: options.region_x as i32,
+                origin_y: options.region_y as i32,
+                video_size: Some((options.region_width.max(64), options.region_height.max(64))),
             });
         }
 
@@ -435,6 +529,7 @@ fn spawn_ffmpeg(
         .arg("-i")
         .arg(format!("{input}+{},{}", target.origin_x, target.origin_y));
 
+    let mut audio_input_count = 0;
     if options.mic_enabled {
         let audio_input = resolve_audio_input(&options.audio_input_id)?;
         command
@@ -444,6 +539,19 @@ fn spawn_ffmpeg(
             .arg("1024")
             .arg("-i")
             .arg(audio_input);
+        audio_input_count += 1;
+    }
+
+    if options.system_audio_enabled {
+        let system_audio_input = resolve_system_audio_input()?;
+        command
+            .arg("-f")
+            .arg("pulse")
+            .arg("-thread_queue_size")
+            .arg("1024")
+            .arg("-i")
+            .arg(system_audio_input);
+        audio_input_count += 1;
     }
 
     command.arg("-c:v").arg(encoder.codec);
@@ -460,10 +568,34 @@ fn spawn_ffmpeg(
         command.arg("-vf").arg(filter);
     }
 
-    if options.mic_enabled {
-        command.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
-    } else {
-        command.arg("-an");
+    match audio_input_count {
+        0 => {
+            command.arg("-an");
+        }
+        1 => {
+            command
+                .arg("-map")
+                .arg("0:v")
+                .arg("-map")
+                .arg("1:a")
+                .arg("-c:a")
+                .arg("aac")
+                .arg("-b:a")
+                .arg("192k");
+        }
+        _ => {
+            command
+                .arg("-filter_complex")
+                .arg("[1:a][2:a]amix=inputs=2:normalize=0[aout]")
+                .arg("-map")
+                .arg("0:v")
+                .arg("-map")
+                .arg("[aout]")
+                .arg("-c:a")
+                .arg("aac")
+                .arg("-b:a")
+                .arg("192k");
+        }
     }
 
     command
@@ -645,6 +777,18 @@ fn resolve_audio_input(audio_input_id: &str) -> Result<String, CaptureError> {
     resolve_audio_input_from_snapshot(audio_input_id, query_audio_inputs().ok().as_deref())
 }
 
+fn resolve_system_audio_input() -> Result<String, CaptureError> {
+    let audio_inputs = query_audio_inputs()?;
+    preferred_system_audio_input(&audio_inputs)
+        .map(|input| input.id.clone())
+        .ok_or_else(|| {
+            CaptureError::BackendUnavailable(
+                "Linux could not find a usable system-audio monitor source. Disable system audio and try again."
+                    .to_string(),
+            )
+        })
+}
+
 fn gst_audio_input_device(audio_input_id: &str) -> Result<Option<String>, CaptureError> {
     if audio_input_id == DEFAULT_AUDIO_INPUT_ID {
         return Ok(None);
@@ -709,14 +853,27 @@ fn query_audio_inputs() -> Result<Vec<AudioInputOption>, CaptureError> {
             continue;
         };
 
-        if name.ends_with(".monitor") {
-            continue;
-        }
+        let kind = if name.ends_with(".monitor") || line.to_ascii_lowercase().contains("monitor") {
+            AudioInputKind::System
+        } else {
+            AudioInputKind::Microphone
+        };
+
+        let label = if kind == AudioInputKind::System {
+            format!("System audio · {name}")
+        } else {
+            name.to_string()
+        };
 
         inputs.push(AudioInputOption {
             id: name.to_string(),
-            label: name.to_string(),
-            description: format!("PulseAudio source: {name}"),
+            label,
+            description: if kind == AudioInputKind::System {
+                format!("PulseAudio/PipeWire monitor source: {name}")
+            } else {
+                format!("PulseAudio source: {name}")
+            },
+            kind,
         });
     }
 
@@ -1320,8 +1477,13 @@ mod tests {
             output_path: output_path.clone(),
             quality_preset: "1080p / 30 fps".to_string(),
             mic_enabled: false,
+            system_audio_enabled: false,
             capture_target_id: "full-desktop".to_string(),
             audio_input_id: DEFAULT_AUDIO_INPUT_ID.to_string(),
+            region_x: 160,
+            region_y: 120,
+            region_width: 1280,
+            region_height: 720,
         };
 
         let args = build_wayland_gstreamer_args(&options, 77).expect("wayland args should build");
@@ -1343,8 +1505,13 @@ mod tests {
             output_path: PathBuf::from("/tmp/record-screen-wayland-with-mic.mp4"),
             quality_preset: "1080p / 60 fps".to_string(),
             mic_enabled: true,
+            system_audio_enabled: false,
             capture_target_id: "full-desktop".to_string(),
             audio_input_id: "alsa_input.usb-Blue_Yeti".to_string(),
+            region_x: 160,
+            region_y: 120,
+            region_width: 1280,
+            region_height: 720,
         };
 
         let args = build_wayland_gstreamer_args(&options, 9).expect("wayland args should build");

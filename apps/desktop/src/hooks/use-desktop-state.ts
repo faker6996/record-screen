@@ -6,6 +6,8 @@ import type {
   PermissionCheck,
   RecorderSnapshot,
   SessionSummary,
+  ShortcutAction,
+  ShortcutBinding,
 } from '../types/desktop'
 
 function updateRecorderSnapshot(
@@ -72,6 +74,20 @@ function updateRecentSessionsSnapshot(
   return {
     ...snapshot,
     recentSessions,
+  }
+}
+
+function updateShortcutsSnapshot(
+  snapshot: BootstrapSnapshot | null,
+  shortcuts: ShortcutBinding[],
+) {
+  if (!snapshot) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    shortcuts,
   }
 }
 
@@ -322,14 +338,39 @@ export function useDesktopState() {
   }
 
   async function resetShortcuts() {
-    await desktopClient.resetShortcuts()
-    const nextSnapshot = await desktopClient.getBootstrap()
-    startTransition(() => {
-      setSnapshot(nextSnapshot)
-      setError(null)
-      setActionError(null)
-      setIsLoading(false)
-    })
+    try {
+      const shortcuts = await desktopClient.resetShortcuts()
+      startTransition(() => {
+        setSnapshot((current) => updateShortcutsSnapshot(current, shortcuts))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to reset shortcuts.',
+        )
+      })
+    }
+  }
+
+  async function updateShortcut(action: ShortcutAction, accelerator: string) {
+    try {
+      const shortcuts = await desktopClient.updateShortcut(action, accelerator)
+      startTransition(() => {
+        setSnapshot((current) => updateShortcutsSnapshot(current, shortcuts))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update shortcut.',
+        )
+      })
+    }
   }
 
   async function updateQualityPreset(qualityPreset: string) {
@@ -382,6 +423,25 @@ export function useDesktopState() {
           actionLoadError instanceof Error
             ? actionLoadError.message
             : 'Unable to update HUD preference.',
+        )
+      })
+    }
+  }
+
+  async function updateSystemAudioEnabled(systemAudioEnabled: boolean) {
+    try {
+      const settings =
+        await desktopClient.updateSystemAudioEnabled(systemAudioEnabled)
+      startTransition(() => {
+        setSnapshot((current) => updateSettingsSnapshot(current, settings))
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update system-audio capture.',
         )
       })
     }
@@ -458,6 +518,45 @@ export function useDesktopState() {
           actionLoadError instanceof Error
             ? actionLoadError.message
             : 'Unable to choose output directory.',
+        )
+      })
+    }
+  }
+
+  async function updateCustomRegion(
+    regionX: number,
+    regionY: number,
+    regionWidth: number,
+    regionHeight: number,
+  ) {
+    try {
+      const settings = await desktopClient.updateCustomRegion(
+        regionX,
+        regionY,
+        regionWidth,
+        regionHeight,
+      )
+      const captureTargets = await desktopClient.getCaptureTargets()
+      startTransition(() => {
+        setSnapshot((current) => {
+          const withSettings = updateSettingsSnapshot(current, settings)
+          if (!withSettings) {
+            return withSettings
+          }
+
+          return {
+            ...withSettings,
+            captureTargets,
+          }
+        })
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to update custom region.',
         )
       })
     }
@@ -585,6 +684,23 @@ export function useDesktopState() {
     }
   }
 
+  async function showRegionSelector() {
+    try {
+      await desktopClient.showRegionSelector()
+      startTransition(() => {
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to open the region selector.',
+        )
+      })
+    }
+  }
+
   return {
     actionError,
     snapshot,
@@ -598,14 +714,18 @@ export function useDesktopState() {
     refreshPermissions,
     revealRecordingInFolder,
     resetShortcuts,
+    updateShortcut,
     requestPermission,
     saveRecordingCopy,
     trashRecordings,
     showHud: desktopClient.showHud,
+    showRegionSelector,
     toggleMicrophone,
     updateCaptureTarget,
+    updateCustomRegion,
     updateAudioInput,
     updateShowHudDuringRecording,
+    updateSystemAudioEnabled,
     toggleRecording,
     updateLaunchOnLogin,
     updateOutputDirectory,

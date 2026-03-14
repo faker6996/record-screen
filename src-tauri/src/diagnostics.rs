@@ -8,22 +8,59 @@ pub fn runtime_diagnostics() -> RuntimeDiagnostics {
 
     #[cfg(target_os = "macos")]
     {
+        let capabilities = crate::capture_capabilities::current_capture_capabilities();
         return RuntimeDiagnostics {
             summary: "macOS native capture path".to_string(),
             backend_path: "AVFoundation + ffmpeg".to_string(),
             readiness: "Screen recording and microphone permissions are checked separately in the launcher.".to_string(),
+            supports_custom_region: capabilities.supports_custom_region,
+            custom_region_note: capabilities.custom_region_note,
+            supports_system_audio: capabilities.supports_system_audio,
+            system_audio_note: capabilities.system_audio_note,
         };
     }
 
     #[cfg(target_os = "windows")]
     {
-        let audio_readiness = capture_windows::audio_input_support_summary();
+        let capabilities = crate::capture_capabilities::current_capture_capabilities();
+        let audio_inputs = crate::audio_inputs::available_audio_inputs();
+        let enumerated_microphones = audio_inputs
+            .iter()
+            .filter(|input| input.kind == capture::AudioInputKind::Microphone)
+            .count();
+        let fallback_default = audio_inputs.iter().find(|input| input.id == capture::DEFAULT_AUDIO_INPUT_ID);
+        let audio_readiness = if enumerated_microphones > 0 {
+            format!(
+                "Microphone discovery is ready. Found {} direct input{}.",
+                enumerated_microphones,
+                if enumerated_microphones == 1 { "" } else { "s" }
+            )
+        } else if let Some(default_input) = fallback_default {
+            if default_input
+                .description
+                .to_ascii_lowercase()
+                .contains("default recording device")
+            {
+                format!(
+                    "DirectShow microphone discovery is degraded. The app will fall back to the Windows default recording device when `Default input` is selected. {}",
+                    default_input.description
+                )
+            } else {
+                default_input.description.clone()
+            }
+        } else {
+            "Windows microphone readiness could not be determined.".to_string()
+        };
         return RuntimeDiagnostics {
             summary: "Windows desktop capture path".to_string(),
             backend_path: "gdigrab + dshow + ffmpeg".to_string(),
             readiness: format!(
                 "Desktop capture depends on ffmpeg availability, PowerShell window discovery, and DirectShow microphone readiness. {audio_readiness}"
             ),
+            supports_custom_region: capabilities.supports_custom_region,
+            custom_region_note: capabilities.custom_region_note,
+            supports_system_audio: capabilities.supports_system_audio,
+            system_audio_note: capabilities.system_audio_note,
         };
     }
 
@@ -32,6 +69,10 @@ pub fn runtime_diagnostics() -> RuntimeDiagnostics {
         summary: "Unsupported platform".to_string(),
         backend_path: "No native backend".to_string(),
         readiness: "This target does not have a recording backend yet.".to_string(),
+        supports_custom_region: false,
+        custom_region_note: "This platform does not have a recording backend.".to_string(),
+        supports_system_audio: false,
+        system_audio_note: "This platform does not have a recording backend.".to_string(),
     }
 }
 
@@ -50,16 +91,26 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
         .ok()
         .filter(|value| !value.trim().is_empty());
 
+    let capabilities = crate::capture_capabilities::current_capture_capabilities();
+
     match (display, wayland) {
         (Some(display), Some(wayland)) => RuntimeDiagnostics {
             summary: format!("Linux session: Wayland + XWayland ({wayland}, {display})"),
             backend_path: "x11grab compatibility path".to_string(),
             readiness: "Recording can use the X11 compatibility path today. The pure Wayland ScreenCast portal lifecycle now exists in code, but PipeWire stream ingestion is still pending.".to_string(),
+            supports_custom_region: capabilities.supports_custom_region,
+            custom_region_note: capabilities.custom_region_note.clone(),
+            supports_system_audio: capabilities.supports_system_audio,
+            system_audio_note: capabilities.system_audio_note.clone(),
         },
         (Some(display), None) => RuntimeDiagnostics {
             summary: format!("Linux session: X11 ({display})"),
             backend_path: "x11grab native path".to_string(),
             readiness: "Recording can start directly through X11grab.".to_string(),
+            supports_custom_region: capabilities.supports_custom_region,
+            custom_region_note: capabilities.custom_region_note.clone(),
+            supports_system_audio: capabilities.supports_system_audio,
+            system_audio_note: capabilities.system_audio_note.clone(),
         },
         (None, Some(wayland)) => RuntimeDiagnostics {
             summary: format!("Linux session: Wayland only ({wayland})"),
@@ -114,11 +165,19 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
                     "Wayland is active and a portal may be installed, but the ScreenCast portal could not be reached on the session bus.".to_string()
                 }
             },
+            supports_custom_region: capabilities.supports_custom_region,
+            custom_region_note: capabilities.custom_region_note.clone(),
+            supports_system_audio: capabilities.supports_system_audio,
+            system_audio_note: capabilities.system_audio_note.clone(),
         },
         (None, None) => RuntimeDiagnostics {
             summary: "Linux session: no desktop display detected".to_string(),
             backend_path: "No active X11 or Wayland session".to_string(),
             readiness: "Start the app from an active desktop session to record the screen.".to_string(),
+            supports_custom_region: capabilities.supports_custom_region,
+            custom_region_note: capabilities.custom_region_note,
+            supports_system_audio: capabilities.supports_system_audio,
+            system_audio_note: capabilities.system_audio_note,
         },
     }
 }

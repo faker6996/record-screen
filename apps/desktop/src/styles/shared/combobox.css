@@ -2,6 +2,10 @@
   position: relative;
 }
 
+.combobox--open {
+  z-index: 80;
+}
+
 .combobox__trigger {
   width: 100%;
   min-height: 52px;

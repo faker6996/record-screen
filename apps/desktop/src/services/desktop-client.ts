@@ -20,7 +20,7 @@ declare global {
 
 const mockSnapshot: BootstrapSnapshot = {
   appName: 'Record Screen',
-  appVersion: '0.1.12',
+  appVersion: '0.1.14',
   appAuthor: 'Tran Van Bach',
   appLicense: 'MIT',
   platform: 'web-preview',
@@ -39,10 +39,15 @@ const mockSnapshot: BootstrapSnapshot = {
     outputDirectory: '~/Movies/Record Screen',
     qualityPreset: '1080p / 30 fps',
     micEnabled: true,
+    systemAudioEnabled: false,
     audioInputId: 'default',
     launchOnLogin: false,
     showHudDuringRecording: true,
     captureTargetId: 'full-desktop',
+    regionX: 160,
+    regionY: 120,
+    regionWidth: 1280,
+    regionHeight: 720,
   },
   captureTargets: [
     {
@@ -60,22 +65,36 @@ const mockSnapshot: BootstrapSnapshot = {
       label: 'Display 2',
       description: 'Record only the secondary display.',
     },
+    {
+      id: 'region:custom',
+      label: 'Custom region',
+      description: 'Capture a reusable region at 160, 120 with size 1280 x 720.',
+    },
   ],
   audioInputs: [
     {
       id: 'default',
       label: 'Default input',
       description: 'Use the system default microphone.',
+      kind: 'default',
     },
     {
       id: 'built-in-mic',
       label: 'Built-in Microphone',
       description: 'MacBook Pro Microphone Array',
+      kind: 'microphone',
     },
     {
       id: 'usb-audio',
       label: 'USB Audio Interface',
       description: 'External microphone over USB.',
+      kind: 'microphone',
+    },
+    {
+      id: 'system-loopback',
+      label: 'System audio · Built-in Output',
+      description: 'Loopback monitor source for desktop audio.',
+      kind: 'system',
     },
   ],
   qualityPresets: [
@@ -131,6 +150,10 @@ const mockSnapshot: BootstrapSnapshot = {
     summary: 'Preview runtime',
     backendPath: 'Mock desktop client',
     readiness: 'Web preview uses mocked launcher state and does not start a native recorder.',
+    supportsCustomRegion: true,
+    customRegionNote: 'Preview mode can show the custom-region flow.',
+    supportsSystemAudio: true,
+    systemAudioNote: 'Preview mode exposes a mock system-audio loopback source.',
   },
   recentSessions: [
     {
@@ -251,6 +274,9 @@ async function command<T>(
       case 'update_launch_on_login':
         mockSnapshot.settings.launchOnLogin = Boolean(args?.launchOnLogin)
         return structuredClone(mockSnapshot.settings) as T
+      case 'update_system_audio_enabled':
+        mockSnapshot.settings.systemAudioEnabled = Boolean(args?.systemAudioEnabled)
+        return structuredClone(mockSnapshot.settings) as T
       case 'update_show_hud_during_recording':
         mockSnapshot.settings.showHudDuringRecording = Boolean(
           args?.showHudDuringRecording,
@@ -285,13 +311,64 @@ async function command<T>(
         }
         return structuredClone(mockSnapshot.settings) as T
       }
+      case 'update_custom_region': {
+        mockSnapshot.settings.regionX = Number(args?.regionX ?? mockSnapshot.settings.regionX)
+        mockSnapshot.settings.regionY = Number(args?.regionY ?? mockSnapshot.settings.regionY)
+        mockSnapshot.settings.regionWidth = Number(
+          args?.regionWidth ?? mockSnapshot.settings.regionWidth,
+        )
+        mockSnapshot.settings.regionHeight = Number(
+          args?.regionHeight ?? mockSnapshot.settings.regionHeight,
+        )
+        const customRegionTarget = mockSnapshot.captureTargets.find(
+          (target) => target.id === 'region:custom',
+        )
+        if (customRegionTarget) {
+          customRegionTarget.description = `Capture a reusable region at ${mockSnapshot.settings.regionX}, ${mockSnapshot.settings.regionY} with size ${mockSnapshot.settings.regionWidth} x ${mockSnapshot.settings.regionHeight}.`
+        }
+        return structuredClone(mockSnapshot.settings) as T
+      }
       case 'pick_output_directory':
         return structuredClone(mockSnapshot.settings) as T
       case 'reset_shortcuts':
+        mockSnapshot.shortcuts = structuredClone(mockSnapshot.shortcuts.map((shortcut) => ({
+          ...shortcut,
+          accelerator:
+            shortcut.action === 'toggleRecording'
+              ? 'CmdOrCtrl+Shift+R'
+              : shortcut.action === 'pauseRecording'
+                ? 'CmdOrCtrl+Shift+P'
+                : shortcut.action === 'openLauncher'
+                  ? 'CmdOrCtrl+Shift+L'
+                  : 'CmdOrCtrl+Shift+M',
+        })))
         return structuredClone(mockSnapshot.shortcuts) as T
+      case 'update_shortcut': {
+        const action = String(args?.action ?? '') as ShortcutBinding['action']
+        const accelerator = String(args?.accelerator ?? '').trim()
+        if (!accelerator) {
+          throw new Error('Shortcut accelerator is empty.')
+        }
+        const existingShortcut = mockSnapshot.shortcuts.find(
+          (shortcut) => shortcut.action !== action && shortcut.accelerator === accelerator,
+        )
+        if (existingShortcut) {
+          throw new Error(
+            `shortcut conflict: \`${accelerator}\` is already assigned to ${existingShortcut.label}.`,
+          )
+        }
+        mockSnapshot.shortcuts = mockSnapshot.shortcuts.map((shortcut) =>
+          shortcut.action === action
+            ? { ...shortcut, accelerator }
+            : shortcut,
+        )
+        return structuredClone(mockSnapshot.shortcuts) as T
+      }
       case 'focus_launcher':
       case 'show_hud':
+      case 'show_region_selector':
       case 'hide_hud':
+      case 'hide_region_selector':
       case 'open_recording':
       case 'reveal_recording_in_folder':
       case 'open_permission_settings':
@@ -398,8 +475,14 @@ export const desktopClient = {
   showHud() {
     return command<void>('show_hud')
   },
+  showRegionSelector() {
+    return command<void>('show_region_selector')
+  },
   hideHud() {
     return command<void>('hide_hud')
+  },
+  hideRegionSelector() {
+    return command<void>('hide_region_selector')
   },
   startHudDrag() {
     return command<void>('start_hud_drag')
@@ -422,11 +505,22 @@ export const desktopClient = {
   resetShortcuts() {
     return command<ShortcutBinding[]>('reset_shortcuts')
   },
+  updateShortcut(action: ShortcutBinding['action'], accelerator: string) {
+    return command<ShortcutBinding[]>('update_shortcut', {
+      action,
+      accelerator,
+    })
+  },
   updateQualityPreset(qualityPreset: string) {
     return command<AppSettings>('update_quality_preset', { qualityPreset })
   },
   updateLaunchOnLogin(launchOnLogin: boolean) {
     return command<AppSettings>('update_launch_on_login', { launchOnLogin })
+  },
+  updateSystemAudioEnabled(systemAudioEnabled: boolean) {
+    return command<AppSettings>('update_system_audio_enabled', {
+      systemAudioEnabled,
+    })
   },
   updateShowHudDuringRecording(showHudDuringRecording: boolean) {
     return command<AppSettings>('update_show_hud_during_recording', {
@@ -441,6 +535,19 @@ export const desktopClient = {
   },
   updateOutputDirectory(outputDirectory: string) {
     return command<AppSettings>('update_output_directory', { outputDirectory })
+  },
+  updateCustomRegion(
+    regionX: number,
+    regionY: number,
+    regionWidth: number,
+    regionHeight: number,
+  ) {
+    return command<AppSettings>('update_custom_region', {
+      regionX,
+      regionY,
+      regionWidth,
+      regionHeight,
+    })
   },
   pickOutputDirectory() {
     return command<AppSettings | null>('pick_output_directory')

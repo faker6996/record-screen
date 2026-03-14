@@ -32,6 +32,10 @@ pub struct RuntimeDiagnostics {
     pub summary: String,
     pub backend_path: String,
     pub readiness: String,
+    pub supports_custom_region: bool,
+    pub custom_region_note: String,
+    pub supports_system_audio: bool,
+    pub system_audio_note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,12 +95,12 @@ pub struct AppCore {
 
 impl Default for AppCore {
     fn default() -> Self {
-        Self::new(AppSettings::default())
+        Self::new(AppSettings::default(), default_shortcuts())
     }
 }
 
 impl AppCore {
-    pub fn new(settings: AppSettings) -> Self {
+    pub fn new(settings: AppSettings, shortcuts: Vec<ShortcutBinding>) -> Self {
         Self {
             settings,
             status: RecorderStatus::Idle,
@@ -106,7 +110,7 @@ impl AppCore {
             started_at: None,
             paused_at: None,
             accumulated_paused: Duration::default(),
-            shortcuts: default_shortcuts(),
+            shortcuts,
             recent_sessions: vec![],
         }
     }
@@ -241,8 +245,33 @@ impl AppCore {
         self.current_snapshot()
     }
 
+    pub fn update_system_audio_enabled(&mut self, system_audio_enabled: bool) -> AppSettings {
+        self.settings.system_audio_enabled = system_audio_enabled;
+        self.settings.clone()
+    }
+
     pub fn reset_shortcuts(&mut self) -> Vec<ShortcutBinding> {
         self.shortcuts = default_shortcuts();
+        self.shortcuts.clone()
+    }
+
+    pub fn shortcuts(&self) -> Vec<ShortcutBinding> {
+        self.shortcuts.clone()
+    }
+
+    pub fn update_shortcut(
+        &mut self,
+        action: shortcuts::ShortcutAction,
+        accelerator: String,
+    ) -> Vec<ShortcutBinding> {
+        if let Some(binding) = self
+            .shortcuts
+            .iter_mut()
+            .find(|binding| binding.action == action)
+        {
+            binding.accelerator = accelerator;
+        }
+
         self.shortcuts.clone()
     }
 
@@ -295,6 +324,20 @@ impl AppCore {
             self.settings.audio_input_id = audio_input_id;
         }
 
+        self.settings.clone()
+    }
+
+    pub fn update_custom_region(
+        &mut self,
+        region_x: u32,
+        region_y: u32,
+        region_width: u32,
+        region_height: u32,
+    ) -> AppSettings {
+        self.settings.region_x = region_x;
+        self.settings.region_y = region_y;
+        self.settings.region_width = region_width.max(64);
+        self.settings.region_height = region_height.max(64);
         self.settings.clone()
     }
 

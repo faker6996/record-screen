@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const FULL_DESKTOP_TARGET_ID: &str = "full-desktop";
+pub const CUSTOM_REGION_TARGET_ID: &str = "region:custom";
 pub const DEFAULT_AUDIO_INPUT_ID: &str = "default";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -19,10 +20,19 @@ pub struct CaptureTargetOption {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum AudioInputKind {
+    Default,
+    Microphone,
+    System,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AudioInputOption {
     pub id: String,
     pub label: String,
     pub description: String,
+    pub kind: AudioInputKind,
 }
 
 #[derive(Debug, Clone)]
@@ -30,8 +40,13 @@ pub struct RecordingOptions {
     pub output_path: PathBuf,
     pub quality_preset: String,
     pub mic_enabled: bool,
+    pub system_audio_enabled: bool,
     pub capture_target_id: String,
     pub audio_input_id: String,
+    pub region_x: u32,
+    pub region_y: u32,
+    pub region_width: u32,
+    pub region_height: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -91,11 +106,20 @@ pub fn full_desktop_target() -> CaptureTargetOption {
     }
 }
 
+pub fn custom_region_target(x: u32, y: u32, width: u32, height: u32) -> CaptureTargetOption {
+    CaptureTargetOption {
+        id: CUSTOM_REGION_TARGET_ID.to_string(),
+        label: "Custom region".to_string(),
+        description: format!("Capture a custom area at {x}, {y} with size {width} x {height}."),
+    }
+}
+
 pub fn default_audio_input() -> AudioInputOption {
     AudioInputOption {
         id: DEFAULT_AUDIO_INPUT_ID.to_string(),
         label: "Default input".to_string(),
         description: "Use the system default microphone or audio input device.".to_string(),
+        kind: AudioInputKind::Default,
     }
 }
 
@@ -123,10 +147,56 @@ pub fn resolve_audio_input_id(
         .map(|input| input.id.clone())
 }
 
+pub fn resolve_microphone_input_id(
+    selected_audio_input_id: &str,
+    audio_inputs: &[AudioInputOption],
+) -> Option<String> {
+    if audio_inputs.is_empty() {
+        return None;
+    }
+
+    if selected_audio_input_id != DEFAULT_AUDIO_INPUT_ID {
+        return audio_inputs
+            .iter()
+            .find(|input| {
+                input.id == selected_audio_input_id && input.kind != AudioInputKind::System
+            })
+            .map(|input| input.id.clone())
+            .or_else(|| {
+                preferred_audio_input(audio_inputs)
+                    .map(|input| input.id.clone())
+                    .or_else(|| {
+                        audio_inputs
+                            .iter()
+                            .find(|input| input.id == DEFAULT_AUDIO_INPUT_ID)
+                            .map(|input| input.id.clone())
+                    })
+            });
+    }
+
+    preferred_audio_input(audio_inputs)
+        .or_else(|| {
+            audio_inputs
+                .iter()
+                .find(|input| input.id == DEFAULT_AUDIO_INPUT_ID)
+        })
+        .map(|input| input.id.clone())
+}
+
 pub fn preferred_audio_input(audio_inputs: &[AudioInputOption]) -> Option<&AudioInputOption> {
     audio_inputs
         .iter()
         .filter(|input| input.id != DEFAULT_AUDIO_INPUT_ID)
+        .filter(|input| input.kind != AudioInputKind::System)
+        .max_by_key(|input| audio_input_score(input))
+}
+
+pub fn preferred_system_audio_input(
+    audio_inputs: &[AudioInputOption],
+) -> Option<&AudioInputOption> {
+    audio_inputs
+        .iter()
+        .filter(|input| input.kind == AudioInputKind::System)
         .max_by_key(|input| audio_input_score(input))
 }
 
@@ -138,6 +208,10 @@ fn audio_input_score(input: &AudioInputOption) -> i32 {
     );
 
     let mut score = 0;
+
+    if input.kind == AudioInputKind::System {
+        score += 180;
+    }
 
     if haystack.contains("microphone") || haystack.contains("mic") {
         score += 120;
@@ -169,7 +243,10 @@ fn audio_input_score(input: &AudioInputOption) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AudioInputOption, DEFAULT_AUDIO_INPUT_ID, resolve_audio_input_id};
+    use super::{
+        AudioInputKind, AudioInputOption, DEFAULT_AUDIO_INPUT_ID, preferred_system_audio_input,
+        resolve_audio_input_id, resolve_microphone_input_id,
+    };
 
     #[test]
     fn resolves_default_to_best_microphone_candidate() {
@@ -178,16 +255,19 @@ mod tests {
                 id: DEFAULT_AUDIO_INPUT_ID.to_string(),
                 label: "Default input".to_string(),
                 description: "System default microphone".to_string(),
+                kind: AudioInputKind::Default,
             },
             AudioInputOption {
                 id: "monitor.loopback".to_string(),
                 label: "Monitor of Built-in Audio".to_string(),
                 description: "Loopback output".to_string(),
+                kind: AudioInputKind::System,
             },
             AudioInputOption {
                 id: "usb-mic".to_string(),
                 label: "USB Microphone".to_string(),
                 description: "External USB microphone".to_string(),
+                kind: AudioInputKind::Microphone,
             },
         ];
 
@@ -203,11 +283,64 @@ mod tests {
             id: "built-in".to_string(),
             label: "Built-in Microphone".to_string(),
             description: "Internal microphone".to_string(),
+            kind: AudioInputKind::Microphone,
         }];
 
         assert_eq!(
             resolve_audio_input_id("built-in", &audio_inputs).as_deref(),
             Some("built-in")
+        );
+    }
+
+    #[test]
+    fn prefers_system_audio_when_requested() {
+        let audio_inputs = vec![
+            AudioInputOption {
+                id: "usb-mic".to_string(),
+                label: "USB Microphone".to_string(),
+                description: "External USB microphone".to_string(),
+                kind: AudioInputKind::Microphone,
+            },
+            AudioInputOption {
+                id: "alsa_output.monitor".to_string(),
+                label: "System audio".to_string(),
+                description: "Loopback monitor".to_string(),
+                kind: AudioInputKind::System,
+            },
+        ];
+
+        assert_eq!(
+            preferred_system_audio_input(&audio_inputs).map(|input| input.id.as_str()),
+            Some("alsa_output.monitor")
+        );
+    }
+
+    #[test]
+    fn resolves_microphone_input_away_from_system_sources() {
+        let audio_inputs = vec![
+            AudioInputOption {
+                id: DEFAULT_AUDIO_INPUT_ID.to_string(),
+                label: "Default input".to_string(),
+                description: "System default".to_string(),
+                kind: AudioInputKind::Default,
+            },
+            AudioInputOption {
+                id: "loopback".to_string(),
+                label: "Stereo Mix".to_string(),
+                description: "System audio".to_string(),
+                kind: AudioInputKind::System,
+            },
+            AudioInputOption {
+                id: "usb-mic".to_string(),
+                label: "USB Microphone".to_string(),
+                description: "External microphone".to_string(),
+                kind: AudioInputKind::Microphone,
+            },
+        ];
+
+        assert_eq!(
+            resolve_microphone_input_id("loopback", &audio_inputs).as_deref(),
+            Some("usb-mic")
         );
     }
 }

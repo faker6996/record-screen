@@ -48,8 +48,13 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         output_path: output_path.clone(),
         quality_preset: settings.quality_preset,
         mic_enabled: settings.mic_enabled,
+        system_audio_enabled: settings.system_audio_enabled,
         capture_target_id: settings.capture_target_id,
         audio_input_id: settings.audio_input_id,
+        region_x: settings.region_x,
+        region_y: settings.region_y,
+        region_width: settings.region_width,
+        region_height: settings.region_height,
     })?;
     let active = controller.active_recording().clone();
 

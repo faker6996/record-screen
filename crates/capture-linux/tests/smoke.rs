@@ -24,9 +24,14 @@ fn linux_smoke_recording_creates_output_file() {
         mic_enabled: env::var("RECORD_SCREEN_SMOKE_WITH_MIC")
             .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
             .unwrap_or(false),
+        system_audio_enabled: false,
         capture_target_id: env::var("RECORD_SCREEN_SMOKE_TARGET_ID")
             .unwrap_or_else(|_| "full-desktop".to_string()),
         audio_input_id: capture::DEFAULT_AUDIO_INPUT_ID.to_string(),
+        region_x: 160,
+        region_y: 120,
+        region_width: 1280,
+        region_height: 720,
     };
 
     let mut controller =
@@ -68,8 +73,13 @@ fn linux_wayland_smoke_recording_creates_output_file() {
         mic_enabled: env::var("RECORD_SCREEN_SMOKE_WITH_MIC")
             .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
             .unwrap_or(false),
+        system_audio_enabled: false,
         capture_target_id: "full-desktop".to_string(),
         audio_input_id: capture::DEFAULT_AUDIO_INPUT_ID.to_string(),
+        region_x: 160,
+        region_y: 120,
+        region_width: 1280,
+        region_height: 720,
     };
 
     let mut controller =

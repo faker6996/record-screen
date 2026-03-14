@@ -240,6 +240,7 @@
   display: grid;
   align-content: start;
   gap: 14px;
+  overflow: visible;
   padding: 18px;
   border-radius: 20px;
   border: 1px solid var(--recorder-card-border);
@@ -317,6 +318,26 @@
 
 .recorder-panel__helper {
   min-height: 40px;
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.recorder-panel__warning {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 34%, var(--color-border-soft));
+  background: color-mix(in srgb, var(--color-warning) 10%, var(--recorder-card-bg));
+}
+
+.recorder-panel__warning strong {
+  color: color-mix(in srgb, var(--color-warning) 68%, var(--text-main));
+  font-size: 0.88rem;
+}
+
+.recorder-panel__warning p {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.55;

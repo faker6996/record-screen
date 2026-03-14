@@ -1,5 +1,6 @@
 mod audio_inputs;
 mod bootstrap;
+mod capture_capabilities;
 mod capture_targets;
 mod commands;
 mod device_discovery;
@@ -7,17 +8,20 @@ mod diagnostics;
 mod launch_on_login;
 mod mic_check;
 mod recording;
+mod runtime_log;
+mod target_preview;
 mod tray;
 mod window;
 
+use std::str::FromStr;
 use std::sync::Mutex;
 
 use app_core::{AppCore, RecorderSnapshot};
 use capture::CaptureController;
-use shortcuts::ShortcutAction;
+use shortcuts::{ShortcutAction, ShortcutBinding};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{
-    Builder as GlobalShortcutBuilder, Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+    Builder as GlobalShortcutBuilder, GlobalShortcutExt, Shortcut, ShortcutState,
 };
 
 pub struct AppState {
@@ -44,6 +48,7 @@ pub(crate) fn emit_recorder_state(app: &AppHandle, snapshot: &RecorderSnapshot) 
 }
 
 pub(crate) fn emit_runtime_error(app: &AppHandle, message: &str) {
+    runtime_log::log_runtime_error(message);
     let _ = app.emit("recorder://runtime-error", message.to_string());
 }
 
@@ -56,6 +61,11 @@ pub(crate) fn persist_settings(app: &AppHandle) -> Result<(), String> {
     storage::save_app_settings(&settings).map_err(|error| error.to_string())
 }
 
+pub(crate) fn persist_shortcuts(app: &AppHandle) -> Result<(), String> {
+    let shortcuts = with_core(app, |core| core.shortcuts())?;
+    storage::save_shortcuts(&shortcuts).map_err(|error| error.to_string())
+}
+
 fn load_initial_settings() -> storage::AppSettings {
     match storage::load_app_settings() {
         Ok(settings) => settings,
@@ -66,41 +76,111 @@ fn load_initial_settings() -> storage::AppSettings {
     }
 }
 
-fn command_or_control_modifier() -> Modifiers {
-    if cfg!(target_os = "macos") {
-        Modifiers::SUPER
-    } else {
-        Modifiers::CONTROL
+fn load_initial_shortcuts() -> Vec<ShortcutBinding> {
+    match storage::load_shortcuts() {
+        Ok(shortcuts) => shortcuts,
+        Err(error) => {
+            eprintln!("failed to load persisted shortcuts, falling back to defaults: {error}");
+            shortcuts::default_shortcuts()
+        }
     }
 }
 
-fn shortcut_for(action: ShortcutAction) -> Shortcut {
-    let modifiers = Some(command_or_control_modifier() | Modifiers::SHIFT);
+pub(crate) fn parse_shortcut_accelerator(accelerator: &str) -> Result<Shortcut, String> {
+    let mut normalized_tokens = Vec::new();
 
-    match action {
-        ShortcutAction::ToggleRecording => Shortcut::new(modifiers, Code::KeyR),
-        ShortcutAction::PauseRecording => Shortcut::new(modifiers, Code::KeyP),
-        ShortcutAction::OpenLauncher => Shortcut::new(modifiers, Code::KeyL),
-        ShortcutAction::ToggleMicrophone => Shortcut::new(modifiers, Code::KeyM),
+    for token in accelerator.split('+') {
+        let trimmed = token.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let normalized = match trimmed.to_ascii_lowercase().as_str() {
+            "cmdorctrl" => {
+                if cfg!(target_os = "macos") {
+                    "Super".to_string()
+                } else {
+                    "Control".to_string()
+                }
+            }
+            "cmd" | "command" => "Super".to_string(),
+            "ctrl" | "control" => "Control".to_string(),
+            "alt" | "option" => "Alt".to_string(),
+            "shift" => "Shift".to_string(),
+            "space" => "Space".to_string(),
+            "enter" | "return" => "Enter".to_string(),
+            "escape" | "esc" => "Escape".to_string(),
+            "tab" => "Tab".to_string(),
+            "backspace" => "Backspace".to_string(),
+            "delete" => "Delete".to_string(),
+            "up" => "ArrowUp".to_string(),
+            "down" => "ArrowDown".to_string(),
+            "left" => "ArrowLeft".to_string(),
+            "right" => "ArrowRight".to_string(),
+            value
+                if value.len() == 1
+                    && value
+                        .chars()
+                        .all(|character| character.is_ascii_alphabetic()) =>
+            {
+                format!("Key{}", value.to_ascii_uppercase())
+            }
+            value
+                if value.len() == 1
+                    && value.chars().all(|character| character.is_ascii_digit()) =>
+            {
+                format!("Digit{value}")
+            }
+            value
+                if value.starts_with('f')
+                    && value.len() <= 3
+                    && value[1..]
+                        .chars()
+                        .all(|character| character.is_ascii_digit()) =>
+            {
+                value.to_ascii_uppercase()
+            }
+            _ => trimmed.to_string(),
+        };
+
+        normalized_tokens.push(normalized);
     }
+
+    if normalized_tokens.is_empty() {
+        return Err("shortcut accelerator is empty".to_string());
+    }
+
+    Shortcut::from_str(&normalized_tokens.join("+")).map_err(|error| {
+        format!(
+            "shortcut `{accelerator}` is invalid. Use a combination like CmdOrCtrl+Shift+R. {error}"
+        )
+    })
 }
 
-fn action_for(shortcut: &Shortcut) -> Option<ShortcutAction> {
-    ShortcutAction::ALL
+fn action_for(app: &AppHandle, shortcut: &Shortcut) -> Option<ShortcutAction> {
+    let bindings = with_core(app, |core| core.shortcuts()).ok()?;
+    bindings
         .into_iter()
-        .find(|action| shortcut == &shortcut_for(*action))
+        .filter(|binding| binding.enabled)
+        .find_map(|binding| {
+            parse_shortcut_accelerator(&binding.accelerator)
+                .ok()
+                .filter(|candidate| candidate == shortcut)
+                .map(|_| binding.action)
+        })
 }
 
 pub(crate) fn register_shortcuts(app: &AppHandle) -> Result<(), String> {
     let shortcut_manager = app.global_shortcut();
+    let bindings = with_core(app, |core| core.shortcuts())?;
 
     shortcut_manager
         .unregister_all()
         .map_err(|error| error.to_string())?;
 
-    for action in ShortcutAction::ALL {
+    for binding in bindings.into_iter().filter(|binding| binding.enabled) {
         shortcut_manager
-            .register(shortcut_for(action))
+            .register(parse_shortcut_accelerator(&binding.accelerator)?)
             .map_err(|error| error.to_string())?;
     }
 
@@ -136,10 +216,11 @@ pub(crate) fn handle_shortcut_action(app: &AppHandle, action: ShortcutAction) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let initial_settings = load_initial_settings();
+    let initial_shortcuts = load_initial_shortcuts();
 
     tauri::Builder::default()
         .manage(AppState {
-            core: Mutex::new(AppCore::new(initial_settings)),
+            core: Mutex::new(AppCore::new(initial_settings, initial_shortcuts)),
             recorder: Mutex::new(None),
             mic_check: Mutex::new(None),
         })
@@ -147,7 +228,7 @@ pub fn run() {
             GlobalShortcutBuilder::new()
                 .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        if let Some(action) = action_for(&shortcut) {
+                        if let Some(action) = action_for(app, &shortcut) {
                             handle_shortcut_action(app, action);
                         }
                     }
@@ -155,6 +236,7 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            runtime_log::init(&app.package_info().version.to_string());
             let launch_on_login_enabled =
                 with_core(app.handle(), |core| core.settings().launch_on_login).unwrap_or(false);
             if let Err(error) = launch_on_login::sync_launch_on_login(launch_on_login_enabled) {
@@ -169,6 +251,8 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == window::MAIN_WINDOW_LABEL
                     || window.label() == window::HUD_WINDOW_LABEL
+                    || window.label() == window::REGION_SELECTOR_WINDOW_LABEL
+                    || window.label() == window::TARGET_PREVIEW_WINDOW_LABEL
                 {
                     api.prevent_close();
                     let _ = window.hide();
@@ -180,6 +264,7 @@ pub fn run() {
             commands::bootstrap::get_audio_inputs,
             commands::bootstrap::get_capture_targets,
             commands::bootstrap::reset_shortcuts,
+            commands::bootstrap::update_shortcut,
             commands::library::get_recent_recordings,
             commands::library::open_recording,
             commands::library::reveal_recording_in_folder,
@@ -198,12 +283,16 @@ pub fn run() {
             commands::settings::update_show_hud_during_recording,
             commands::settings::update_capture_target,
             commands::settings::update_audio_input,
+            commands::settings::update_system_audio_enabled,
+            commands::settings::update_custom_region,
             commands::settings::pick_output_directory,
             commands::settings::update_output_directory,
             commands::settings::update_quality_preset,
             commands::window::focus_launcher,
             commands::window::hide_hud,
+            commands::window::hide_region_selector,
             commands::window::show_hud,
+            commands::window::show_region_selector,
             commands::window::start_hud_drag
         ])
         .run(tauri::generate_context!())

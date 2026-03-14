@@ -9,9 +9,10 @@ use std::{
 };
 
 use capture::{
-    ActiveRecording, AudioInputOption, CaptureController, CaptureError, CaptureTargetOption,
-    DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
-    default_audio_input, full_desktop_target, resolve_audio_input_id,
+    ActiveRecording, AudioInputKind, AudioInputOption, CUSTOM_REGION_TARGET_ID, CaptureController,
+    CaptureError, CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID,
+    RecordingArtifact, RecordingOptions, default_audio_input, full_desktop_target,
+    resolve_audio_input_id,
 };
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
@@ -35,6 +36,19 @@ pub struct FfmpegMacosCapture {
 
 impl FfmpegMacosCapture {
     pub fn start(options: RecordingOptions) -> Result<Self, CaptureError> {
+        if options.capture_target_id == CUSTOM_REGION_TARGET_ID {
+            return Err(CaptureError::BackendUnavailable(
+                "Custom region capture is not wired into the macOS backend yet. Use full desktop or a specific display."
+                    .to_string(),
+            ));
+        }
+
+        if options.system_audio_enabled {
+            return Err(CaptureError::BackendUnavailable(
+                "System-audio mixing is not wired into the macOS backend yet.".to_string(),
+            ));
+        }
+
         let screen_input = resolve_screen_input(&options.capture_target_id)?;
         let video_device = screen_input.id.clone();
         let audio_device = discover_audio_device(&options.audio_input_id, options.mic_enabled)?;
@@ -379,6 +393,7 @@ fn parse_audio_inputs(listing: &str) -> Vec<AudioInputOption> {
             id,
             description: format!("AVFoundation input: {label}"),
             label,
+            kind: AudioInputKind::Microphone,
         });
     }
 

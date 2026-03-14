@@ -3632,6 +3632,7 @@ dependencies = [
  "capture",
  "serde",
  "serde_json",
+ "shortcuts",
  "thiserror 2.0.18",
 ]
 

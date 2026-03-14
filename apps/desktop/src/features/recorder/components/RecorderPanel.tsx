@@ -14,6 +14,7 @@ interface RecorderPanelProps {
   captureTargets: CaptureTargetOption[]
   recorder: RecorderSnapshot
   diagnostics: RuntimeDiagnostics
+  onOpenRegionSelector: () => Promise<void>
   onPauseResume: () => Promise<void>
   onUpdateAudioInput: (audioInputId: string) => Promise<void>
   onUpdateCaptureTarget: (captureTargetId: string) => Promise<void>
@@ -21,6 +22,7 @@ interface RecorderPanelProps {
   onToggleRecording: () => Promise<void>
   selectedAudioInputId: string
   selectedCaptureTargetId: string
+  systemAudioEnabled: boolean
   runtimeError: string | null
 }
 
@@ -29,6 +31,7 @@ export function RecorderPanel({
   captureTargets,
   recorder,
   diagnostics,
+  onOpenRegionSelector,
   onPauseResume,
   onUpdateAudioInput,
   onUpdateCaptureTarget,
@@ -36,6 +39,7 @@ export function RecorderPanel({
   onToggleRecording,
   selectedAudioInputId,
   selectedCaptureTargetId,
+  systemAudioEnabled,
   runtimeError,
 }: RecorderPanelProps) {
   const {
@@ -55,6 +59,8 @@ export function RecorderPanel({
     captureTargets.find((target) => target.id === selectedCaptureTargetId) ?? null
   const selectedAudioInput =
     audioInputs.find((input) => input.id === selectedAudioInputId) ?? null
+  const microphoneOptions = audioInputs.filter((input) => input.kind !== 'system')
+  const selectedAudioInputKind = selectedAudioInput?.kind ?? 'default'
   const micLevelPercent = recorder.micEnabled ? Math.round(micLevel * 100) : 0
   const micEnumerationUnavailable =
     selectedAudioInput?.id === 'default' &&
@@ -62,25 +68,38 @@ export function RecorderPanel({
     selectedAudioInput.description
       .toLowerCase()
       .includes('could not enumerate directshow microphone devices')
+  const audioStatusLabel = !recorder.micEnabled
+    ? 'Audio off'
+    : micEnumerationUnavailable
+      ? 'No mic detected'
+      : selectedAudioInput?.label ?? 'Default input'
+  const systemAudioSelected = selectedAudioInputKind === 'system'
   const micCheckDisabled =
-    !recorder.micEnabled || !micCheckSupported || !isIdle || micEnumerationUnavailable
+    !recorder.micEnabled ||
+    !micCheckSupported ||
+    !isIdle ||
+    micEnumerationUnavailable ||
+    systemAudioSelected
   const micCheckLabel = micCheckError
     ? micCheckError
     : micCheckActive
       ? hasSignal
         ? 'Mic detected'
         : 'Listening for input'
+      : systemAudioSelected
+        ? 'System audio sources do not use microphone level testing.'
       : micEnumerationUnavailable
         ? 'Windows could not inspect microphone devices yet.'
       : recorder.micEnabled
         ? selectedAudioInput?.label ?? 'Default input'
-        : 'Microphone muted'
+        : 'Audio capture muted'
   const title = isIdle ? 'Ready to Record' : isPaused ? 'Paused' : 'Recording'
   const copy = isIdle
     ? 'Select your target and start capturing.'
     : isPaused
       ? 'Capture is paused. Resume when you are ready.'
       : 'Recording is in progress. Stop when your session is complete.'
+  const customRegionSelected = selectedCaptureTargetId === 'region:custom'
 
   useEffect(() => {
     if (!isIdle && micCheckActive) {
@@ -100,9 +119,10 @@ export function RecorderPanel({
             {recorder.status}
           </span>
           <span className="recorder-panel__status-meta">{selectedCaptureTarget?.label}</span>
-          <span className="recorder-panel__status-meta">
-            {recorder.micEnabled ? selectedAudioInput?.label ?? 'Default input' : 'Mic off'}
-          </span>
+          <span className="recorder-panel__status-meta">{audioStatusLabel}</span>
+          {systemAudioEnabled ? (
+            <span className="recorder-panel__status-meta">System audio on</span>
+          ) : null}
         </div>
       </header>
 
@@ -167,6 +187,11 @@ export function RecorderPanel({
             className="recorder-panel__target-combobox"
             disabled={!isIdle}
             onChange={(nextCaptureTargetId) => {
+              if (nextCaptureTargetId === 'region:custom') {
+                void onOpenRegionSelector()
+                return
+              }
+
               void onUpdateCaptureTarget(nextCaptureTargetId)
             }}
             options={captureTargets.map((target) => ({
@@ -178,16 +203,30 @@ export function RecorderPanel({
           <p className="subtle-copy recorder-panel__helper">
             {selectedCaptureTarget?.description}
           </p>
+          {customRegionSelected && diagnostics.supportsCustomRegion ? (
+            <div>
+              <button
+                className="button button--secondary"
+                disabled={!isIdle}
+                onClick={() => {
+                  void onOpenRegionSelector()
+                }}
+                type="button"
+              >
+                Select on screen again
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <section className="recorder-panel__control-card">
           <div className="recorder-panel__control-header recorder-panel__control-header--split">
             <span className="metric-label recorder-panel__metric-label">
               <Mic aria-hidden="true" size={16} strokeWidth={1.9} />
-              Microphone
+              Audio input
             </span>
             <button
-              aria-label={recorder.micEnabled ? 'Disable microphone' : 'Enable microphone'}
+              aria-label={recorder.micEnabled ? 'Disable audio capture' : 'Enable audio capture'}
               aria-pressed={recorder.micEnabled}
               className={`recorder-panel__switch ${
                 recorder.micEnabled ? 'recorder-panel__switch--active' : ''
@@ -200,21 +239,38 @@ export function RecorderPanel({
           </div>
 
           <Combobox
-            ariaLabel="Microphone input"
+            ariaLabel="Audio input"
             className="recorder-panel__target-combobox"
             disabled={!recorder.micEnabled || !isIdle}
             onChange={(nextAudioInputId) => {
               void onUpdateAudioInput(nextAudioInputId)
             }}
-            options={audioInputs.map((input) => ({
+            options={microphoneOptions.map((input) => ({
               value: input.id,
               label: input.label,
             }))}
             value={selectedAudioInputId}
           />
           <p className="subtle-copy recorder-panel__helper">
-            {selectedAudioInput?.description}
+            {systemAudioEnabled && diagnostics.supportsSystemAudio
+              ? `${selectedAudioInput?.description ?? 'Choose a microphone input.'} System audio will be mixed in from the current loopback source.`
+              : selectedAudioInput?.description ??
+                'Choose a microphone input for narration.'}
           </p>
+
+          {micEnumerationUnavailable ? (
+            <div
+              className="recorder-panel__warning"
+              role="status"
+              aria-live="polite"
+            >
+              <strong>Windows microphone fallback</strong>
+              <p>
+                Recording will continue without microphone narration until
+                Windows exposes a usable DirectShow input.
+              </p>
+            </div>
+          ) : null}
 
           <div className="recorder-panel__mic-check">
             <div className="recorder-panel__mic-level">
@@ -245,7 +301,7 @@ export function RecorderPanel({
                 type="button"
               >
                 <AudioLines aria-hidden="true" size={16} strokeWidth={1.9} />
-                {micCheckActive ? 'Stop test' : 'Test mic'}
+                {micCheckActive ? 'Stop test' : 'Test input'}
               </button>
             </div>
           </div>

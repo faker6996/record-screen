@@ -22,10 +22,15 @@ export interface AppSettings {
   outputDirectory: string
   qualityPreset: string
   micEnabled: boolean
+  systemAudioEnabled: boolean
   audioInputId: string
   launchOnLogin: boolean
   showHudDuringRecording: boolean
   captureTargetId: string
+  regionX: number
+  regionY: number
+  regionWidth: number
+  regionHeight: number
 }
 
 export interface CaptureTargetOption {
@@ -38,6 +43,7 @@ export interface AudioInputOption {
   id: string
   label: string
   description: string
+  kind: 'default' | 'microphone' | 'system'
 }
 
 export interface SessionSummary {
@@ -59,6 +65,10 @@ export interface RuntimeDiagnostics {
   summary: string
   backendPath: string
   readiness: string
+  supportsCustomRegion: boolean
+  customRegionNote: string
+  supportsSystemAudio: boolean
+  systemAudioNote: string
 }
 
 export type ShortcutAction =

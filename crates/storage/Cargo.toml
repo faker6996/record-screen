@@ -7,4 +7,5 @@ edition = "2024"
 capture = { path = "../capture" }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+shortcuts = { path = "../shortcuts" }
 thiserror = { workspace = true }

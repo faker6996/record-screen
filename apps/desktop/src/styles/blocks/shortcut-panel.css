@@ -43,11 +43,45 @@
   font-weight: 620;
 }
 
+.shortcut-panel__copy p {
+  margin: 8px 0 0;
+}
+
 .shortcut-panel__keys {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.shortcut-panel__row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.shortcut-panel__editor {
+  display: grid;
+  gap: 12px;
+}
+
+.shortcut-panel__capture {
+  display: grid;
+  gap: 8px;
+}
+
+.shortcut-panel__capture-input {
+  width: min(100%, 320px);
+}
+
+.shortcut-panel__editor-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.shortcut-panel__hint {
+  margin: 0;
+  font-size: 0.9rem;
 }
 
 .shortcut-panel__divider {
@@ -78,6 +112,10 @@
   }
 
   .shortcut-panel__keys {
+    justify-content: flex-start;
+  }
+
+  .shortcut-panel__row-actions {
     justify-content: flex-start;
   }
 

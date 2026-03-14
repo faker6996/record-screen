@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     process::Command,
     time::SystemTime,
@@ -356,8 +356,9 @@ fn move_to_macos_trash(path: &Path) -> Result<(), String> {
                     "Failed to move recording to Trash: rename failed with {rename_error}; copy failed with {copy_error}"
                 )
             })?;
-            fs::remove_file(path)
-                .map_err(|error| format!("Moved copy to Trash, but failed to remove original file: {error}"))
+            fs::remove_file(path).map_err(|error| {
+                format!("Moved copy to Trash, but failed to remove original file: {error}")
+            })
         }
     }
 }
@@ -560,11 +561,14 @@ mod tests {
     use super::*;
     use std::{
         env,
-        ffi::OsString,
-        sync::{Mutex, OnceLock},
         time::{Duration, UNIX_EPOCH},
     };
+    #[cfg(target_os = "linux")]
+    use std::ffi::OsString;
+    #[cfg(target_os = "linux")]
+    use std::sync::{Mutex, OnceLock};
 
+    #[cfg(target_os = "linux")]
     fn test_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
@@ -587,11 +591,13 @@ mod tests {
         fs::write(path, contents).expect("write test file");
     }
 
+    #[cfg(target_os = "linux")]
     struct EnvVarGuard {
         key: &'static str,
         original: Option<OsString>,
     }
 
+    #[cfg(target_os = "linux")]
     impl EnvVarGuard {
         fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let original = env::var_os(key);
@@ -602,6 +608,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(value) = &self.original {
@@ -616,6 +623,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn prepend_path(directory: &Path) -> OsString {
         let mut paths = vec![directory.to_path_buf()];
         if let Some(existing) = env::var_os("PATH") {
@@ -655,7 +663,11 @@ mod tests {
         assert_eq!(sessions.len(), 2);
         assert_eq!(sessions[0].title, "newer.webm");
         assert_eq!(sessions[1].title, "older.mp4");
-        assert!(sessions.iter().all(|session| !session.location.ends_with(".txt")));
+        assert!(
+            sessions
+                .iter()
+                .all(|session| !session.location.ends_with(".txt"))
+        );
     }
 
     #[cfg(target_os = "linux")]

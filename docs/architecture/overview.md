@@ -22,17 +22,25 @@
 - Separate HUD surface with lightweight state path
 - Tray menu for launcher recall and recorder actions
 - Global shortcut registration
+- Persisted shortcut remapping with runtime re-registration
 - Shared recorder snapshot model
+- Audio input classification for microphone vs system-audio loopback sources
+- Custom region settings and target injection on supported backends
+- System-audio mix toggle with per-platform support guards
 - Real capture backends per OS:
   - macOS: `AVFoundation + ffmpeg`
   - Windows: `gdigrab + dshow + ffmpeg`
   - Linux X11/XWayland: `x11grab + pulse + ffmpeg`
 - Runtime diagnostics for active backend path and readiness
+- Local runtime crash/error logging
+- Cross-platform launch-on-login integration
 - Linux Wayland ScreenCast portal / PipeWire readiness and lifecycle client
+- Experimental Linux Wayland GStreamer PipeWire runtime path
 
 ## Next Integration Targets
 
-- Linux pure Wayland PipeWire stream ingestion through the existing ScreenCast portal lifecycle
-- Persistent settings storage
+- Production-grade Linux pure Wayland capture hardening beyond the current experimental GStreamer PipeWire path
 - Richer diagnostics and benchmark telemetry
 - Deeper Windows permission and readiness hardening
+- macOS custom-region and system-audio backend work
+- Richer export workflow

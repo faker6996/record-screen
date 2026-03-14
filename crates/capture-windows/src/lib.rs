@@ -10,9 +10,10 @@ mod platform {
     };
 
     use capture::{
-        ActiveRecording, AudioInputOption, CaptureController, CaptureError, CaptureTargetOption,
-        DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
-        default_audio_input, full_desktop_target, resolve_audio_input_id,
+        ActiveRecording, AudioInputKind, AudioInputOption, CUSTOM_REGION_TARGET_ID,
+        CaptureController, CaptureError, CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID,
+        FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions, default_audio_input,
+        full_desktop_target, preferred_system_audio_input, resolve_audio_input_id,
     };
     use serde::Deserialize;
 
@@ -72,7 +73,7 @@ mod platform {
         pub fn start(options: RecordingOptions) -> Result<Self, CaptureError> {
             let started_at = SystemTime::now();
             let stderr_buffer = Arc::new(Mutex::new(String::new()));
-            let target = resolve_target(&options.capture_target_id)?;
+            let target = resolve_target(&options)?;
             let encoder = encoder_for_quality(&options.quality_preset);
             let (child, stdin) = spawn_ffmpeg(&options, &target, Arc::clone(&stderr_buffer))?;
 
@@ -229,6 +230,11 @@ mod platform {
 
     pub fn list_audio_inputs() -> Vec<AudioInputOption> {
         let mut default_input = default_audio_input();
+        if let Some(default_device_name) = query_default_recording_device_name() {
+            default_input.description = format!(
+                "Use the Windows default recording device: {default_device_name}."
+            );
+        }
 
         match discover_audio_inputs() {
             Ok(discovered_inputs) => {
@@ -237,12 +243,40 @@ mod platform {
                 inputs
             }
             Err(error) => {
-                default_input.description = format!(
-                    "Windows could not enumerate DirectShow microphone devices. {error}"
-                );
+                default_input.description = match query_default_recording_device_name() {
+                    Some(default_device_name) => format!(
+                        "Windows could not enumerate DirectShow microphone devices. The app will try the current default recording device instead: {default_device_name}. {error}"
+                    ),
+                    None => format!(
+                        "Windows could not enumerate DirectShow microphone devices. {error}"
+                    ),
+                };
                 vec![default_input]
             }
         }
+    }
+
+    pub fn preview_target_bounds(
+        capture_target_id: &str,
+        region_x: u32,
+        region_y: u32,
+        region_width: u32,
+        region_height: u32,
+    ) -> Result<(i32, i32, u32, u32), CaptureError> {
+        let target = resolve_target(&RecordingOptions {
+            output_path: std::env::temp_dir().join("record-screen-preview.mp4"),
+            quality_preset: "1080p / 30 fps".to_string(),
+            mic_enabled: false,
+            system_audio_enabled: false,
+            capture_target_id: capture_target_id.to_string(),
+            audio_input_id: DEFAULT_AUDIO_INPUT_ID.to_string(),
+            region_x,
+            region_y,
+            region_width,
+            region_height,
+        })?;
+        let (width, height) = target.video_size.unwrap_or((640, 360));
+        Ok((target.offset_x.unwrap_or(0), target.offset_y.unwrap_or(0), width, height))
     }
 
     pub fn audio_input_support_summary() -> String {
@@ -252,11 +286,48 @@ mod platform {
                 audio_inputs.len(),
                 if audio_inputs.len() == 1 { "" } else { "s" }
             ),
-            Err(error) => format!("DirectShow microphone discovery failed. {error}"),
+            Err(error) => match query_default_recording_device_name() {
+                Some(default_device_name) => format!(
+                    "DirectShow microphone discovery failed. Windows still reports the default recording device as `{default_device_name}`, so the app can try that fallback when `Default input` is selected. {error}"
+                ),
+                None => format!("DirectShow microphone discovery failed. {error}"),
+            },
         }
     }
 
-    fn resolve_target(target_id: &str) -> Result<ResolvedTarget, CaptureError> {
+    pub fn custom_region_support_summary() -> (bool, String) {
+        (
+            true,
+            "Custom region capture is available on the Windows desktop path.".to_string(),
+        )
+    }
+
+    pub fn system_audio_support_summary() -> (bool, String) {
+        match discover_audio_inputs() {
+            Ok(audio_inputs) => {
+                if preferred_system_audio_input(&audio_inputs).is_some() {
+                    (
+                        true,
+                        "A usable DirectShow loopback or Stereo Mix source is available for system-audio mixing."
+                            .to_string(),
+                    )
+                } else {
+                    (
+                        false,
+                        "Windows did not expose a usable system-audio loopback source. Look for Stereo Mix or a vendor loopback device to enable system-audio mixing."
+                            .to_string(),
+                    )
+                }
+            }
+            Err(error) => (
+                false,
+                format!("Windows could not inspect DirectShow audio devices. {error}"),
+            ),
+        }
+    }
+
+    fn resolve_target(options: &RecordingOptions) -> Result<ResolvedTarget, CaptureError> {
+        let target_id = options.capture_target_id.as_str();
         let monitors = query_monitors().unwrap_or_default();
 
         if target_id == FULL_DESKTOP_TARGET_ID {
@@ -298,6 +369,19 @@ mod platform {
                 offset_x: Some(window.x),
                 offset_y: Some(window.y),
                 video_size: Some((window.width, window.height)),
+            });
+        }
+
+        if target_id == CUSTOM_REGION_TARGET_ID {
+            return Ok(ResolvedTarget {
+                label: format!(
+                    "Custom region · {}, {} · {} x {}",
+                    options.region_x, options.region_y, options.region_width, options.region_height
+                ),
+                source: "desktop".to_string(),
+                offset_x: Some(options.region_x as i32),
+                offset_y: Some(options.region_y as i32),
+                video_size: Some((options.region_width.max(64), options.region_height.max(64))),
             });
         }
 
@@ -374,21 +458,30 @@ mod platform {
 
         command.arg("-i").arg(&target.source);
 
+        let mut audio_input_count = 0;
         if options.mic_enabled {
-            let device_name = discover_audio_device(&options.audio_input_id)?;
+            if let Some(device_name) = discover_audio_device(&options.audio_input_id)? {
+                command
+                    .arg("-f")
+                    .arg("dshow")
+                    .arg("-thread_queue_size")
+                    .arg("1024")
+                    .arg("-i")
+                    .arg(format!("audio={device_name}"));
+                audio_input_count += 1;
+            }
+        }
+
+        if options.system_audio_enabled {
+            let device_name = discover_system_audio_device()?;
             command
                 .arg("-f")
                 .arg("dshow")
                 .arg("-thread_queue_size")
                 .arg("1024")
                 .arg("-i")
-                .arg(format!("audio={device_name}"))
-                .arg("-c:a")
-                .arg("aac")
-                .arg("-b:a")
-                .arg("192k");
-        } else {
-            command.arg("-an");
+                .arg(format!("audio={device_name}"));
+            audio_input_count += 1;
         }
 
         command
@@ -403,6 +496,36 @@ mod platform {
 
         if needs_scale_filter(target.video_size, width, height) {
             command.arg("-vf").arg(scale_filter(width, height));
+        }
+
+        match audio_input_count {
+            0 => {
+                command.arg("-an");
+            }
+            1 => {
+                command
+                    .arg("-map")
+                    .arg("0:v")
+                    .arg("-map")
+                    .arg("1:a")
+                    .arg("-c:a")
+                    .arg("aac")
+                    .arg("-b:a")
+                    .arg("192k");
+            }
+            _ => {
+                command
+                    .arg("-filter_complex")
+                    .arg("[1:a][2:a]amix=inputs=2:normalize=0[aout]")
+                    .arg("-map")
+                    .arg("0:v")
+                    .arg("-map")
+                    .arg("[aout]")
+                    .arg("-c:a")
+                    .arg("aac")
+                    .arg("-b:a")
+                    .arg("192k");
+            }
         }
 
         command
@@ -474,29 +597,53 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
         )
     }
 
-    fn discover_audio_device(selected_audio_input_id: &str) -> Result<String, CaptureError> {
-        let audio_inputs = discover_audio_inputs()?;
+    fn discover_audio_device(
+        selected_audio_input_id: &str,
+    ) -> Result<Option<String>, CaptureError> {
+        let audio_inputs = match discover_audio_inputs() {
+            Ok(audio_inputs) => audio_inputs,
+            Err(error) => {
+                if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
+                    return Ok(query_default_recording_device_name());
+                }
+
+                return Err(error);
+            }
+        };
+
         if audio_inputs.is_empty() {
+            if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
+                return Ok(query_default_recording_device_name());
+            }
+
             return Err(CaptureError::BackendUnavailable(
                 "ffmpeg did not expose any DirectShow audio input device".to_string(),
             ));
         }
 
         if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
-            return resolve_audio_input_id(selected_audio_input_id, &audio_inputs).ok_or_else(
-                || {
-                    CaptureError::BackendUnavailable(
-                        "ffmpeg did not expose any DirectShow audio input device".to_string(),
-                    )
-                },
-            );
+            return Ok(resolve_audio_input_id(selected_audio_input_id, &audio_inputs));
         }
 
-        resolve_audio_input_id(selected_audio_input_id, &audio_inputs).ok_or_else(|| {
-            CaptureError::BackendUnavailable(format!(
-                "the selected microphone input `{selected_audio_input_id}` is no longer available"
-            ))
-        })
+        resolve_audio_input_id(selected_audio_input_id, &audio_inputs)
+            .map(Some)
+            .ok_or_else(|| {
+                CaptureError::BackendUnavailable(format!(
+                    "the selected microphone input `{selected_audio_input_id}` is no longer available"
+                ))
+            })
+    }
+
+    fn discover_system_audio_device() -> Result<String, CaptureError> {
+        let audio_inputs = discover_audio_inputs()?;
+        preferred_system_audio_input(&audio_inputs)
+            .map(|input| input.id.clone())
+            .ok_or_else(|| {
+                CaptureError::BackendUnavailable(
+                    "Windows could not find a usable system-audio loopback source. Disable system audio and try again."
+                        .to_string(),
+                )
+            })
     }
 
     fn discover_audio_inputs() -> Result<Vec<AudioInputOption>, CaptureError> {
@@ -529,27 +676,81 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
 
             audio_inputs.push(AudioInputOption {
                 id: device_name.clone(),
-                label: device_name.clone(),
+                label: if classify_audio_input_kind(&device_name) == AudioInputKind::System {
+                    format!("System audio · {device_name}")
+                } else {
+                    device_name.clone()
+                },
                 description: format!("DirectShow input: {device_name}"),
+                kind: classify_audio_input_kind(&device_name),
             });
         }
 
         if audio_inputs.is_empty() {
-            return Err(CaptureError::BackendUnavailable(
-                format!(
-                    "ffmpeg did not expose any DirectShow audio input device. {}",
-                    extract_ffmpeg_context(&listing)
-                ),
-            ));
+            return Err(CaptureError::BackendUnavailable(format!(
+                "ffmpeg did not expose any DirectShow audio input device. {}",
+                extract_ffmpeg_context(&listing)
+            )));
         }
 
         Ok(audio_inputs)
+    }
+
+    fn query_default_recording_device_name() -> Option<String> {
+        query_powershell_trimmed(
+            r#"$mapper = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Multimedia\Sound Mapper' -Name 'Record' -ErrorAction SilentlyContinue;
+if ($mapper -and $mapper.Record) {
+  $mapper.Record
+  exit 0
+}
+
+$endpoint = Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
+  Where-Object { $_.FriendlyName -match 'Microphone|Mic|Headset|Line In|Input' } |
+  Select-Object -First 1 -ExpandProperty FriendlyName;
+
+if ($endpoint) {
+  $endpoint
+}"#,
+        )
+    }
+
+    fn query_powershell_trimmed(script: &str) -> Option<String> {
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", script])
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
     }
 
     fn parse_ffmpeg_quoted_device(line: &str) -> Option<String> {
         let start = line.find('"')? + 1;
         let end = line[start..].find('"')? + start;
         Some(line[start..end].to_string())
+    }
+
+    fn classify_audio_input_kind(device_name: &str) -> AudioInputKind {
+        let lowered = device_name.to_ascii_lowercase();
+        if lowered.contains("stereo mix")
+            || lowered.contains("what u hear")
+            || lowered.contains("loopback")
+            || lowered.contains("monitor")
+            || lowered.contains("speaker")
+            || lowered.contains("output")
+        {
+            AudioInputKind::System
+        } else {
+            AudioInputKind::Microphone
+        }
     }
 
     fn parse_json_command<T>(script: &str) -> Result<Vec<T>, CaptureError>
@@ -748,6 +949,7 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
 #[cfg(target_os = "windows")]
 pub use platform::{
     FfmpegWindowsCapture, audio_input_support_summary, list_audio_inputs, list_capture_targets,
+    preview_target_bounds,
 };
 
 #[cfg(not(target_os = "windows"))]
@@ -766,6 +968,17 @@ pub fn list_audio_inputs() -> Vec<capture::AudioInputOption> {
 #[cfg(not(target_os = "windows"))]
 pub fn audio_input_support_summary() -> String {
     "DirectShow microphone discovery is only available on Windows.".to_string()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn preview_target_bounds(
+    _capture_target_id: &str,
+    _region_x: u32,
+    _region_y: u32,
+    _region_width: u32,
+    _region_height: u32,
+) -> Result<(i32, i32, u32, u32), capture::CaptureError> {
+    Err(capture::CaptureError::UnsupportedPlatform)
 }
 
 pub fn backend_name() -> &'static str {

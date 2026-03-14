@@ -1,10 +1,31 @@
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    thread,
+    time::Duration,
+};
+
 use app_core::{RecorderSnapshot, RecorderStatus};
-use tauri::{AppHandle, Emitter, Error as TauriError, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, Error as TauriError, Manager, PhysicalPosition, PhysicalSize, Position,
+    Size, WebviewUrl, WebviewWindowBuilder,
+};
 
 use crate::{emit_recorder_state, with_core};
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const HUD_WINDOW_LABEL: &str = "hud";
+pub const REGION_SELECTOR_WINDOW_LABEL: &str = "region-selector";
+pub const TARGET_PREVIEW_WINDOW_LABEL: &str = "target-preview";
+
+static TARGET_PREVIEW_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct RegionSelectorContext {
+    origin_x: i32,
+    origin_y: i32,
+    width: u32,
+    height: u32,
+    scale_factor: f64,
+}
 
 pub fn focus_launcher(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
@@ -46,6 +67,169 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
     builder
         .build()
         .map_err(|error: TauriError| error.to_string())?;
+    Ok(())
+}
+
+fn region_selector_context(app: &AppHandle) -> Result<RegionSelectorContext, String> {
+    let main_window = app
+        .get_webview_window(MAIN_WINDOW_LABEL)
+        .ok_or_else(|| "main window is not available".to_string())?;
+    let monitor = main_window
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .ok_or_else(|| "no active monitor is available for region selection".to_string())?;
+    let size = monitor.size();
+    let position = monitor.position();
+
+    Ok(RegionSelectorContext {
+        origin_x: position.x,
+        origin_y: position.y,
+        width: size.width,
+        height: size.height,
+        scale_factor: monitor.scale_factor(),
+    })
+}
+
+fn region_selector_init_script(context: &RegionSelectorContext) -> String {
+    format!(
+        "window.__RECORD_SCREEN_SURFACE__ = 'region-selector'; window.__RECORD_SCREEN_SELECTOR_CONTEXT__ = {{ originX: {}, originY: {}, width: {}, height: {}, scaleFactor: {} }};",
+        context.origin_x,
+        context.origin_y,
+        context.width,
+        context.height,
+        context.scale_factor
+    )
+}
+
+pub fn show_region_selector(app: &AppHandle) -> Result<(), String> {
+    let context = region_selector_context(app)?;
+    let init_script = region_selector_init_script(&context);
+    let logical_width = context.width as f64 / context.scale_factor.max(1.0);
+    let logical_height = context.height as f64 / context.scale_factor.max(1.0);
+    let logical_x = context.origin_x as f64 / context.scale_factor.max(1.0);
+    let logical_y = context.origin_y as f64 / context.scale_factor.max(1.0);
+
+    if let Some(window) = app.get_webview_window(REGION_SELECTOR_WINDOW_LABEL) {
+        let _ = window.eval(&init_script);
+        if window.is_minimized().map_err(|error| error.to_string())? {
+            window.unminimize().map_err(|error| error.to_string())?;
+        }
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    let mut builder = WebviewWindowBuilder::new(
+        app,
+        REGION_SELECTOR_WINDOW_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Record Screen Region Selector")
+    .initialization_script(&init_script)
+    .inner_size(logical_width, logical_height)
+    .position(logical_x, logical_y)
+    .visible(true)
+    .focused(true)
+    .resizable(false)
+    .always_on_top(true)
+    .decorations(false)
+    .skip_taskbar(true)
+    .shadow(false)
+    .transparent(true);
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder
+            .icon(icon)
+            .map_err(|error: TauriError| error.to_string())?;
+    }
+
+    builder
+        .build()
+        .map_err(|error: TauriError| error.to_string())?;
+    Ok(())
+}
+
+pub fn hide_region_selector(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(REGION_SELECTOR_WINDOW_LABEL) {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+pub fn ensure_target_preview_window(app: &AppHandle) -> Result<(), String> {
+    if app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL).is_some() {
+        return Ok(());
+    }
+
+    let mut builder = WebviewWindowBuilder::new(
+        app,
+        TARGET_PREVIEW_WINDOW_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Record Screen Target Preview")
+    .initialization_script("window.__RECORD_SCREEN_SURFACE__ = 'target-preview';")
+    .inner_size(320.0, 180.0)
+    .visible(false)
+    .focused(false)
+    .resizable(false)
+    .always_on_top(true)
+    .decorations(false)
+    .skip_taskbar(true)
+    .shadow(false)
+    .transparent(true);
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder
+            .icon(icon)
+            .map_err(|error: TauriError| error.to_string())?;
+    }
+
+    builder
+        .build()
+        .map_err(|error: TauriError| error.to_string())?;
+    Ok(())
+}
+
+pub fn show_target_preview(
+    app: &AppHandle,
+    bounds: crate::target_preview::PreviewBounds,
+) -> Result<(), String> {
+    ensure_target_preview_window(app)?;
+
+    let sequence = TARGET_PREVIEW_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1;
+    if let Some(window) = app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL) {
+        window
+            .set_position(Position::Physical(PhysicalPosition::new(bounds.x, bounds.y)))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(Size::Physical(PhysicalSize::new(
+                bounds.width.max(64),
+                bounds.height.max(64),
+            )))
+            .map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+    }
+
+    let app_handle = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(1400));
+        if TARGET_PREVIEW_SEQUENCE.load(Ordering::Relaxed) != sequence {
+            return;
+        }
+
+        let _ = hide_target_preview(&app_handle);
+    });
+
+    Ok(())
+}
+
+pub fn hide_target_preview(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL) {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+
     Ok(())
 }
 

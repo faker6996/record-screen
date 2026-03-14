@@ -151,7 +151,10 @@ export function Combobox({
   }
 
   return (
-    <div className={`combobox ${className ?? ''}`.trim()} ref={rootRef}>
+    <div
+      className={`combobox ${isOpen ? 'combobox--open' : ''} ${className ?? ''}`.trim()}
+      ref={rootRef}
+    >
       <button
         aria-controls={listboxId}
         aria-expanded={isOpen}
