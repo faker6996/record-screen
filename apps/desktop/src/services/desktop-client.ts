@@ -48,6 +48,9 @@ const mockSnapshot: BootstrapSnapshot = {
     regionY: 120,
     regionWidth: 1280,
     regionHeight: 720,
+    regionSourceCaptureTargetId: 'full-desktop',
+    regionSourceOriginX: 0,
+    regionSourceOriginY: 0,
   },
   captureTargets: [
     {
@@ -541,12 +544,18 @@ export const desktopClient = {
     regionY: number,
     regionWidth: number,
     regionHeight: number,
+    regionSourceCaptureTargetId?: string,
+    regionSourceOriginX?: number,
+    regionSourceOriginY?: number,
   ) {
     return command<AppSettings>('update_custom_region', {
       regionX,
       regionY,
       regionWidth,
       regionHeight,
+      regionSourceCaptureTargetId,
+      regionSourceOriginX,
+      regionSourceOriginY,
     })
   },
   pickOutputDirectory() {

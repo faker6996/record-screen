@@ -528,6 +528,9 @@ export function useDesktopState() {
     regionY: number,
     regionWidth: number,
     regionHeight: number,
+    regionSourceCaptureTargetId?: string,
+    regionSourceOriginX?: number,
+    regionSourceOriginY?: number,
   ) {
     try {
       const settings = await desktopClient.updateCustomRegion(
@@ -535,6 +538,9 @@ export function useDesktopState() {
         regionY,
         regionWidth,
         regionHeight,
+        regionSourceCaptureTargetId,
+        regionSourceOriginX,
+        regionSourceOriginY,
       )
       const captureTargets = await desktopClient.getCaptureTargets()
       startTransition(() => {

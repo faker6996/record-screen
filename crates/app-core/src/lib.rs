@@ -333,11 +333,25 @@ impl AppCore {
         region_y: u32,
         region_width: u32,
         region_height: u32,
+        region_source_capture_target_id: Option<String>,
+        region_source_origin_x: Option<i32>,
+        region_source_origin_y: Option<i32>,
     ) -> AppSettings {
         self.settings.region_x = region_x;
         self.settings.region_y = region_y;
         self.settings.region_width = region_width.max(64);
         self.settings.region_height = region_height.max(64);
+        if let Some(region_source_capture_target_id) = region_source_capture_target_id {
+            if !region_source_capture_target_id.trim().is_empty() {
+                self.settings.region_source_capture_target_id = region_source_capture_target_id;
+            }
+        }
+        if let Some(region_source_origin_x) = region_source_origin_x {
+            self.settings.region_source_origin_x = region_source_origin_x;
+        }
+        if let Some(region_source_origin_y) = region_source_origin_y {
+            self.settings.region_source_origin_y = region_source_origin_y;
+        }
         self.settings.clone()
     }
 

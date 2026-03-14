@@ -6,6 +6,7 @@ export interface RegionSelectorSurfaceContext {
   width: number
   height: number
   scaleFactor: number
+  captureTargetId: string
 }
 
 declare global {

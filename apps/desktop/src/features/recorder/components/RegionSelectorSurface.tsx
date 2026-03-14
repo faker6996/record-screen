@@ -44,6 +44,7 @@ export function RegionSelectorSurface() {
     width: window.innerWidth,
     height: window.innerHeight,
     scaleFactor: 1,
+    captureTargetId: 'full-desktop',
   }
   const [dragStart, setDragStart] = useState<DragPoint | null>(null)
   const [dragCurrent, setDragCurrent] = useState<DragPoint | null>(null)
@@ -81,6 +82,9 @@ export function RegionSelectorSurface() {
         physicalRect.y,
         physicalRect.width,
         physicalRect.height,
+        context.captureTargetId,
+        context.originX,
+        context.originY,
       )
       await desktopClient.updateCaptureTarget('region:custom')
       await desktopClient.hideRegionSelector()

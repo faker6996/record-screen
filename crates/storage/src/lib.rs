@@ -22,6 +22,9 @@ pub struct AppSettings {
     pub region_y: u32,
     pub region_width: u32,
     pub region_height: u32,
+    pub region_source_capture_target_id: String,
+    pub region_source_origin_x: i32,
+    pub region_source_origin_y: i32,
 }
 
 impl Default for AppSettings {
@@ -39,6 +42,9 @@ impl Default for AppSettings {
             region_y: 120,
             region_width: 1280,
             region_height: 720,
+            region_source_capture_target_id: capture::FULL_DESKTOP_TARGET_ID.to_string(),
+            region_source_origin_x: 0,
+            region_source_origin_y: 0,
         }
     }
 }

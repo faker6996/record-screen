@@ -36,20 +36,13 @@ pub struct FfmpegMacosCapture {
 
 impl FfmpegMacosCapture {
     pub fn start(options: RecordingOptions) -> Result<Self, CaptureError> {
-        if options.capture_target_id == CUSTOM_REGION_TARGET_ID {
-            return Err(CaptureError::BackendUnavailable(
-                "Custom region capture is not wired into the macOS backend yet. Use full desktop or a specific display."
-                    .to_string(),
-            ));
-        }
-
         if options.system_audio_enabled {
             return Err(CaptureError::BackendUnavailable(
                 "System-audio mixing is not wired into the macOS backend yet.".to_string(),
             ));
         }
 
-        let screen_input = resolve_screen_input(&options.capture_target_id)?;
+        let screen_input = resolve_screen_input_for_recording(&options)?;
         let video_device = screen_input.id.clone();
         let audio_device = discover_audio_device(&options.audio_input_id, options.mic_enabled)?;
         let input = format!("{video_device}:{audio_device}");
@@ -68,19 +61,24 @@ impl FfmpegMacosCapture {
             .arg("-capture_mouse_clicks")
             .arg("1")
             .arg("-framerate")
-            .arg(fps.to_string())
-            .arg("-video_size")
-            .arg(format!("{width}x{height}"))
-            .arg("-i")
-            .arg(input)
-            .arg("-c:v")
-            .arg(encoder.codec);
+            .arg(fps.to_string());
+
+        if options.capture_target_id != CUSTOM_REGION_TARGET_ID {
+            command
+                .arg("-video_size")
+                .arg(format!("{width}x{height}"));
+        }
+
+        command.arg("-i").arg(input).arg("-c:v").arg(encoder.codec);
 
         if let Some(preset) = encoder.preset {
             command.arg("-preset").arg(preset);
         }
 
         command.arg("-pix_fmt").arg("yuv420p");
+        if let Some(filter) = video_filter(&options, width, height) {
+            command.arg("-vf").arg(filter);
+        }
 
         if options.mic_enabled {
             command.arg("-c:a").arg("aac").arg("-b:a").arg("192k");
@@ -120,7 +118,17 @@ impl FfmpegMacosCapture {
                 encoder_label: encoder_label(&encoder),
                 output_path: options.output_path,
                 started_at,
-                target_label: screen_input.label,
+                target_label: if options.capture_target_id == CUSTOM_REGION_TARGET_ID {
+                    format!(
+                        "Custom region · {}, {} · {} x {}",
+                        options.region_x,
+                        options.region_y,
+                        options.region_width,
+                        options.region_height
+                    )
+                } else {
+                    screen_input.label
+                },
             },
             child,
             stdin,
@@ -407,6 +415,42 @@ struct ScreenInput {
     description: String,
 }
 
+fn resolve_screen_input_for_recording(
+    options: &RecordingOptions,
+) -> Result<ScreenInput, CaptureError> {
+    if options.capture_target_id == CUSTOM_REGION_TARGET_ID {
+        let region_source = options.region_source_capture_target_id.trim();
+        let target_id = if region_source.is_empty() {
+            FULL_DESKTOP_TARGET_ID
+        } else {
+            region_source
+        };
+
+        return resolve_screen_input(target_id);
+    }
+
+    resolve_screen_input(&options.capture_target_id)
+}
+
+fn video_filter(
+    options: &RecordingOptions,
+    width: u32,
+    height: u32,
+) -> Option<String> {
+    if options.capture_target_id != CUSTOM_REGION_TARGET_ID {
+        return None;
+    }
+
+    let crop_x = (options.region_x as i32 - options.region_source_origin_x).max(0);
+    let crop_y = (options.region_y as i32 - options.region_source_origin_y).max(0);
+    let crop_width = options.region_width.max(64);
+    let crop_height = options.region_height.max(64);
+    let crop = format!("crop={crop_width}:{crop_height}:{crop_x}:{crop_y}");
+    let scale = scale_filter(width, height);
+
+    Some(format!("{crop},{scale}"))
+}
+
 fn parse_screen_inputs(listing: &str) -> Vec<ScreenInput> {
     let mut in_video_section = false;
     let mut screens = Vec::new();
@@ -510,6 +554,12 @@ fn cpu_preset_for_quality(preset: &str) -> &'static str {
         "1080p / 60 fps" => "superfast",
         _ => "veryfast",
     }
+}
+
+fn scale_filter(width: u32, height: u32) -> String {
+    format!(
+        "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2"
+    )
 }
 
 fn encoder_label(profile: &VideoEncoderProfile) -> String {

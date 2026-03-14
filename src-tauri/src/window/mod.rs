@@ -25,6 +25,7 @@ struct RegionSelectorContext {
     width: u32,
     height: u32,
     scale_factor: f64,
+    capture_target_id: String,
 }
 
 pub fn focus_launcher(app: &AppHandle) -> Result<(), String> {
@@ -81,6 +82,7 @@ fn region_selector_context(app: &AppHandle) -> Result<RegionSelectorContext, Str
         .ok_or_else(|| "no active monitor is available for region selection".to_string())?;
     let size = monitor.size();
     let position = monitor.position();
+    let capture_target_id = current_monitor_capture_target_id(app, &monitor);
 
     Ok(RegionSelectorContext {
         origin_x: position.x,
@@ -88,18 +90,57 @@ fn region_selector_context(app: &AppHandle) -> Result<RegionSelectorContext, Str
         width: size.width,
         height: size.height,
         scale_factor: monitor.scale_factor(),
+        capture_target_id,
     })
 }
 
 fn region_selector_init_script(context: &RegionSelectorContext) -> String {
     format!(
-        "window.__RECORD_SCREEN_SURFACE__ = 'region-selector'; window.__RECORD_SCREEN_SELECTOR_CONTEXT__ = {{ originX: {}, originY: {}, width: {}, height: {}, scaleFactor: {} }};",
+        "window.__RECORD_SCREEN_SURFACE__ = 'region-selector'; window.__RECORD_SCREEN_SELECTOR_CONTEXT__ = {{ originX: {}, originY: {}, width: {}, height: {}, scaleFactor: {}, captureTargetId: {:?} }};",
         context.origin_x,
         context.origin_y,
         context.width,
         context.height,
-        context.scale_factor
+        context.scale_factor,
+        context.capture_target_id
     )
+}
+
+#[cfg(target_os = "macos")]
+fn current_monitor_capture_target_id(
+    app: &AppHandle,
+    monitor: &tauri::Monitor,
+) -> String {
+    let mut monitors = match app.available_monitors() {
+        Ok(monitors) => monitors,
+        Err(_) => return capture::FULL_DESKTOP_TARGET_ID.to_string(),
+    };
+    monitors.sort_by_key(|candidate| {
+        let position = candidate.position();
+        (position.y, position.x)
+    });
+
+    let current_index = monitors.iter().position(|candidate| {
+        candidate.position() == monitor.position() && candidate.size() == monitor.size()
+    });
+
+    let monitor_targets: Vec<_> = capture_macos::list_capture_targets()
+        .into_iter()
+        .filter(|target| target.id != capture::FULL_DESKTOP_TARGET_ID)
+        .collect();
+
+    current_index
+        .and_then(|index| monitor_targets.get(index))
+        .map(|target| target.id.clone())
+        .unwrap_or_else(|| capture::FULL_DESKTOP_TARGET_ID.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn current_monitor_capture_target_id(
+    _app: &AppHandle,
+    _monitor: &tauri::Monitor,
+) -> String {
+    capture::FULL_DESKTOP_TARGET_ID.to_string()
 }
 
 pub fn show_region_selector(app: &AppHandle) -> Result<(), String> {

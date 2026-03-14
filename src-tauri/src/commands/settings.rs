@@ -200,13 +200,24 @@ pub fn update_custom_region(
     region_y: u32,
     region_width: u32,
     region_height: u32,
+    region_source_capture_target_id: Option<String>,
+    region_source_origin_x: Option<i32>,
+    region_source_origin_y: Option<i32>,
 ) -> Result<AppSettings, String> {
     let (settings, recorder) = {
         let mut core = state
             .core
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
-        let settings = core.update_custom_region(region_x, region_y, region_width, region_height);
+        let settings = core.update_custom_region(
+            region_x,
+            region_y,
+            region_width,
+            region_height,
+            region_source_capture_target_id,
+            region_source_origin_x,
+            region_source_origin_y,
+        );
         let recorder = core.snapshot();
         (settings, recorder)
     };

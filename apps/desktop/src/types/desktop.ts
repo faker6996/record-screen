@@ -31,6 +31,9 @@ export interface AppSettings {
   regionY: number
   regionWidth: number
   regionHeight: number
+  regionSourceCaptureTargetId: string
+  regionSourceOriginX: number
+  regionSourceOriginY: number
 }
 
 export interface CaptureTargetOption {

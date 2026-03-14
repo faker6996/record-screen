@@ -55,6 +55,9 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         region_y: settings.region_y,
         region_width: settings.region_width,
         region_height: settings.region_height,
+        region_source_capture_target_id: settings.region_source_capture_target_id,
+        region_source_origin_x: settings.region_source_origin_x,
+        region_source_origin_y: settings.region_source_origin_y,
     })?;
     let active = controller.active_recording().clone();
 
