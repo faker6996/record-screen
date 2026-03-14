@@ -14,3 +14,8 @@ pub fn show_hud(app: AppHandle) -> Result<(), String> {
 pub fn hide_hud(app: AppHandle) -> Result<(), String> {
     crate::window::hide_hud(&app)
 }
+
+#[tauri::command]
+pub fn start_hud_drag(app: AppHandle) -> Result<(), String> {
+    crate::window::start_hud_drag(&app)
+}

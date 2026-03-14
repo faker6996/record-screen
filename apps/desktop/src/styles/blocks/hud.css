@@ -23,6 +23,7 @@
     color-mix(in srgb, var(--color-surface-2) 88%, transparent);
   border: 1px solid var(--color-border-soft);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--color-shadow) 42%, transparent);
+  cursor: move;
 }
 
 .hud__elapsed {
@@ -45,11 +46,17 @@
   user-select: none;
 }
 
+.hud__drag-handle {
+  cursor: move;
+  user-select: none;
+}
+
 .hud__controls {
   display: flex;
   gap: 4px;
   align-items: center;
   min-width: 0;
+  cursor: default;
 }
 
 .hud__divider {

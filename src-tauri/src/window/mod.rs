@@ -78,6 +78,14 @@ pub fn hide_hud(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+pub fn start_hud_drag(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window(HUD_WINDOW_LABEL)
+        .ok_or_else(|| "HUD window is not available.".to_string())?;
+
+    window.start_dragging().map_err(|error| error.to_string())
+}
+
 pub fn sync_hud_visibility(
     app: &AppHandle,
     snapshot: &RecorderSnapshot,

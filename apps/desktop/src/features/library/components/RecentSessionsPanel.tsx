@@ -1,21 +1,31 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
 import {
   AlertCircle,
+  CheckSquare,
   Download,
   FileVideo,
   FolderOpen,
   LoaderCircle,
   Play,
+  Square,
+  Trash2,
   X,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { SessionSummary } from '../../../types/desktop'
 
 interface RecentSessionsPanelProps {
+  onTrashRecordings: (recordingPaths: string[]) => Promise<void>
   onOpenRecording: (recordingPath: string) => Promise<void>
   onRevealRecordingInFolder: (recordingPath: string) => Promise<void>
   onSaveRecordingCopy: (recordingPath: string) => Promise<void>
   sessions: SessionSummary[]
+}
+
+interface PendingDeleteDialog {
+  mode: 'single' | 'selected' | 'all'
+  recordingPaths: string[]
+  message: string
 }
 
 function filenameFromPath(location: string) {
@@ -27,16 +37,20 @@ function canPreviewInApp(location: string) {
 }
 
 export function RecentSessionsPanel({
+  onTrashRecordings,
   onOpenRecording,
   onRevealRecordingInFolder,
   onSaveRecordingCopy,
   sessions,
 }: RecentSessionsPanelProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [playbackSource, setPlaybackSource] = useState<string | null>(null)
   const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [isPlaying, setIsPlaying] = useState(false)
   const [previewErrorDetail, setPreviewErrorDetail] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<PendingDeleteDialog | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const objectUrlRef = useRef<string | null>(null)
   const previewRequestRef = useRef(0)
@@ -52,6 +66,16 @@ export function RecentSessionsPanel({
       }
     }
   }, [])
+
+  useEffect(() => {
+    setSelectedSessionIds((current) =>
+      current.filter((sessionId) => sessions.some((session) => session.id === sessionId)),
+    )
+
+    if (selectedSessionId && !sessions.some((session) => session.id === selectedSessionId)) {
+      closePreview()
+    }
+  }, [selectedSessionId, sessions])
 
   function revokePlaybackSource() {
     if (objectUrlRef.current) {
@@ -140,6 +164,68 @@ export function RecentSessionsPanel({
     }
   }
 
+  function toggleSessionSelection(sessionId: string) {
+    setSelectedSessionIds((current) =>
+      current.includes(sessionId)
+        ? current.filter((item) => item !== sessionId)
+        : [...current, sessionId],
+    )
+  }
+
+  function toggleSelectAll() {
+    if (selectedSessionIds.length === sessions.length) {
+      setSelectedSessionIds([])
+      return
+    }
+
+    setSelectedSessionIds(sessions.map((session) => session.id))
+  }
+
+  function requestTrash(recordingPaths: string[], mode: 'single' | 'selected' | 'all') {
+    if (recordingPaths.length === 0 || isDeleting) {
+      return
+    }
+
+    const message =
+      mode === 'single'
+        ? 'Move this recording to Trash?'
+        : mode === 'selected'
+          ? `Move ${recordingPaths.length} selected recordings to Trash?`
+          : `Move all ${recordingPaths.length} recordings to Trash?`
+
+    setPendingDelete({
+      mode,
+      recordingPaths,
+      message,
+    })
+  }
+
+  async function confirmTrash() {
+    if (!pendingDelete || isDeleting) {
+      return
+    }
+
+    setIsDeleting(true)
+
+    try {
+      await onTrashRecordings(pendingDelete.recordingPaths)
+      setSelectedSessionIds((current) =>
+        current.filter((sessionId) => {
+          const session = sessions.find((item) => item.id === sessionId)
+          return session ? !pendingDelete.recordingPaths.includes(session.location) : false
+        }),
+      )
+
+      if (selectedSession && pendingDelete.recordingPaths.includes(selectedSession.location)) {
+        closePreview()
+      }
+
+      setPendingDelete(null)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <section className="sessions-panel">
       <div className="sessions-panel__shell">
@@ -148,6 +234,50 @@ export function RecentSessionsPanel({
             <h3>Recent Sessions</h3>
             <p className="subtle-copy">Your latest recordings saved to disk.</p>
           </div>
+          {sessions.length > 0 ? (
+            <div className="sessions-panel__bulk-actions">
+              <button
+                className="button button--secondary sessions-panel__bulk-button"
+                onClick={toggleSelectAll}
+                type="button"
+              >
+                {selectedSessionIds.length === sessions.length ? (
+                  <CheckSquare aria-hidden="true" size={16} strokeWidth={1.9} />
+                ) : (
+                  <Square aria-hidden="true" size={16} strokeWidth={1.9} />
+                )}
+                {selectedSessionIds.length === sessions.length ? 'Clear all' : 'Select all'}
+              </button>
+              <button
+                className="button button--secondary sessions-panel__bulk-button"
+                disabled={selectedSessionIds.length === 0 || isDeleting}
+                onClick={() => {
+                  const selectedPaths = sessions
+                    .filter((session) => selectedSessionIds.includes(session.id))
+                    .map((session) => session.location)
+                  requestTrash(selectedPaths, 'selected')
+                }}
+                type="button"
+              >
+                <Trash2 aria-hidden="true" size={16} strokeWidth={1.9} />
+                Delete selected
+              </button>
+              <button
+                className="button button--secondary sessions-panel__bulk-button sessions-panel__bulk-button--danger"
+                disabled={sessions.length === 0 || isDeleting}
+                onClick={() => {
+                  requestTrash(
+                    sessions.map((session) => session.location),
+                    'all',
+                  )
+                }}
+                type="button"
+              >
+                <Trash2 aria-hidden="true" size={16} strokeWidth={1.9} />
+                Delete all
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {sessions.length === 0 ? (
@@ -168,6 +298,17 @@ export function RecentSessionsPanel({
                   }`}
                   key={session.id}
                 >
+                  <label className="sessions-panel__checkbox">
+                    <input
+                      checked={selectedSessionIds.includes(session.id)}
+                      onChange={() => {
+                        toggleSessionSelection(session.id)
+                      }}
+                      type="checkbox"
+                    />
+                    <span aria-hidden="true" className="sessions-panel__checkbox-ui" />
+                  </label>
+
                   <button
                     className="sessions-panel__row-main"
                     onClick={() => {
@@ -187,6 +328,17 @@ export function RecentSessionsPanel({
                   </button>
 
                   <div className="sessions-panel__row-actions">
+                    <button
+                      aria-label={`Move ${filenameFromPath(session.location)} to Trash`}
+                      className="sessions-panel__row-action sessions-panel__row-action--danger"
+                      disabled={isDeleting}
+                      onClick={() => {
+                        requestTrash([session.location], 'single')
+                      }}
+                      type="button"
+                    >
+                      <Trash2 size={17} strokeWidth={1.9} />
+                    </button>
                     <button
                       aria-label={`Save ${filenameFromPath(session.location)} as`}
                       className="sessions-panel__row-action"
@@ -327,6 +479,17 @@ export function RecentSessionsPanel({
 
             <div className="sessions-panel__viewer-actions">
               <button
+                className="button button--secondary sessions-panel__viewer-danger"
+                disabled={isDeleting}
+                onClick={() => {
+                  requestTrash([selectedSession.location], 'single')
+                }}
+                type="button"
+              >
+                <Trash2 aria-hidden="true" size={16} strokeWidth={1.9} />
+                Move to Trash
+              </button>
+              <button
                 className="button button--secondary"
                 onClick={() => void onSaveRecordingCopy(selectedSession.location)}
                 type="button"
@@ -349,6 +512,41 @@ export function RecentSessionsPanel({
               >
                 <FolderOpen aria-hidden="true" size={16} strokeWidth={1.9} />
                 Open folder
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {pendingDelete ? (
+        <div className="sessions-panel__confirm-backdrop" role="presentation">
+          <section
+            aria-label="Confirm deletion"
+            className="sessions-panel__confirm-dialog"
+          >
+            <strong>Move recordings to Trash</strong>
+            <p className="subtle-copy">{pendingDelete.message}</p>
+            <div className="sessions-panel__confirm-actions">
+              <button
+                className="button button--secondary"
+                disabled={isDeleting}
+                onClick={() => {
+                  setPendingDelete(null)
+                }}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="button button--secondary sessions-panel__viewer-danger"
+                disabled={isDeleting}
+                onClick={() => {
+                  void confirmTrash()
+                }}
+                type="button"
+              >
+                <Trash2 aria-hidden="true" size={16} strokeWidth={1.9} />
+                {isDeleting ? 'Moving…' : 'Move to Trash'}
               </button>
             </div>
           </section>

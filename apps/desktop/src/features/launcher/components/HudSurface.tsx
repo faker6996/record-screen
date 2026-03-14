@@ -1,10 +1,10 @@
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Mic, MicOff, Move, Pause, Play, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
+import { desktopClient } from '../../../services/desktop-client'
 import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
@@ -94,16 +94,17 @@ export function HudSurface({
       return
     }
 
-    void getCurrentWindow().startDragging()
+    event.preventDefault()
+    void desktopClient.startHudDrag()
   }
 
-  function handleDragHandleMouseDown(event: ReactMouseEvent<HTMLButtonElement>) {
+  function handleDragHandleMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
     if (event.button !== 0) {
       return
     }
 
     event.preventDefault()
-    void getCurrentWindow().startDragging()
+    void desktopClient.startHudDrag()
   }
 
   return (
@@ -172,15 +173,16 @@ export function HudSurface({
               <MicOff aria-hidden="true" size={16} strokeWidth={1.9} />
             )}
           </button>
-          <button
+          <div
             aria-label="Move HUD"
-            className="button button--secondary hud__icon-button"
+            className="button button--secondary hud__icon-button hud__drag-handle"
+            data-tauri-drag-region
             onMouseDown={handleDragHandleMouseDown}
+            role="presentation"
             title="Move HUD"
-            type="button"
           >
             <Move aria-hidden="true" size={16} strokeWidth={1.9} />
-          </button>
+          </div>
         </div>
       </section>
     </main>

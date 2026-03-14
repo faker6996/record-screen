@@ -170,6 +170,7 @@ function LauncherApp() {
     resetShortcuts,
     requestPermission,
     saveRecordingCopy,
+    trashRecordings,
     showHud,
     snapshot,
     toggleMicrophone,
@@ -224,6 +225,7 @@ function LauncherApp() {
       case 'recent':
         return (
           <RecentSessionsPanel
+            onTrashRecordings={trashRecordings}
             onOpenRecording={openRecording}
             onRevealRecordingInFolder={revealRecordingInFolder}
             onSaveRecordingCopy={saveRecordingCopy}

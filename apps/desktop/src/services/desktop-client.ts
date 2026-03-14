@@ -298,6 +298,15 @@ async function command<T>(
         return undefined as T
       case 'save_recording_copy':
         return `~/Downloads/${String(args?.recordingPath ?? '').split(/[\\/]/).filter(Boolean).at(-1) ?? 'recording.mp4'}` as T
+      case 'trash_recordings': {
+        const recordingPaths = Array.isArray(args?.recordingPaths)
+          ? args.recordingPaths.map((value) => String(value))
+          : []
+        mockSnapshot.recentSessions = mockSnapshot.recentSessions.filter(
+          (session) => !recordingPaths.includes(session.location),
+        )
+        return structuredClone(mockSnapshot.recentSessions) as T
+      }
       case 'get_permissions':
         return structuredClone(mockSnapshot.permissions) as T
       case 'get_recent_recordings':
@@ -392,6 +401,9 @@ export const desktopClient = {
   hideHud() {
     return command<void>('hide_hud')
   },
+  startHudDrag() {
+    return command<void>('start_hud_drag')
+  },
   toggleRecording() {
     return command<RecorderSnapshot>('toggle_recording')
   },
@@ -453,6 +465,9 @@ export const desktopClient = {
   },
   saveRecordingCopy(recordingPath: string) {
     return command<string | null>('save_recording_copy', { recordingPath })
+  },
+  trashRecordings(recordingPaths: string[]) {
+    return command<SessionSummary[]>('trash_recordings', { recordingPaths })
   },
   async subscribeRecorderState(
     listener: (snapshot: RecorderSnapshot) => void,

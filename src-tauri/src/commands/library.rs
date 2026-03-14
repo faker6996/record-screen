@@ -1,4 +1,5 @@
 use std::{
+    env,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -284,6 +285,114 @@ fn export_copy(source_path: &Path) -> Result<Option<String>, String> {
     Ok(Some(destination_path.display().to_string()))
 }
 
+fn move_to_trash(path: &Path) -> Result<(), String> {
+    ensure_existing_target(path)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        return move_to_macos_trash(path);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut attempts = Vec::new();
+
+        for (program, args) in [
+            ("gio", vec!["trash".to_string(), path.display().to_string()]),
+            ("trash-put", vec![path.display().to_string()]),
+        ] {
+            let mut command = Command::new(program);
+            command.args(&args);
+
+            match command.status() {
+                Ok(status) if status.success() => return Ok(()),
+                Ok(status) => attempts.push(format!("{program} exited with {status}")),
+                Err(error) => attempts.push(format!("{program}: {error}")),
+            }
+        }
+
+        return Err(format!(
+            "Failed to move recording to Trash. Tried Linux trash handlers: {}",
+            attempts.join("; ")
+        ));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            "Add-Type -AssemblyName Microsoft.VisualBasic; \
+             [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', \
+             [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs, \
+             [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)",
+            path.display().to_string().replace('\'', "''"),
+        );
+        let mut command = Command::new("powershell");
+        command.args(["-NoProfile", "-Command", &script]);
+        return run_command(command, "move recording to Recycle Bin");
+    }
+
+    #[allow(unreachable_code)]
+    Err("Moving recordings to Trash is not supported on this platform".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn move_to_macos_trash(path: &Path) -> Result<(), String> {
+    let home = env::var("HOME")
+        .map_err(|error| format!("Failed to resolve home directory for Trash: {error}"))?;
+    let trash_directory = Path::new(&home).join(".Trash");
+    fs::create_dir_all(&trash_directory)
+        .map_err(|error| format!("Failed to prepare Trash directory: {error}"))?;
+
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| format!("Unable to resolve filename for {}", path.display()))?;
+
+    let destination_path = unique_trash_destination(&trash_directory.join(file_name));
+
+    match fs::rename(path, &destination_path) {
+        Ok(()) => Ok(()),
+        Err(rename_error) => {
+            fs::copy(path, &destination_path).map_err(|copy_error| {
+                format!(
+                    "Failed to move recording to Trash: rename failed with {rename_error}; copy failed with {copy_error}"
+                )
+            })?;
+            fs::remove_file(path)
+                .map_err(|error| format!("Moved copy to Trash, but failed to remove original file: {error}"))
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn unique_trash_destination(base_path: &Path) -> PathBuf {
+    if !base_path.exists() {
+        return base_path.to_path_buf();
+    }
+
+    let stem = base_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("recording");
+    let extension = base_path.extension().and_then(|value| value.to_str());
+    let parent = base_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    for index in 1.. {
+        let candidate_name = match extension {
+            Some(extension) => format!("{stem} {index}.{extension}"),
+            None => format!("{stem} {index}"),
+        };
+        let candidate_path = parent.join(candidate_name);
+        if !candidate_path.exists() {
+            return candidate_path;
+        }
+    }
+
+    unreachable!("trash destination search should always terminate")
+}
+
 pub fn scan_recent_recordings(output_directory: &str) -> Vec<SessionSummary> {
     let directory = expand_home_path(output_directory);
     let Ok(entries) = fs::read_dir(&directory) else {
@@ -384,6 +493,45 @@ pub fn get_recent_recordings(state: State<'_, AppState>) -> Result<Vec<SessionSu
         core.sync_recent_sessions(sessions.clone());
     }
     Ok(sessions)
+}
+
+fn refresh_recent_recordings(state: &State<'_, AppState>) -> Result<Vec<SessionSummary>, String> {
+    let output_directory = {
+        let core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        core.settings().output_directory
+    };
+
+    let sessions = scan_recent_recordings(&output_directory);
+
+    {
+        let mut core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        core.sync_recent_sessions(sessions.clone());
+    }
+
+    Ok(sessions)
+}
+
+#[tauri::command]
+pub fn trash_recordings(
+    recording_paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<SessionSummary>, String> {
+    if recording_paths.is_empty() {
+        return refresh_recent_recordings(&state);
+    }
+
+    for recording_path in recording_paths {
+        let resolved_path = expand_home_path(&recording_path);
+        move_to_trash(&resolved_path)?;
+    }
+
+    refresh_recent_recordings(&state)
 }
 
 #[cfg(target_os = "linux")]

@@ -565,6 +565,26 @@ export function useDesktopState() {
     }
   }
 
+  async function trashRecordings(recordingPaths: string[]) {
+    try {
+      const recentSessions = await desktopClient.trashRecordings(recordingPaths)
+      startTransition(() => {
+        setSnapshot((current) =>
+          updateRecentSessionsSnapshot(current, recentSessions),
+        )
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to move recordings to Trash.',
+        )
+      })
+    }
+  }
+
   return {
     actionError,
     snapshot,
@@ -580,6 +600,7 @@ export function useDesktopState() {
     resetShortcuts,
     requestPermission,
     saveRecordingCopy,
+    trashRecordings,
     showHud: desktopClient.showHud,
     toggleMicrophone,
     updateCaptureTarget,

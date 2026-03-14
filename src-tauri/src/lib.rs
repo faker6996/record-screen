@@ -184,6 +184,7 @@ pub fn run() {
             commands::library::open_recording,
             commands::library::reveal_recording_in_folder,
             commands::library::save_recording_copy,
+            commands::library::trash_recordings,
             commands::permissions::get_permissions,
             commands::permissions::open_permission_settings,
             commands::permissions::request_permission,
@@ -202,7 +203,8 @@ pub fn run() {
             commands::settings::update_quality_preset,
             commands::window::focus_launcher,
             commands::window::hide_hud,
-            commands::window::show_hud
+            commands::window::show_hud,
+            commands::window::start_hud_drag
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
