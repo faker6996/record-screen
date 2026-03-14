@@ -56,12 +56,22 @@ export function RecorderPanel({
   const selectedAudioInput =
     audioInputs.find((input) => input.id === selectedAudioInputId) ?? null
   const micLevelPercent = recorder.micEnabled ? Math.round(micLevel * 100) : 0
+  const micEnumerationUnavailable =
+    selectedAudioInput?.id === 'default' &&
+    audioInputs.length === 1 &&
+    selectedAudioInput.description
+      .toLowerCase()
+      .includes('could not enumerate directshow microphone devices')
+  const micCheckDisabled =
+    !recorder.micEnabled || !micCheckSupported || !isIdle || micEnumerationUnavailable
   const micCheckLabel = micCheckError
     ? micCheckError
     : micCheckActive
       ? hasSignal
         ? 'Mic detected'
         : 'Listening for input'
+      : micEnumerationUnavailable
+        ? 'Windows could not inspect microphone devices yet.'
       : recorder.micEnabled
         ? selectedAudioInput?.label ?? 'Default input'
         : 'Microphone muted'
@@ -230,7 +240,7 @@ export function RecorderPanel({
               <span className="subtle-copy">{micCheckLabel}</span>
               <button
                 className="button button--secondary recorder-panel__mic-check-button"
-                disabled={!recorder.micEnabled || !micCheckSupported || !isIdle}
+                disabled={micCheckDisabled}
                 onClick={() => void toggleMicCheck()}
                 type="button"
               >

@@ -77,6 +77,7 @@ export interface ShortcutBinding {
 
 export interface BootstrapSnapshot {
   appName: string
+  appVersion: string
   appAuthor: string
   appLicense: string
   platform: string

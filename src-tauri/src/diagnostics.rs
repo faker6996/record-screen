@@ -17,10 +17,13 @@ pub fn runtime_diagnostics() -> RuntimeDiagnostics {
 
     #[cfg(target_os = "windows")]
     {
+        let audio_readiness = capture_windows::audio_input_support_summary();
         return RuntimeDiagnostics {
             summary: "Windows desktop capture path".to_string(),
             backend_path: "gdigrab + dshow + ffmpeg".to_string(),
-            readiness: "Desktop capture depends on ffmpeg availability, PowerShell window discovery, and DirectShow microphone readiness.".to_string(),
+            readiness: format!(
+                "Desktop capture depends on ffmpeg availability, PowerShell window discovery, and DirectShow microphone readiness. {audio_readiness}"
+            ),
         };
     }
 

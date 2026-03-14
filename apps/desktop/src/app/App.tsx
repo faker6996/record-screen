@@ -308,6 +308,8 @@ function LauncherApp() {
               Preview HUD Mode
             </button>
             <div className="launcher-sidebar__meta">
+              <span>v{currentSnapshot.appVersion}</span>
+              <span aria-hidden="true">•</span>
               <span>{currentSnapshot.appLicense}</span>
               <span aria-hidden="true">•</span>
               <span>{currentSnapshot.appAuthor}</span>

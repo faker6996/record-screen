@@ -58,6 +58,7 @@ pub struct CompletedRecording {
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapSnapshot {
     pub app_name: String,
+    pub app_version: String,
     pub app_author: String,
     pub app_license: String,
     pub platform: String,
@@ -123,12 +124,14 @@ impl AppCore {
     pub fn bootstrap(
         &self,
         platform: &str,
+        app_version: &str,
         capture_targets: Vec<CaptureTargetOption>,
         audio_inputs: Vec<AudioInputOption>,
         diagnostics: RuntimeDiagnostics,
     ) -> BootstrapSnapshot {
         BootstrapSnapshot {
             app_name: "Record Screen".to_string(),
+            app_version: app_version.to_string(),
             app_author: "Tran Van Bach".to_string(),
             app_license: "MIT".to_string(),
             platform: platform.to_string(),

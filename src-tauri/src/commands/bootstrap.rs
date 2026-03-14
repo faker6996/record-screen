@@ -6,7 +6,10 @@ use tauri::{AppHandle, State};
 use crate::{AppState, audio_inputs, bootstrap, capture_targets, diagnostics, register_shortcuts};
 
 #[tauri::command]
-pub fn get_bootstrap(state: State<'_, AppState>) -> Result<BootstrapSnapshot, String> {
+pub fn get_bootstrap(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<BootstrapSnapshot, String> {
     let capture_targets = capture_targets::initial_capture_targets();
     let audio_inputs = audio_inputs::initial_audio_inputs();
     let mut core = state
@@ -22,8 +25,10 @@ pub fn get_bootstrap(state: State<'_, AppState>) -> Result<BootstrapSnapshot, St
         }
     }
     let platform = bootstrap::platform_name();
+    let app_version = app.package_info().version.to_string();
     let snapshot = core.bootstrap(
         platform,
+        &app_version,
         capture_targets,
         audio_inputs,
         diagnostics::runtime_diagnostics(),

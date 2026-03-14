@@ -20,6 +20,7 @@ declare global {
 
 const mockSnapshot: BootstrapSnapshot = {
   appName: 'Record Screen',
+  appVersion: '0.1.12',
   appAuthor: 'Tran Van Bach',
   appLicense: 'MIT',
   platform: 'web-preview',
@@ -315,7 +316,58 @@ async function command<T>(
     }
   }
 
-  return invoke<T>(name, args)
+  try {
+    return await invoke<T>(name, args)
+  } catch (error) {
+    throw new Error(extractCommandErrorMessage(error, name))
+  }
+}
+
+function extractCommandErrorMessage(error: unknown, commandName: string): string {
+  if (typeof error === 'string' && error.trim()) {
+    return error
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+
+    const directMessage = firstString([
+      record.message,
+      record.error,
+      record.details,
+      record.reason,
+    ])
+    if (directMessage) {
+      return directMessage
+    }
+
+    const cause = record.cause
+    if (cause && typeof cause === 'object') {
+      const causeMessage = firstString([
+        (cause as Record<string, unknown>).message,
+        (cause as Record<string, unknown>).error,
+      ])
+      if (causeMessage) {
+        return causeMessage
+      }
+    }
+  }
+
+  return `Command \`${commandName}\` failed.`
+}
+
+function firstString(values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value
+    }
+  }
+
+  return null
 }
 
 export const desktopClient = {

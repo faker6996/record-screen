@@ -126,6 +126,20 @@ fn selected_audio_input_id(app: &AppHandle) -> Result<String, String> {
     let selected_audio_input_id = core.settings().audio_input_id;
     let available_audio_inputs = audio_inputs::available_audio_inputs();
 
+    if available_audio_inputs.len() == 1
+        && available_audio_inputs
+            .first()
+            .map(|input| input.id.as_str() == capture::DEFAULT_AUDIO_INPUT_ID)
+            .unwrap_or(false)
+    {
+        return Err(
+            available_audio_inputs[0]
+                .description
+                .trim()
+                .to_string(),
+        );
+    }
+
     audio_inputs::normalize_audio_input_selection(&selected_audio_input_id, &available_audio_inputs)
         .ok_or_else(|| "Unable to find a usable microphone input.".to_string())
 }

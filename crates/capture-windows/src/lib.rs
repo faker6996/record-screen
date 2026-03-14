@@ -228,9 +228,32 @@ mod platform {
     }
 
     pub fn list_audio_inputs() -> Vec<AudioInputOption> {
-        let mut inputs = vec![default_audio_input()];
-        inputs.extend(discover_audio_inputs().unwrap_or_default());
-        inputs
+        let mut default_input = default_audio_input();
+
+        match discover_audio_inputs() {
+            Ok(discovered_inputs) => {
+                let mut inputs = vec![default_input];
+                inputs.extend(discovered_inputs);
+                inputs
+            }
+            Err(error) => {
+                default_input.description = format!(
+                    "Windows could not enumerate DirectShow microphone devices. {error}"
+                );
+                vec![default_input]
+            }
+        }
+    }
+
+    pub fn audio_input_support_summary() -> String {
+        match discover_audio_inputs() {
+            Ok(audio_inputs) => format!(
+                "DirectShow microphone discovery is ready. Found {} input{}.",
+                audio_inputs.len(),
+                if audio_inputs.len() == 1 { "" } else { "s" }
+            ),
+            Err(error) => format!("DirectShow microphone discovery failed. {error}"),
+        }
     }
 
     fn resolve_target(target_id: &str) -> Result<ResolvedTarget, CaptureError> {
@@ -513,7 +536,10 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
 
         if audio_inputs.is_empty() {
             return Err(CaptureError::BackendUnavailable(
-                "ffmpeg did not expose any DirectShow audio input device".to_string(),
+                format!(
+                    "ffmpeg did not expose any DirectShow audio input device. {}",
+                    extract_ffmpeg_context(&listing)
+                ),
             ));
         }
 
@@ -703,10 +729,26 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
             .trim()
             .to_string()
     }
+
+    fn extract_ffmpeg_context(stderr_log: &str) -> String {
+        stderr_log
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|line| {
+                !line.is_empty()
+                    && !line.starts_with('[')
+                    && !line.eq_ignore_ascii_case("dummy: immediate exit requested")
+            })
+            .unwrap_or("Check ffmpeg installation, Windows microphone privacy settings, and whether another app is locking the input.")
+            .to_string()
+    }
 }
 
 #[cfg(target_os = "windows")]
-pub use platform::{FfmpegWindowsCapture, list_audio_inputs, list_capture_targets};
+pub use platform::{
+    FfmpegWindowsCapture, audio_input_support_summary, list_audio_inputs, list_capture_targets,
+};
 
 #[cfg(not(target_os = "windows"))]
 pub struct FfmpegWindowsCapture;
@@ -719,6 +761,11 @@ pub fn list_capture_targets() -> Vec<capture::CaptureTargetOption> {
 #[cfg(not(target_os = "windows"))]
 pub fn list_audio_inputs() -> Vec<capture::AudioInputOption> {
     vec![capture::default_audio_input()]
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn audio_input_support_summary() -> String {
+    "DirectShow microphone discovery is only available on Windows.".to_string()
 }
 
 pub fn backend_name() -> &'static str {
