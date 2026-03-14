@@ -283,7 +283,7 @@ jobs:
           VERSION: ${{ needs.tag-version.outputs.version }}
         run: |
           chmod +x scripts/publish-homebrew-tap.sh scripts/render-homebrew-cask.sh
-          DMG_PATH="$(find release-assets/macos -type f -name '*.dmg' | head -n 1)"
+          export DMG_PATH="$(find release-assets/macos -type f -name '*.dmg' | head -n 1)"
           if [ -z "$DMG_PATH" ]; then
             echo "No .dmg artifact found."
             exit 1
