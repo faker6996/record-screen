@@ -39,7 +39,7 @@ const mockSnapshot: BootstrapSnapshot = {
     qualityPreset: '1080p / 30 fps',
     micEnabled: true,
     audioInputId: 'default',
-    launchOnLogin: true,
+    launchOnLogin: false,
     showHudDuringRecording: true,
     captureTargetId: 'full-desktop',
   },
@@ -295,6 +295,8 @@ async function command<T>(
       case 'reveal_recording_in_folder':
       case 'open_permission_settings':
         return undefined as T
+      case 'save_recording_copy':
+        return `~/Downloads/${String(args?.recordingPath ?? '').split(/[\\/]/).filter(Boolean).at(-1) ?? 'recording.mp4'}` as T
       case 'get_permissions':
         return structuredClone(mockSnapshot.permissions) as T
       case 'get_recent_recordings':
@@ -397,6 +399,9 @@ export const desktopClient = {
   revealRecordingInFolder(recordingPath: string) {
     return command<void>('reveal_recording_in_folder', { recordingPath })
   },
+  saveRecordingCopy(recordingPath: string) {
+    return command<string | null>('save_recording_copy', { recordingPath })
+  },
   async subscribeRecorderState(
     listener: (snapshot: RecorderSnapshot) => void,
   ) {
@@ -419,6 +424,16 @@ export const desktopClient = {
 
     const unlisten = await listen<string>('recorder://runtime-error', (event) => {
       listener(event.payload)
+    })
+    return unlisten
+  },
+  async subscribeHudShown(listener: () => void) {
+    if (!isTauriRuntime()) {
+      return () => undefined
+    }
+
+    const unlisten = await listen('recorder://hud-shown', () => {
+      listener()
     })
     return unlisten
   },

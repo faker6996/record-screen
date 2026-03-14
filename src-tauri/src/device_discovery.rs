@@ -32,6 +32,10 @@ pub fn current_snapshot() -> DeviceDiscoverySnapshot {
     load_snapshot(false)
 }
 
+pub fn refreshed_snapshot() -> DeviceDiscoverySnapshot {
+    load_snapshot(true)
+}
+
 fn load_snapshot(force_refresh: bool) -> DeviceDiscoverySnapshot {
     let mut cache = cache()
         .lock()

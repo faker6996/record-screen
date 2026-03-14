@@ -548,6 +548,23 @@ export function useDesktopState() {
     }
   }
 
+  async function saveRecordingCopy(recordingPath: string) {
+    try {
+      await desktopClient.saveRecordingCopy(recordingPath)
+      startTransition(() => {
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to export recording copy.',
+        )
+      })
+    }
+  }
+
   return {
     actionError,
     snapshot,
@@ -562,6 +579,7 @@ export function useDesktopState() {
     revealRecordingInFolder,
     resetShortcuts,
     requestPermission,
+    saveRecordingCopy,
     showHud: desktopClient.showHud,
     toggleMicrophone,
     updateCaptureTarget,

@@ -34,12 +34,12 @@ pub fn get_bootstrap(state: State<'_, AppState>) -> Result<BootstrapSnapshot, St
 
 #[tauri::command]
 pub fn get_capture_targets() -> Result<Vec<CaptureTargetOption>, String> {
-    Ok(capture_targets::available_capture_targets())
+    Ok(capture_targets::refreshed_capture_targets())
 }
 
 #[tauri::command]
 pub fn get_audio_inputs() -> Result<Vec<AudioInputOption>, String> {
-    Ok(audio_inputs::available_audio_inputs())
+    Ok(audio_inputs::refreshed_audio_inputs())
 }
 
 #[tauri::command]

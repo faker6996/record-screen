@@ -90,8 +90,14 @@ pub struct AppCore {
 
 impl Default for AppCore {
     fn default() -> Self {
+        Self::new(AppSettings::default())
+    }
+}
+
+impl AppCore {
+    pub fn new(settings: AppSettings) -> Self {
         Self {
-            settings: AppSettings::default(),
+            settings,
             status: RecorderStatus::Idle,
             active_target: "Full desktop".to_string(),
             active_output_path: None,
@@ -103,9 +109,7 @@ impl Default for AppCore {
             recent_sessions: vec![],
         }
     }
-}
 
-impl AppCore {
     pub fn quality_presets() -> Vec<String> {
         vec![
             "720p / 30 fps".to_string(),

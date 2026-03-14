@@ -7,7 +7,9 @@ use std::{
 use storage::{AppSettings, expand_home_path};
 use tauri::{AppHandle, State};
 
-use crate::{AppState, audio_inputs, capture_targets, emit_recorder_state};
+use crate::{
+    AppState, audio_inputs, capture_targets, emit_recorder_state, launch_on_login, persist_settings,
+};
 
 #[tauri::command]
 pub fn update_quality_preset(
@@ -26,6 +28,7 @@ pub fn update_quality_preset(
     };
 
     emit_recorder_state(&app, &recorder);
+    persist_settings(&app)?;
     Ok(settings)
 }
 
@@ -46,11 +49,13 @@ pub fn update_output_directory(
     };
 
     emit_recorder_state(&app, &recorder);
+    persist_settings(&app)?;
     Ok(settings)
 }
 
 #[tauri::command]
 pub fn update_launch_on_login(
+    app: AppHandle,
     state: State<'_, AppState>,
     launch_on_login: bool,
 ) -> Result<AppSettings, String> {
@@ -62,6 +67,8 @@ pub fn update_launch_on_login(
         core.update_launch_on_login(launch_on_login)
     };
 
+    launch_on_login::sync_launch_on_login(launch_on_login)?;
+    persist_settings(&app)?;
     Ok(settings)
 }
 
@@ -83,6 +90,7 @@ pub fn update_show_hud_during_recording(
 
     emit_recorder_state(&app, &recorder);
     let _ = crate::window::sync_hud_visibility(&app, &recorder, settings.show_hud_during_recording);
+    persist_settings(&app)?;
     Ok(settings)
 }
 
@@ -108,6 +116,7 @@ pub fn update_capture_target(
     };
 
     emit_recorder_state(&app, &recorder);
+    persist_settings(&app)?;
     Ok(settings)
 }
 
@@ -133,6 +142,7 @@ pub fn update_audio_input(
     };
 
     emit_recorder_state(&app, &recorder);
+    persist_settings(&app)?;
     Ok(settings)
 }
 
@@ -165,6 +175,7 @@ pub fn pick_output_directory(
     };
 
     emit_recorder_state(&app, &recorder);
+    persist_settings(&app)?;
     Ok(Some(settings))
 }
 

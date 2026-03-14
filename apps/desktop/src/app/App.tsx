@@ -170,6 +170,7 @@ function LauncherApp() {
     revealRecordingInFolder,
     resetShortcuts,
     requestPermission,
+    saveRecordingCopy,
     showHud,
     snapshot,
     toggleMicrophone,
@@ -226,6 +227,7 @@ function LauncherApp() {
           <RecentSessionsPanel
             onOpenRecording={openRecording}
             onRevealRecordingInFolder={revealRecordingInFolder}
+            onSaveRecordingCopy={saveRecordingCopy}
             sessions={currentSnapshot.recentSessions}
           />
         )

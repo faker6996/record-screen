@@ -122,14 +122,22 @@ export function RecorderPanel({
           <div className="recorder-panel__runtime">
             <strong className="recorder-panel__timer">{recorder.elapsedLabel}</strong>
             <button
-              className="recorder-panel__pause-button"
+              className={`recorder-panel__pause-button ${
+                isPaused ? 'recorder-panel__pause-button--paused' : ''
+              }`}
               onClick={() => void onPauseResume()}
               type="button"
             >
               {isPaused ? (
-                <Play aria-hidden="true" size={18} strokeWidth={2} />
+                <>
+                  <Play aria-hidden="true" size={18} strokeWidth={2} />
+                  <span>Resume</span>
+                </>
               ) : (
-                <Pause aria-hidden="true" size={18} strokeWidth={2} />
+                <>
+                  <Pause aria-hidden="true" size={18} strokeWidth={2} />
+                  <span>Pause</span>
+                </>
               )}
             </button>
           </div>

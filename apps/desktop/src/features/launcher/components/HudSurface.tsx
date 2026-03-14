@@ -1,4 +1,5 @@
 import { Mic, MicOff, Pause, Play, Scan, Square } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
@@ -41,6 +42,34 @@ function formatHudTime(totalSeconds: number) {
     .join(':')
 }
 
+function HudElapsed({
+  initialElapsedSeconds,
+  status,
+}: {
+  initialElapsedSeconds: number
+  status: RecorderSnapshot['status']
+}) {
+  const [displayElapsedSeconds, setDisplayElapsedSeconds] = useState(
+    initialElapsedSeconds,
+  )
+
+  useEffect(() => {
+    if (status !== 'recording') {
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      setDisplayElapsedSeconds((current) => current + 1)
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [status])
+
+  return <strong>{formatHudTime(displayElapsedSeconds)}</strong>
+}
+
 export function HudSurface({
   onFocusLauncher,
   onPauseResume,
@@ -61,7 +90,11 @@ export function HudSurface({
           title="Drag HUD"
         >
           <span className={`status-dot status-${recorder.status}`} />
-          <strong>{formatHudTime(parsedElapsedSeconds)}</strong>
+          <HudElapsed
+            initialElapsedSeconds={parsedElapsedSeconds}
+            key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}`}
+            status={recorder.status}
+          />
         </div>
 
         <div className="hud__divider" />
@@ -70,7 +103,7 @@ export function HudSurface({
           <button
             aria-label={recorder.status === 'paused' ? 'Resume recording' : 'Pause recording'}
             aria-pressed={isPaused}
-            className={`button button--secondary hud__icon-button ${
+            className={`button button--secondary hud__action-button ${
               isPaused ? 'hud__icon-button--active' : ''
             }`}
             disabled={isIdle}
@@ -79,9 +112,15 @@ export function HudSurface({
             type="button"
           >
             {isPaused ? (
-              <Play aria-hidden="true" size={16} strokeWidth={1.9} />
+              <>
+                <Play aria-hidden="true" size={16} strokeWidth={1.9} />
+                <span>Resume</span>
+              </>
             ) : (
-              <Pause aria-hidden="true" size={16} strokeWidth={1.9} />
+              <>
+                <Pause aria-hidden="true" size={16} strokeWidth={1.9} />
+                <span>Pause</span>
+              </>
             )}
           </button>
           <button

@@ -11,8 +11,10 @@ export function useHudState() {
     let isDisposed = false
     let unlistenRecorder: () => void = () => undefined
     let unlistenRuntimeError: () => void = () => undefined
+    let unlistenHudShown: () => void = () => undefined
+    let refreshTimer: number | null = null
 
-    async function loadRecorder() {
+    async function loadRecorder(options?: { silent?: boolean }) {
       try {
         const nextRecorder = await desktopClient.getRecorderSnapshot()
         if (isDisposed) {
@@ -29,6 +31,10 @@ export function useHudState() {
           return
         }
 
+        if (options?.silent) {
+          return
+        }
+
         startTransition(() => {
           setError(
             loadError instanceof Error
@@ -41,6 +47,10 @@ export function useHudState() {
     }
 
     void loadRecorder()
+
+    refreshTimer = window.setInterval(() => {
+      void loadRecorder({ silent: true })
+    }, 1000)
 
     void desktopClient
       .subscribeRecorderState((nextRecorder) => {
@@ -80,10 +90,31 @@ export function useHudState() {
         unlistenRuntimeError = dispose
       })
 
+    void desktopClient
+      .subscribeHudShown(() => {
+        if (isDisposed) {
+          return
+        }
+
+        void loadRecorder()
+      })
+      .then((dispose) => {
+        if (isDisposed) {
+          dispose()
+          return
+        }
+
+        unlistenHudShown = dispose
+      })
+
     return () => {
       isDisposed = true
+      if (refreshTimer !== null) {
+        window.clearInterval(refreshTimer)
+      }
       unlistenRecorder()
       unlistenRuntimeError()
+      unlistenHudShown()
     }
   }, [])
 
@@ -95,13 +126,27 @@ export function useHudState() {
       await desktopClient.focusLauncher()
     },
     pauseResume: async () => {
-      await desktopClient.pauseResume()
+      const nextRecorder = await desktopClient.pauseResume()
+      if (nextRecorder) {
+        startTransition(() => {
+          setRecorder(nextRecorder)
+          setError(null)
+        })
+      }
     },
     toggleMicrophone: async () => {
-      await desktopClient.toggleMicrophone()
+      const nextRecorder = await desktopClient.toggleMicrophone()
+      startTransition(() => {
+        setRecorder(nextRecorder)
+        setError(null)
+      })
     },
     toggleRecording: async () => {
-      await desktopClient.toggleRecording()
+      const nextRecorder = await desktopClient.toggleRecording()
+      startTransition(() => {
+        setRecorder(nextRecorder)
+        setError(null)
+      })
     },
   }
 }

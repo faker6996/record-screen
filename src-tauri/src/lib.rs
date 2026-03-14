@@ -4,6 +4,7 @@ mod capture_targets;
 mod commands;
 mod device_discovery;
 mod diagnostics;
+mod launch_on_login;
 mod mic_check;
 mod recording;
 mod tray;
@@ -48,6 +49,21 @@ pub(crate) fn emit_runtime_error(app: &AppHandle, message: &str) {
 
 pub(crate) fn emit_recent_sessions_refresh_request(app: &AppHandle) {
     let _ = app.emit("recorder://recent-sessions-refresh-requested", ());
+}
+
+pub(crate) fn persist_settings(app: &AppHandle) -> Result<(), String> {
+    let settings = with_core(app, |core| core.settings())?;
+    storage::save_app_settings(&settings).map_err(|error| error.to_string())
+}
+
+fn load_initial_settings() -> storage::AppSettings {
+    match storage::load_app_settings() {
+        Ok(settings) => settings,
+        Err(error) => {
+            eprintln!("failed to load persisted settings, falling back to defaults: {error}");
+            storage::AppSettings::default()
+        }
+    }
 }
 
 fn command_or_control_modifier() -> Modifiers {
@@ -109,6 +125,9 @@ pub(crate) fn handle_shortcut_action(app: &AppHandle, action: ShortcutAction) {
         ShortcutAction::ToggleMicrophone => {
             if let Ok(snapshot) = with_core(app, AppCore::toggle_microphone) {
                 emit_recorder_state(app, &snapshot);
+                if let Err(error) = persist_settings(app) {
+                    emit_runtime_error(app, &error);
+                }
             }
         }
     }
@@ -116,9 +135,11 @@ pub(crate) fn handle_shortcut_action(app: &AppHandle, action: ShortcutAction) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let initial_settings = load_initial_settings();
+
     tauri::Builder::default()
         .manage(AppState {
-            core: Mutex::new(AppCore::default()),
+            core: Mutex::new(AppCore::new(initial_settings)),
             recorder: Mutex::new(None),
             mic_check: Mutex::new(None),
         })
@@ -134,6 +155,11 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            let launch_on_login_enabled =
+                with_core(app.handle(), |core| core.settings().launch_on_login).unwrap_or(false);
+            if let Err(error) = launch_on_login::sync_launch_on_login(launch_on_login_enabled) {
+                eprintln!("failed to sync launch-on-login state: {error}");
+            }
             register_shortcuts(app.handle())?;
             tray::create(app.handle())?;
             window::focus_launcher(app.handle())?;
@@ -157,6 +183,7 @@ pub fn run() {
             commands::library::get_recent_recordings,
             commands::library::open_recording,
             commands::library::reveal_recording_in_folder,
+            commands::library::save_recording_copy,
             commands::permissions::get_permissions,
             commands::permissions::open_permission_settings,
             commands::permissions::request_permission,

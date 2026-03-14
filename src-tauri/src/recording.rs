@@ -6,8 +6,8 @@ use tauri::{AppHandle, Manager};
 use time::{OffsetDateTime, UtcOffset, macros::format_description};
 
 use crate::{
-    AppState, emit_recent_sessions_refresh_request, emit_recorder_state, emit_runtime_error,
-    window, with_core,
+    AppState, audio_inputs, emit_recent_sessions_refresh_request, emit_recorder_state,
+    emit_runtime_error, persist_settings, window, with_core,
 };
 
 fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
@@ -27,7 +27,21 @@ pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 
 pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     let _ = crate::mic_check::stop_mic_check(app);
-    let settings = with_core(app, |core| core.settings())?;
+    let mut settings = with_core(app, |core| core.settings())?;
+    let available_audio_inputs = audio_inputs::refreshed_audio_inputs();
+    let mut settings_changed = false;
+    if let Some(next_audio_input_id) = audio_inputs::normalize_audio_input_selection(
+        &settings.audio_input_id,
+        &available_audio_inputs,
+    ) {
+        if next_audio_input_id != settings.audio_input_id {
+            settings = with_core(app, |core| core.update_audio_input(next_audio_input_id))?;
+            settings_changed = true;
+        }
+    }
+    if settings_changed {
+        persist_settings(app)?;
+    }
     let output_path = storage::next_recording_path(&settings.output_directory)
         .map_err(|error| error.to_string())?;
     let controller = create_capture_controller(RecordingOptions {

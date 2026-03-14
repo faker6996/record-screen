@@ -1,6 +1,7 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
 import {
   AlertCircle,
+  Download,
   FileVideo,
   FolderOpen,
   LoaderCircle,
@@ -13,6 +14,7 @@ import type { SessionSummary } from '../../../types/desktop'
 interface RecentSessionsPanelProps {
   onOpenRecording: (recordingPath: string) => Promise<void>
   onRevealRecordingInFolder: (recordingPath: string) => Promise<void>
+  onSaveRecordingCopy: (recordingPath: string) => Promise<void>
   sessions: SessionSummary[]
 }
 
@@ -27,6 +29,7 @@ function canPreviewInApp(location: string) {
 export function RecentSessionsPanel({
   onOpenRecording,
   onRevealRecordingInFolder,
+  onSaveRecordingCopy,
   sessions,
 }: RecentSessionsPanelProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -183,14 +186,24 @@ export function RecentSessionsPanel({
                     </span>
                   </button>
 
-                  <button
-                    aria-label={`Open folder for ${filenameFromPath(session.location)}`}
-                    className="sessions-panel__row-action"
-                    onClick={() => void onRevealRecordingInFolder(session.location)}
-                    type="button"
-                  >
-                    <FolderOpen size={17} strokeWidth={1.9} />
-                  </button>
+                  <div className="sessions-panel__row-actions">
+                    <button
+                      aria-label={`Save ${filenameFromPath(session.location)} as`}
+                      className="sessions-panel__row-action"
+                      onClick={() => void onSaveRecordingCopy(session.location)}
+                      type="button"
+                    >
+                      <Download size={17} strokeWidth={1.9} />
+                    </button>
+                    <button
+                      aria-label={`Open folder for ${filenameFromPath(session.location)}`}
+                      className="sessions-panel__row-action"
+                      onClick={() => void onRevealRecordingInFolder(session.location)}
+                      type="button"
+                    >
+                      <FolderOpen size={17} strokeWidth={1.9} />
+                    </button>
+                  </div>
                 </article>
               )
             })}
@@ -313,6 +326,14 @@ export function RecentSessionsPanel({
             </div>
 
             <div className="sessions-panel__viewer-actions">
+              <button
+                className="button button--secondary"
+                onClick={() => void onSaveRecordingCopy(selectedSession.location)}
+                type="button"
+              >
+                <Download aria-hidden="true" size={16} strokeWidth={1.9} />
+                Save As
+              </button>
               <button
                 className="button button--secondary"
                 onClick={() => void onOpenRecording(selectedSession.location)}

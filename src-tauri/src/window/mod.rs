@@ -1,5 +1,5 @@
 use app_core::{RecorderSnapshot, RecorderStatus};
-use tauri::{AppHandle, Error as TauriError, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Error as TauriError, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::{emit_recorder_state, with_core};
 
@@ -27,8 +27,8 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
         WebviewWindowBuilder::new(app, HUD_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
             .title("Record Screen HUD")
             .initialization_script("window.__RECORD_SCREEN_SURFACE__ = 'hud';")
-            .inner_size(356.0, 92.0)
-            .min_inner_size(320.0, 84.0)
+            .inner_size(328.0, 80.0)
+            .min_inner_size(292.0, 72.0)
             .visible(false)
             .resizable(false)
             .always_on_top(true)
@@ -57,12 +57,19 @@ pub fn show_hud(app: &AppHandle) -> Result<(), String> {
     ensure_hud_window(app)?;
 
     if let Some(window) = app.get_webview_window(HUD_WINDOW_LABEL) {
+        if window.is_minimized().map_err(|error| error.to_string())? {
+            window.unminimize().map_err(|error| error.to_string())?;
+        }
+        window
+            .set_always_on_top(true)
+            .map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
     }
 
     if let Ok(snapshot) = with_core(app, |core| core.snapshot()) {
         emit_recorder_state(app, &snapshot);
     }
+    let _ = app.emit("recorder://hud-shown", ());
 
     Ok(())
 }

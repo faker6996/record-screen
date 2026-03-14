@@ -1,7 +1,7 @@
 use app_core::RecorderSnapshot;
 use tauri::{AppHandle, State};
 
-use crate::{AppState, emit_recorder_state};
+use crate::{AppState, emit_recorder_state, persist_settings};
 
 #[tauri::command]
 pub fn get_recorder_snapshot(state: State<'_, AppState>) -> Result<RecorderSnapshot, String> {
@@ -36,6 +36,7 @@ pub fn toggle_microphone(
     };
 
     emit_recorder_state(&app, &snapshot);
+    persist_settings(&app)?;
     Ok(snapshot)
 }
 

@@ -2,24 +2,25 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 10px;
+  padding: 6px;
   background: transparent;
 }
 
 .hud__card {
-  width: min(100%, 336px);
+  width: fit-content;
+  max-width: min(100%, 312px);
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
+  gap: 10px;
   border-radius: 999px;
-  padding: 10px 11px;
-  backdrop-filter: blur(10px);
+  padding: 8px 9px;
+  backdrop-filter: blur(8px);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--color-surface-strong) 90%, transparent), var(--color-surface-soft)),
     color-mix(in srgb, var(--color-surface-2) 88%, transparent);
   border: 1px solid var(--color-border-soft);
-  box-shadow: 0 14px 34px color-mix(in srgb, var(--color-shadow) 56%, transparent);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-shadow) 42%, transparent);
 }
 
 .hud__elapsed {
@@ -28,12 +29,12 @@
   align-items: center;
   font-variant-numeric: tabular-nums;
   min-width: 0;
-  padding: 0 9px 0 7px;
+  padding: 0 8px 0 6px;
 }
 
 .hud__elapsed strong {
-  font-size: 1rem;
-  font-weight: 620;
+  font-size: 0.96rem;
+  font-weight: 640;
   letter-spacing: 0.02em;
 }
 
@@ -44,21 +45,21 @@
 
 .hud__controls {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   min-width: 0;
 }
 
 .hud__divider {
   width: 1px;
-  height: 26px;
+  height: 22px;
   flex: 0 0 auto;
   background: var(--color-border-soft);
 }
 
 .hud__icon-button {
-  min-width: 34px;
-  min-height: 34px;
+  min-width: 32px;
+  min-height: 32px;
   padding: 0;
   border-radius: 999px;
   transition:
@@ -68,15 +69,41 @@
     transform 140ms ease;
 }
 
+.hud__action-button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
 .hud__icon-button.button--secondary {
   background: transparent;
   border: 0;
   color: var(--color-text-secondary);
 }
 
+.hud__action-button.button--secondary {
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border-soft);
+  color: var(--color-text-primary);
+}
+
 .hud__icon-button.button--secondary:hover:not(:disabled) {
   background: var(--color-surface-soft);
   color: var(--color-text-primary);
+}
+
+.hud__action-button.button--secondary:hover:not(:disabled) {
+  background: var(--color-control-bg-hover);
+}
+
+.hud__action-button.button--secondary:disabled {
+  opacity: 0.42;
 }
 
 .hud__icon-button--active.button--secondary {
@@ -88,20 +115,20 @@
 }
 
 .hud__icon-button.button--primary {
-  min-width: 34px;
-  min-height: 34px;
-  border-radius: 8px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 7px;
   box-shadow: none;
 }
 
 .hud__icon-button.button--primary svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 .hud .status-dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   margin-top: 0;
   box-shadow: none;
 }
@@ -134,6 +161,6 @@
 
 @media (max-width: 720px) {
   .hud__card {
-    width: min(100%, 336px);
+    max-width: min(100%, 312px);
   }
 }

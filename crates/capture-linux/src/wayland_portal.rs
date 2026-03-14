@@ -55,6 +55,13 @@ pub enum PipeWireFfmpegSupport {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PipeWireGstreamerSupport {
+    Available,
+    Missing,
+    Unknown,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenCastPortalCommandPlan {
@@ -132,6 +139,22 @@ pub fn probe_screen_cast_portal() -> ScreenCastPortalProbe {
             ScreenCastPortalProbe::MissingPortal
         }
         _ => ScreenCastPortalProbe::MissingDbusTools,
+    }
+}
+
+pub fn gstreamer_pipewire_support() -> PipeWireGstreamerSupport {
+    if !command_exists("gst-launch-1.0") || !command_exists("gst-inspect-1.0") {
+        return PipeWireGstreamerSupport::Unknown;
+    }
+
+    let required_plugins = ["pipewiresrc", "x264enc", "mp4mux"];
+    if required_plugins
+        .iter()
+        .all(|plugin| command_succeeds("gst-inspect-1.0", &[*plugin]))
+    {
+        PipeWireGstreamerSupport::Available
+    } else {
+        PipeWireGstreamerSupport::Missing
     }
 }
 

@@ -1,9 +1,10 @@
-mod wayland_portal;
+pub mod wayland_portal;
 
 use std::{
     env, fs,
     io::{Read, Write},
     os::unix::process::ExitStatusExt,
+    os::{fd::AsRawFd, unix::process::CommandExt},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, Mutex, OnceLock},
     thread,
@@ -43,8 +44,15 @@ struct VideoEncoderProfile {
     vaapi_device: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinuxCaptureProcessKind {
+    FfmpegX11,
+    GstreamerWayland,
+}
+
 pub struct FfmpegLinuxCapture {
     active_recording: ActiveRecording,
+    process_kind: LinuxCaptureProcessKind,
     child: Child,
     stdin: Option<ChildStdin>,
     stderr_buffer: Arc<Mutex<String>>,
@@ -84,37 +92,74 @@ struct WindowDescriptor {
 impl FfmpegLinuxCapture {
     pub fn start(options: RecordingOptions) -> Result<Self, CaptureError> {
         let session = current_desktop_session();
-        let display = match &session {
-            LinuxDesktopSession::X11 { display } => display.clone(),
-            LinuxDesktopSession::WaylandWithX11 { x11_display, .. } => x11_display.clone(),
+        let started_at = SystemTime::now();
+        let stderr_buffer = Arc::new(Mutex::new(String::new()));
+        let (target_label, encoder_label, process_kind, child, stdin) = match &session {
+            LinuxDesktopSession::X11 { display } => {
+                let target = resolve_target(&options.capture_target_id)?;
+                let encoder = encoder_for_quality(&options.quality_preset);
+                let (child, stdin) =
+                    spawn_ffmpeg(&options, display, &target, Arc::clone(&stderr_buffer))?;
+                (
+                    target.label,
+                    encoder_label(&encoder),
+                    LinuxCaptureProcessKind::FfmpegX11,
+                    child,
+                    stdin,
+                )
+            }
+            LinuxDesktopSession::WaylandWithX11 { x11_display, .. } => {
+                let target = resolve_target(&options.capture_target_id)?;
+                let encoder = encoder_for_quality(&options.quality_preset);
+                let (child, stdin) =
+                    spawn_ffmpeg(&options, x11_display, &target, Arc::clone(&stderr_buffer))?;
+                (
+                    target.label,
+                    encoder_label(&encoder),
+                    LinuxCaptureProcessKind::FfmpegX11,
+                    child,
+                    stdin,
+                )
+            }
             LinuxDesktopSession::WaylandOnly { wayland_display } => {
-                return match wayland_portal::negotiate_runtime_session() {
-                    Ok(runtime_session) => Err(CaptureError::BackendUnavailable(
-                        wayland_portal::runtime_pending_copy(&runtime_session),
-                    )),
-                    Err(error) => Err(CaptureError::BackendUnavailable(format!(
+                if options.capture_target_id != FULL_DESKTOP_TARGET_ID {
+                    return Err(CaptureError::BackendUnavailable(format!(
+                        "Wayland session {wayland_display} currently records through the ScreenCast portal chooser. Window and monitor targeting from the launcher is not wired into the pure Wayland path yet."
+                    )));
+                }
+
+                let runtime_session = wayland_portal::negotiate_runtime_session().map_err(|error| {
+                    CaptureError::BackendUnavailable(format!(
                         "Wayland session {wayland_display} could reach the ScreenCast portal path, but session negotiation did not complete: {error}"
-                    ))),
-                };
+                    ))
+                })?;
+                let (child, stdin) = spawn_wayland_gstreamer(
+                    &options,
+                    &runtime_session,
+                    Arc::clone(&stderr_buffer),
+                )?;
+                (
+                    "Wayland ScreenCast selection".to_string(),
+                    wayland_encoder_label(&options.quality_preset),
+                    LinuxCaptureProcessKind::GstreamerWayland,
+                    child,
+                    stdin,
+                )
             }
             LinuxDesktopSession::Headless => {
                 return Err(CaptureError::BackendUnavailable(session.capture_guidance()));
             }
         };
-        let started_at = SystemTime::now();
-        let stderr_buffer = Arc::new(Mutex::new(String::new()));
-        let target = resolve_target(&options.capture_target_id)?;
-        let encoder = encoder_for_quality(&options.quality_preset);
-        let (child, stdin) = spawn_ffmpeg(&options, &display, &target, Arc::clone(&stderr_buffer))?;
 
         Ok(Self {
             active_recording: ActiveRecording {
                 backend_name: session.backend_name(),
-                encoder_label: encoder_label(&encoder),
+                encoder_label,
                 output_path: options.output_path,
                 started_at,
-                target_label: target.label,
+                target_label,
             },
+            process_kind,
             child,
             stdin,
             stderr_buffer,
@@ -187,22 +232,23 @@ impl CaptureController for FfmpegLinuxCapture {
             self.resume()?;
         }
 
-        if let Some(stdin) = self.stdin.as_mut() {
-            stdin
-                .write_all(b"q\n")
-                .and_then(|_| stdin.flush())
-                .map_err(|error| CaptureError::StopFailed(error.to_string()))?;
-        }
+        request_process_stop(self.process_kind, self.child.id(), self.stdin.as_mut())?;
 
         let status = self
             .child
             .wait()
             .map_err(|error| CaptureError::StopFailed(error.to_string()))?;
 
-        if !status.success() && status.signal() != Some(libc::SIGTERM) {
+        if !status.success()
+            && status.signal() != Some(libc::SIGTERM)
+            && status.signal() != Some(libc::SIGINT)
+        {
             return Err(CaptureError::StopFailed(format!(
-                "ffmpeg exited with status {status}: {}",
-                describe_ffmpeg_failure(&read_stderr_buffer(&self.stderr_buffer))
+                "capture process exited with status {status}: {}",
+                describe_process_failure(
+                    self.process_kind,
+                    &read_stderr_buffer(&self.stderr_buffer)
+                )
             )));
         }
 
@@ -225,8 +271,12 @@ impl CaptureController for FfmpegLinuxCapture {
             return Ok(None);
         };
 
-        if !status.success() && status.signal() != Some(libc::SIGTERM) {
-            return Err(CaptureError::StopFailed(describe_ffmpeg_failure(
+        if !status.success()
+            && status.signal() != Some(libc::SIGTERM)
+            && status.signal() != Some(libc::SIGINT)
+        {
+            return Err(CaptureError::StopFailed(describe_process_failure(
+                self.process_kind,
                 &read_stderr_buffer(&self.stderr_buffer),
             )));
         }
@@ -440,21 +490,183 @@ fn spawn_ffmpeg(
         });
     }
 
-    verify_process_started(&mut child, &stderr_buffer)?;
+    verify_process_started(
+        &mut child,
+        &stderr_buffer,
+        LinuxCaptureProcessKind::FfmpegX11,
+    )?;
 
     Ok((child, stdin))
 }
 
-fn resolve_audio_input(audio_input_id: &str) -> Result<String, CaptureError> {
-    let audio_inputs = query_audio_inputs()?;
+fn spawn_wayland_gstreamer(
+    options: &RecordingOptions,
+    runtime_session: &wayland_portal::ScreenCastPortalRuntimeSession,
+    stderr_buffer: Arc<Mutex<String>>,
+) -> Result<(Child, Option<ChildStdin>), CaptureError> {
+    let stream_node_id = runtime_session
+        .stream_node_ids
+        .first()
+        .copied()
+        .ok_or_else(|| {
+            CaptureError::BackendUnavailable(
+                "the ScreenCast portal did not return any PipeWire stream node IDs".to_string(),
+            )
+        })?;
+    let remote_fd = runtime_session.pipewire_remote_fd.as_raw_fd();
+    let args = build_wayland_gstreamer_args(options, stream_node_id)?;
 
+    let mut command = Command::new("gst-launch-1.0");
+    command
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    unsafe {
+        command.pre_exec(move || {
+            if libc::dup2(remote_fd, 3) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            if libc::fcntl(3, libc::F_SETFD, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            Ok(())
+        });
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?;
+
+    if let Some(mut stderr) = child.stderr.take() {
+        let stderr_buffer = Arc::clone(&stderr_buffer);
+        thread::spawn(move || {
+            let mut buffer = String::new();
+            let _ = stderr.read_to_string(&mut buffer);
+            if let Ok(mut log) = stderr_buffer.lock() {
+                *log = buffer;
+            }
+        });
+    }
+
+    verify_process_started(
+        &mut child,
+        &stderr_buffer,
+        LinuxCaptureProcessKind::GstreamerWayland,
+    )?;
+
+    Ok((child, None))
+}
+
+fn build_wayland_gstreamer_args(
+    options: &RecordingOptions,
+    stream_node_id: u32,
+) -> Result<Vec<String>, CaptureError> {
+    let (width, height, fps) = quality_settings(&options.quality_preset);
+    let speed_preset = cpu_preset_for_quality(&options.quality_preset);
+    let bitrate_kbps = gst_bitrate_for_quality(&options.quality_preset);
+    let target_object = stream_node_id.to_string();
+    let output_location = options.output_path.display().to_string();
+    let mut args = vec![
+        "-e".to_string(),
+        "pipewiresrc".to_string(),
+        "fd=3".to_string(),
+        format!("target-object={target_object}"),
+        "do-timestamp=true".to_string(),
+        "keepalive-time=1000".to_string(),
+        "!".to_string(),
+        "queue".to_string(),
+        "!".to_string(),
+        "videoconvert".to_string(),
+        "!".to_string(),
+        "videoscale".to_string(),
+        "!".to_string(),
+        "videorate".to_string(),
+        "!".to_string(),
+        format!("video/x-raw,width={width},height={height},framerate={fps}/1"),
+        "!".to_string(),
+        "x264enc".to_string(),
+        format!("speed-preset={speed_preset}"),
+        "tune=zerolatency".to_string(),
+        format!("bitrate={bitrate_kbps}"),
+        format!("key-int-max={fps}"),
+        "!".to_string(),
+        "h264parse".to_string(),
+        "config-interval=-1".to_string(),
+        "!".to_string(),
+        "queue".to_string(),
+        "!".to_string(),
+        "mux.video_0".to_string(),
+    ];
+
+    if options.mic_enabled {
+        args.push("pulsesrc".to_string());
+        args.push("do-timestamp=true".to_string());
+
+        if let Some(audio_device) = gst_audio_input_device(&options.audio_input_id)? {
+            args.push(format!("device={audio_device}"));
+        }
+
+        args.extend([
+            "!".to_string(),
+            "queue".to_string(),
+            "!".to_string(),
+            "audioconvert".to_string(),
+            "!".to_string(),
+            "audioresample".to_string(),
+            "!".to_string(),
+            "voaacenc".to_string(),
+            "bitrate=192000".to_string(),
+            "!".to_string(),
+            "aacparse".to_string(),
+            "!".to_string(),
+            "queue".to_string(),
+            "!".to_string(),
+            "mux.audio_0".to_string(),
+        ]);
+    }
+
+    args.extend([
+        "mp4mux".to_string(),
+        "name=mux".to_string(),
+        "faststart=true".to_string(),
+        "!".to_string(),
+        "filesink".to_string(),
+        format!("location={output_location}"),
+    ]);
+
+    Ok(args)
+}
+
+fn resolve_audio_input(audio_input_id: &str) -> Result<String, CaptureError> {
+    resolve_audio_input_from_snapshot(audio_input_id, query_audio_inputs().ok().as_deref())
+}
+
+fn gst_audio_input_device(audio_input_id: &str) -> Result<Option<String>, CaptureError> {
     if audio_input_id == DEFAULT_AUDIO_INPUT_ID {
-        return resolve_audio_input_id(audio_input_id, &audio_inputs)
+        return Ok(None);
+    }
+
+    Ok(Some(resolve_audio_input(audio_input_id)?))
+}
+
+fn resolve_audio_input_from_snapshot(
+    audio_input_id: &str,
+    audio_inputs: Option<&[AudioInputOption]>,
+) -> Result<String, CaptureError> {
+    if audio_input_id == DEFAULT_AUDIO_INPUT_ID {
+        return audio_inputs
+            .and_then(|inputs| resolve_audio_input_id(audio_input_id, inputs))
             .or_else(|| {
-                audio_inputs
-                    .iter()
-                    .find(|input| input.id == DEFAULT_AUDIO_INPUT_ID)
-                    .map(|input| input.id.clone())
+                audio_inputs.and_then(|inputs| {
+                    inputs
+                        .iter()
+                        .find(|input| input.id == DEFAULT_AUDIO_INPUT_ID)
+                        .map(|input| input.id.clone())
+                })
             })
             .or_else(|| Some("default".to_string()))
             .ok_or_else(|| {
@@ -464,11 +676,15 @@ fn resolve_audio_input(audio_input_id: &str) -> Result<String, CaptureError> {
             });
     }
 
-    resolve_audio_input_id(audio_input_id, &audio_inputs).ok_or_else(|| {
-        CaptureError::BackendUnavailable(format!(
-            "the selected microphone input `{audio_input_id}` is no longer available"
-        ))
-    })
+    if let Some(audio_inputs) = audio_inputs {
+        return resolve_audio_input_id(audio_input_id, audio_inputs).ok_or_else(|| {
+            CaptureError::BackendUnavailable(format!(
+                "the selected microphone input `{audio_input_id}` is no longer available"
+            ))
+        });
+    }
+
+    Ok(audio_input_id.to_string())
 }
 
 fn query_audio_inputs() -> Result<Vec<AudioInputOption>, CaptureError> {
@@ -693,7 +909,7 @@ impl LinuxDesktopSession {
                 "Linux ffmpeg / x11grab (XWayland)".to_string()
             }
             LinuxDesktopSession::WaylandOnly { .. } => {
-                "Linux ScreenCast portal / PipeWire (session negotiation ready)".to_string()
+                "Linux ScreenCast portal / PipeWire".to_string()
             }
             LinuxDesktopSession::Headless => "Linux capture backend".to_string(),
         }
@@ -702,7 +918,7 @@ impl LinuxDesktopSession {
     fn capture_guidance(&self) -> String {
         match self {
             LinuxDesktopSession::WaylandOnly { wayland_display } => format!(
-                "Wayland session {wayland_display} was detected without an X11 DISPLAY. The repo now has a native ScreenCast portal lifecycle client, but the recorder still needs PipeWire stream ingestion before pure Wayland capture can run end-to-end."
+                "Wayland session {wayland_display} was detected without an X11 DISPLAY. The recorder now tries a native ScreenCast portal plus GStreamer PipeWire path, but it still depends on portal approval, PipeWire, and the required GStreamer plugins being available."
             ),
             LinuxDesktopSession::Headless => {
                 "No X11 display was detected. This Linux backend currently records through X11grab, so it needs DISPLAY to be set (for example :0 or :1).".to_string()
@@ -718,6 +934,7 @@ fn quality_settings(preset: &str) -> (u32, u32, u32) {
     match preset {
         "720p / 30 fps" => (1280, 720, 30),
         "1080p / 30 fps" => (1920, 1080, 30),
+        "1080p / 60 fps" => (1920, 1080, 60),
         "1440p / 60 fps" => (2560, 1440, 60),
         "4K / 60 fps" => (3840, 2160, 60),
         _ => (1920, 1080, 60),
@@ -858,9 +1075,28 @@ fn encoder_label(profile: &VideoEncoderProfile) -> String {
     }
 }
 
+fn wayland_encoder_label(preset: &str) -> String {
+    format!(
+        "gstreamer / pipewiresrc · x264enc · {}",
+        cpu_preset_for_quality(preset)
+    )
+}
+
+fn gst_bitrate_for_quality(preset: &str) -> u32 {
+    match preset {
+        "720p / 30 fps" => 4_000,
+        "1080p / 30 fps" => 8_000,
+        "1080p / 60 fps" => 12_000,
+        "1440p / 60 fps" => 18_000,
+        "4K / 60 fps" => 30_000,
+        _ => 8_000,
+    }
+}
+
 fn verify_process_started(
     child: &mut Child,
     stderr_buffer: &Arc<Mutex<String>>,
+    process_kind: LinuxCaptureProcessKind,
 ) -> Result<(), CaptureError> {
     for _ in 0..STARTUP_POLL_ATTEMPTS {
         thread::sleep(STARTUP_POLL_INTERVAL);
@@ -869,7 +1105,8 @@ fn verify_process_started(
             .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?
             .is_some()
         {
-            return Err(CaptureError::SpawnFailed(describe_ffmpeg_failure(
+            return Err(CaptureError::SpawnFailed(describe_process_failure(
+                process_kind,
                 &read_stderr_buffer(stderr_buffer),
             )));
         }
@@ -880,6 +1117,13 @@ fn verify_process_started(
 
 fn read_stderr_buffer(buffer: &Arc<Mutex<String>>) -> String {
     buffer.lock().map(|log| log.clone()).unwrap_or_default()
+}
+
+fn describe_process_failure(process_kind: LinuxCaptureProcessKind, stderr_log: &str) -> String {
+    match process_kind {
+        LinuxCaptureProcessKind::FfmpegX11 => describe_ffmpeg_failure(stderr_log),
+        LinuxCaptureProcessKind::GstreamerWayland => describe_gstreamer_failure(stderr_log),
+    }
 }
 
 fn describe_ffmpeg_failure(stderr_log: &str) -> String {
@@ -915,13 +1159,76 @@ fn describe_ffmpeg_failure(stderr_log: &str) -> String {
         .to_string()
 }
 
+fn describe_gstreamer_failure(stderr_log: &str) -> String {
+    let stderr_lower = stderr_log.to_lowercase();
+
+    if stderr_lower.contains("no element \"pipewiresrc\"") {
+        return "GStreamer PipeWire support is missing on this machine. Install the PipeWire GStreamer plugin first.".to_string();
+    }
+
+    if stderr_lower.contains("could not open resource for reading")
+        || stderr_lower.contains("failed to connect")
+        || stderr_lower.contains("pipewire")
+    {
+        return "The ScreenCast portal returned a PipeWire stream, but GStreamer could not attach to it. Check that PipeWire and xdg-desktop-portal are running in this Wayland session.".to_string();
+    }
+
+    if stderr_lower.contains("pulsesrc") || stderr_lower.contains("pulse") {
+        return "GStreamer could not open the selected microphone source. Disable microphone capture and try again.".to_string();
+    }
+
+    stderr_log
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("the Wayland GStreamer capture process exited before capture could start.")
+        .trim()
+        .to_string()
+}
+
+fn request_process_stop(
+    process_kind: LinuxCaptureProcessKind,
+    pid: u32,
+    stdin: Option<&mut ChildStdin>,
+) -> Result<(), CaptureError> {
+    match process_kind {
+        LinuxCaptureProcessKind::FfmpegX11 => {
+            if let Some(stdin) = stdin {
+                stdin
+                    .write_all(b"q\n")
+                    .and_then(|_| stdin.flush())
+                    .map_err(|error| CaptureError::StopFailed(error.to_string()))?;
+            }
+
+            Ok(())
+        }
+        LinuxCaptureProcessKind::GstreamerWayland => {
+            let result = unsafe { libc::kill(pid as i32, libc::SIGINT) };
+            if result != 0 {
+                return Err(CaptureError::StopFailed(
+                    "failed to send SIGINT to gst-launch".to_string(),
+                ));
+            }
+
+            Ok(())
+        }
+    }
+}
+
 fn missing_display() -> String {
     current_desktop_session().capture_guidance()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LinuxDesktopSession, classify_desktop_session, parse_monitors, parse_windows};
+    use std::{env, path::PathBuf};
+
+    use capture::{DEFAULT_AUDIO_INPUT_ID, RecordingOptions};
+
+    use super::{
+        LinuxDesktopSession, build_wayland_gstreamer_args, classify_desktop_session,
+        gst_bitrate_for_quality, parse_monitors, parse_windows,
+    };
 
     #[test]
     fn parses_xrandr_monitor_listing() {
@@ -986,5 +1293,78 @@ mod tests {
                 wayland_display: "wayland-1".to_string()
             }
         );
+    }
+
+    #[test]
+    fn default_audio_input_falls_back_without_discovery() {
+        assert_eq!(
+            super::resolve_audio_input_from_snapshot(capture::DEFAULT_AUDIO_INPUT_ID, None)
+                .expect("default input should still resolve"),
+            "default"
+        );
+    }
+
+    #[test]
+    fn explicit_audio_input_is_preserved_without_discovery() {
+        assert_eq!(
+            super::resolve_audio_input_from_snapshot("alsa_input.usb-mic", None)
+                .expect("explicit input should be preserved"),
+            "alsa_input.usb-mic"
+        );
+    }
+
+    #[test]
+    fn builds_wayland_gstreamer_args_without_microphone_branch() {
+        let output_path = env::temp_dir().join("record-screen-wayland-no-mic.mp4");
+        let options = RecordingOptions {
+            output_path: output_path.clone(),
+            quality_preset: "1080p / 30 fps".to_string(),
+            mic_enabled: false,
+            capture_target_id: "full-desktop".to_string(),
+            audio_input_id: DEFAULT_AUDIO_INPUT_ID.to_string(),
+        };
+
+        let args = build_wayland_gstreamer_args(&options, 77).expect("wayland args should build");
+        let joined = args.join(" ");
+
+        assert!(joined.contains("pipewiresrc fd=3 target-object=77"));
+        assert!(joined.contains("video/x-raw,width=1920,height=1080,framerate=30/1"));
+        assert!(joined.contains("x264enc speed-preset=veryfast"));
+        assert!(joined.contains("bitrate=8000"));
+        assert!(joined.contains("mp4mux name=mux faststart=true"));
+        assert!(joined.contains(&format!("location={}", output_path.display())));
+        assert!(!joined.contains("pulsesrc"));
+        assert!(!joined.contains("mux.audio_0"));
+    }
+
+    #[test]
+    fn builds_wayland_gstreamer_args_with_explicit_microphone_branch() {
+        let options = RecordingOptions {
+            output_path: PathBuf::from("/tmp/record-screen-wayland-with-mic.mp4"),
+            quality_preset: "1080p / 60 fps".to_string(),
+            mic_enabled: true,
+            capture_target_id: "full-desktop".to_string(),
+            audio_input_id: "alsa_input.usb-Blue_Yeti".to_string(),
+        };
+
+        let args = build_wayland_gstreamer_args(&options, 9).expect("wayland args should build");
+        let joined = args.join(" ");
+
+        assert!(joined.contains("target-object=9"));
+        assert!(joined.contains("framerate=60/1"));
+        assert!(joined.contains("speed-preset=superfast"));
+        assert!(joined.contains("bitrate=12000"));
+        assert!(joined.contains("pulsesrc do-timestamp=true device=alsa_input.usb-Blue_Yeti"));
+        assert!(joined.contains("voaacenc bitrate=192000"));
+        assert!(joined.contains("mux.audio_0"));
+    }
+
+    #[test]
+    fn maps_quality_to_expected_wayland_bitrate() {
+        assert_eq!(gst_bitrate_for_quality("720p / 30 fps"), 4_000);
+        assert_eq!(gst_bitrate_for_quality("1080p / 30 fps"), 8_000);
+        assert_eq!(gst_bitrate_for_quality("1080p / 60 fps"), 12_000);
+        assert_eq!(gst_bitrate_for_quality("1440p / 60 fps"), 18_000);
+        assert_eq!(gst_bitrate_for_quality("4K / 60 fps"), 30_000);
     }
 }

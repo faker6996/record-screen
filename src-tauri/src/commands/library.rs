@@ -26,6 +26,12 @@ fn parent_directory(path: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("Unable to resolve parent directory for {}", path.display()))
 }
 
+fn filename_for_save_dialog(path: &Path) -> Result<String, String> {
+    path.file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .ok_or_else(|| format!("Unable to resolve filename for {}", path.display()))
+}
+
 #[cfg(not(target_os = "linux"))]
 fn run_command(mut command: Command, action_label: &str) -> Result<(), String> {
     let status = command
@@ -133,6 +139,151 @@ fn reveal_path(path: &Path) -> Result<(), String> {
     Err("Revealing recordings is not supported on this platform".to_string())
 }
 
+fn pick_export_destination(source_path: &Path) -> Result<Option<PathBuf>, String> {
+    let starting_directory = parent_directory(source_path)?;
+    let filename = filename_for_save_dialog(source_path)?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let start = starting_directory.join(&filename).display().to_string();
+
+        if command_exists("zenity") {
+            let output = Command::new("zenity")
+                .args([
+                    "--file-selection",
+                    "--save",
+                    "--confirm-overwrite",
+                    "--title=Save recording as",
+                    "--filename",
+                    &start,
+                ])
+                .output()
+                .map_err(|error| format!("failed to open export dialog: {error}"))?;
+
+            if output.status.success() {
+                let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if value.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(PathBuf::from(value)));
+            }
+
+            return Ok(None);
+        }
+
+        if command_exists("kdialog") {
+            let output = Command::new("kdialog")
+                .args(["--getsavefilename", &start])
+                .output()
+                .map_err(|error| format!("failed to open export dialog: {error}"))?;
+
+            if output.status.success() {
+                let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if value.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(PathBuf::from(value)));
+            }
+
+            return Ok(None);
+        }
+
+        return Err("no supported save dialog found. Install zenity or kdialog.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "POSIX path of (choose file name with prompt \"Save recording as\" default location POSIX file \"{}\" default name \"{}\")",
+            escape_applescript_path(&starting_directory),
+            escape_applescript_text(&filename),
+        );
+        let output = Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|error| format!("failed to open export dialog: {error}"))?;
+
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if value.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(PathBuf::from(value)));
+        }
+
+        return Ok(None);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let extension = source_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("mp4");
+
+        let script = format!(
+            "$dialog = New-Object System.Windows.Forms.SaveFileDialog; \
+             $dialog.Title = 'Save recording as'; \
+             $dialog.InitialDirectory = '{}'; \
+             $dialog.FileName = '{}'; \
+             $dialog.DefaultExt = '{}'; \
+             $dialog.Filter = 'Video files|*.mp4;*.mov;*.mkv;*.webm|All files|*.*'; \
+             if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ \
+               Write-Output $dialog.FileName \
+             }}",
+            starting_directory.display().to_string().replace('\'', "''"),
+            filename.replace('\'', "''"),
+            extension.replace('\'', "''"),
+        );
+
+        let output = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; {script}"
+                ),
+            ])
+            .output()
+            .map_err(|error| format!("failed to open export dialog: {error}"))?;
+
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if value.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(PathBuf::from(value)));
+        }
+
+        return Ok(None);
+    }
+
+    #[allow(unreachable_code)]
+    Err("exporting recordings is not supported on this platform".to_string())
+}
+
+fn export_copy(source_path: &Path) -> Result<Option<String>, String> {
+    ensure_existing_target(source_path)?;
+
+    let Some(destination_path) = pick_export_destination(source_path)? else {
+        return Ok(None);
+    };
+
+    if destination_path == source_path {
+        return Ok(Some(destination_path.display().to_string()));
+    }
+
+    if let Some(parent) = destination_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to prepare export destination: {error}"))?;
+    }
+
+    fs::copy(source_path, &destination_path)
+        .map_err(|error| format!("Failed to export recording copy: {error}"))?;
+
+    Ok(Some(destination_path.display().to_string()))
+}
+
 pub fn scan_recent_recordings(output_directory: &str) -> Vec<SessionSummary> {
     let directory = expand_home_path(output_directory);
     let Ok(entries) = fs::read_dir(&directory) else {
@@ -208,6 +359,12 @@ pub fn reveal_recording_in_folder(recording_path: String) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub fn save_recording_copy(recording_path: String) -> Result<Option<String>, String> {
+    let resolved_path = expand_home_path(&recording_path);
+    export_copy(&resolved_path)
+}
+
+#[tauri::command]
 pub fn get_recent_recordings(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, String> {
     let output_directory = {
         let core = state
@@ -227,4 +384,26 @@ pub fn get_recent_recordings(state: State<'_, AppState>) -> Result<Vec<SessionSu
         core.sync_recent_sessions(sessions.clone());
     }
     Ok(sessions)
+}
+
+#[cfg(target_os = "linux")]
+fn command_exists(command_name: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|path| {
+            std::env::split_paths(&path).any(|directory| directory.join(command_name).is_file())
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn escape_applescript_path(path: &Path) -> String {
+    path.display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('\"', "\\\"")
+}
+
+#[cfg(target_os = "macos")]
+fn escape_applescript_text(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\"', "\\\"")
 }

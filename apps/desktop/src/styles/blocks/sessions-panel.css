@@ -95,6 +95,12 @@
   color: var(--text-main);
 }
 
+.sessions-panel__row-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
 .sessions-panel__empty {
   min-height: 180px;
   display: grid;
@@ -236,6 +242,10 @@
   }
 
   .sessions-panel__row-action {
+    justify-self: end;
+  }
+
+  .sessions-panel__row-actions {
     justify-self: end;
   }
 
