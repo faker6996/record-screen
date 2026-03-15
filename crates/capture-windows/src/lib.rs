@@ -1,4 +1,9 @@
 #[cfg(target_os = "windows")]
+pub mod native_audio_backend;
+#[cfg(target_os = "windows")]
+pub mod native_encoder_backend;
+
+#[cfg(target_os = "windows")]
 mod platform {
     use std::{
         fs,
@@ -10,10 +15,22 @@ mod platform {
     };
 
     use capture::{
-        ActiveRecording, AudioInputKind, AudioInputOption, CUSTOM_REGION_TARGET_ID,
+        ActiveRecording, AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory,
+        AudioBackendFamily, AudioBackendRuntimeReport, AudioBackendStatus, AudioInputKind,
+        AudioInputOption, CUSTOM_REGION_TARGET_ID, CaptureBackendAvailability,
+        CaptureBackendDescriptor, CaptureBackendFactory, CaptureBackendFamily,
+        CaptureBackendRuntimeReport, CaptureBackendRuntimeSnapshot, CaptureBackendStatus,
         CaptureController, CaptureError, CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID,
-        FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions, default_audio_input,
-        full_desktop_target, preferred_system_audio_input, resolve_audio_input_id,
+        EncoderBackendAvailability, EncoderBackendDescriptor, EncoderBackendFactory,
+        EncoderBackendFamily, EncoderBackendRuntimeReport, EncoderBackendRuntimeSnapshot,
+        EncoderBackendStatus, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
+        audio_backend_runtime_snapshot, audio_backend_statuses as shared_audio_backend_statuses,
+        backend_statuses as shared_backend_statuses, capture_backend_runtime_snapshot,
+        default_audio_input, encoder_backend_runtime_snapshot,
+        encoder_backend_statuses as shared_encoder_backend_statuses,
+        explain_audio_backend_selection, explain_capture_backend_selection,
+        explain_encoder_backend_selection, full_desktop_target, preferred_system_audio_input,
+        resolve_audio_input_id, select_audio_backend, select_backend, select_encoder_backend,
     };
     use serde::Deserialize;
 
@@ -35,6 +52,210 @@ mod platform {
         stderr_buffer: Arc<Mutex<String>>,
         finished_artifact: Option<RecordingArtifact>,
         paused: bool,
+    }
+
+    pub struct FfmpegWindowsBackend;
+    pub struct WindowsGraphicsCaptureBackend;
+    pub struct FfmpegWindowsAudioBackend;
+    pub struct FfmpegWindowsEncoderBackend;
+    static FFMPEG_WINDOWS_BACKEND: FfmpegWindowsBackend = FfmpegWindowsBackend;
+    static WINDOWS_GRAPHICS_CAPTURE_BACKEND: WindowsGraphicsCaptureBackend =
+        WindowsGraphicsCaptureBackend;
+    static FFMPEG_WINDOWS_AUDIO_BACKEND: FfmpegWindowsAudioBackend = FfmpegWindowsAudioBackend;
+    static FFMPEG_WINDOWS_ENCODER_BACKEND: FfmpegWindowsEncoderBackend =
+        FfmpegWindowsEncoderBackend;
+
+    pub fn selected_backend() -> &'static dyn CaptureBackendFactory {
+        select_backend(&backend_candidates())
+    }
+
+    fn backend_candidates() -> [&'static dyn CaptureBackendFactory; 2] {
+        [&WINDOWS_GRAPHICS_CAPTURE_BACKEND, &FFMPEG_WINDOWS_BACKEND]
+    }
+
+    pub fn backend_statuses() -> Vec<CaptureBackendStatus> {
+        shared_backend_statuses(&backend_candidates())
+    }
+
+    pub fn selected_audio_backend() -> &'static dyn AudioBackendFactory {
+        select_audio_backend(&audio_backend_candidates())
+    }
+
+    fn audio_backend_candidates() -> [&'static dyn AudioBackendFactory; 2] {
+        [
+            super::native_audio_backend::backend(),
+            &FFMPEG_WINDOWS_AUDIO_BACKEND,
+        ]
+    }
+
+    pub fn audio_backend_statuses() -> Vec<AudioBackendStatus> {
+        shared_audio_backend_statuses(&audio_backend_candidates())
+    }
+
+    pub fn selected_encoder_backend() -> &'static dyn EncoderBackendFactory {
+        select_encoder_backend(&encoder_backend_candidates())
+    }
+
+    fn encoder_backend_candidates() -> [&'static dyn EncoderBackendFactory; 2] {
+        [
+            super::native_encoder_backend::backend(),
+            &FFMPEG_WINDOWS_ENCODER_BACKEND,
+        ]
+    }
+
+    pub fn encoder_backend_statuses() -> Vec<EncoderBackendStatus> {
+        shared_encoder_backend_statuses(&encoder_backend_candidates())
+    }
+
+    pub fn capture_selection_note() -> String {
+        explain_capture_backend_selection(&backend_candidates()).note
+    }
+
+    pub fn capture_runtime_snapshot() -> CaptureBackendRuntimeSnapshot {
+        capture_backend_runtime_snapshot(&backend_candidates())
+    }
+
+    pub fn audio_selection_note() -> String {
+        explain_audio_backend_selection(&audio_backend_candidates()).note
+    }
+
+    pub fn audio_runtime_snapshot() -> capture::AudioBackendRuntimeSnapshot {
+        audio_backend_runtime_snapshot(&audio_backend_candidates())
+    }
+
+    pub fn encoder_selection_note() -> String {
+        explain_encoder_backend_selection(&encoder_backend_candidates()).note
+    }
+
+    pub fn encoder_runtime_snapshot() -> EncoderBackendRuntimeSnapshot {
+        encoder_backend_runtime_snapshot(&encoder_backend_candidates())
+    }
+
+    impl CaptureBackendFactory for WindowsGraphicsCaptureBackend {
+        fn descriptor(&self) -> CaptureBackendDescriptor {
+            CaptureBackendDescriptor {
+                id: "windows-graphics-capture",
+                label: "Windows Graphics Capture",
+                family: CaptureBackendFamily::Native,
+            }
+        }
+
+        fn availability(&self) -> CaptureBackendAvailability {
+            CaptureBackendAvailability::Unavailable {
+                reason: "Windows.Graphics.Capture is planned for Phase 1, but the native frame pipeline is not implemented yet.".to_string(),
+            }
+        }
+
+        fn runtime_report(&self) -> CaptureBackendRuntimeReport {
+            CaptureBackendRuntimeReport {
+                summary: Some(
+                    "Windows native capture candidate targets Windows.Graphics.Capture, but the frame pipeline is not wired into the recorder runtime yet."
+                        .to_string(),
+                ),
+                preferred_target_label: Some("Full desktop".to_string()),
+            }
+        }
+
+        fn start(
+            &self,
+            _options: RecordingOptions,
+        ) -> Result<Box<dyn CaptureController>, CaptureError> {
+            Err(CaptureError::BackendUnavailable(
+                "Windows.Graphics.Capture backend is not implemented yet.".to_string(),
+            ))
+        }
+    }
+
+    impl CaptureBackendFactory for FfmpegWindowsBackend {
+        fn descriptor(&self) -> CaptureBackendDescriptor {
+            CaptureBackendDescriptor {
+                id: "windows-ffmpeg-gdigrab",
+                label: "Windows ffmpeg / gdigrab",
+                family: CaptureBackendFamily::FallbackFfmpeg,
+            }
+        }
+
+        fn availability(&self) -> CaptureBackendAvailability {
+            CaptureBackendAvailability::Available
+        }
+
+        fn runtime_report(&self) -> CaptureBackendRuntimeReport {
+            CaptureBackendRuntimeReport {
+                summary: Some(
+                    "Current Windows capture runtime uses ffmpeg with gdigrab window/desktop sources."
+                        .to_string(),
+                ),
+                preferred_target_label: Some("Full desktop".to_string()),
+            }
+        }
+
+        fn start(
+            &self,
+            options: RecordingOptions,
+        ) -> Result<Box<dyn CaptureController>, CaptureError> {
+            Ok(Box::new(FfmpegWindowsCapture::start(options)?))
+        }
+    }
+
+    impl AudioBackendFactory for FfmpegWindowsAudioBackend {
+        fn descriptor(&self) -> AudioBackendDescriptor {
+            AudioBackendDescriptor {
+                id: "windows-ffmpeg-dshow-audio",
+                label: "Windows ffmpeg / DirectShow audio",
+                family: AudioBackendFamily::FallbackFfmpeg,
+            }
+        }
+
+        fn availability(&self) -> AudioBackendAvailability {
+            AudioBackendAvailability::Available
+        }
+
+        fn runtime_report(&self) -> AudioBackendRuntimeReport {
+            let preferred_input = discover_audio_inputs()
+                .ok()
+                .and_then(|inputs| {
+                    capture::preferred_audio_input(&inputs).map(|input| input.label.clone())
+                })
+                .or_else(native_preferred_input_label);
+            let preferred_system = discover_audio_inputs()
+                .ok()
+                .and_then(|inputs| {
+                    preferred_system_audio_input(&inputs).map(|input| input.label.clone())
+                })
+                .or_else(native_preferred_render_label);
+
+            AudioBackendRuntimeReport {
+                summary: Some(audio_input_support_summary()),
+                preferred_input_id: super::native_audio_backend::preferred_capture_endpoint_id(),
+                preferred_input_label: preferred_input,
+                preferred_system_id: super::native_audio_backend::preferred_render_endpoint_id(),
+                preferred_system_label: preferred_system,
+            }
+        }
+    }
+
+    impl EncoderBackendFactory for FfmpegWindowsEncoderBackend {
+        fn descriptor(&self) -> EncoderBackendDescriptor {
+            EncoderBackendDescriptor {
+                id: "windows-ffmpeg-encoder",
+                label: "Windows ffmpeg encoder",
+                family: EncoderBackendFamily::FallbackFfmpeg,
+            }
+        }
+
+        fn availability(&self) -> EncoderBackendAvailability {
+            EncoderBackendAvailability::Available
+        }
+
+        fn runtime_report(&self) -> EncoderBackendRuntimeReport {
+            EncoderBackendRuntimeReport {
+                summary: Some(format!(
+                    "Current Windows output pipeline uses ffmpeg with preferred encoder `{}`.",
+                    encoder_label(&preferred_video_encoder())
+                )),
+                preferred_encoder_label: Some(encoder_label(&preferred_video_encoder())),
+            }
+        }
     }
 
     #[derive(Debug, Clone, Deserialize)]
@@ -230,9 +451,8 @@ mod platform {
 
     pub fn list_audio_inputs() -> Vec<AudioInputOption> {
         let mut default_input = default_audio_input();
-        if let Some(default_device_name) = query_default_recording_device_name() {
-            default_input.description =
-                format!("Use the Windows default recording device: {default_device_name}.");
+        if let Some(route_plan) = super::native_audio_backend::route_plan() {
+            default_input.description = route_plan.default_input_note;
         }
 
         match discover_audio_inputs() {
@@ -242,9 +462,10 @@ mod platform {
                 inputs
             }
             Err(error) => {
-                default_input.description = match query_default_recording_device_name() {
-                    Some(default_device_name) => format!(
-                        "Windows could not enumerate DirectShow microphone devices. The app will try the current default recording device instead: {default_device_name}. {error}"
+                default_input.description = match super::native_audio_backend::route_plan() {
+                    Some(route_plan) => format!(
+                        "Windows could not enumerate DirectShow microphone devices. {} {error}",
+                        route_plan.default_input_note
                     ),
                     None => format!(
                         "Windows could not enumerate DirectShow microphone devices. {error}"
@@ -294,10 +515,42 @@ mod platform {
                 audio_inputs.len(),
                 if audio_inputs.len() == 1 { "" } else { "s" }
             ),
-            Err(error) => match query_default_recording_device_name() {
-                Some(default_device_name) => format!(
-                    "DirectShow microphone discovery failed. Windows still reports the default recording device as `{default_device_name}`, so the app can try that fallback when `Default input` is selected. {error}"
-                ),
+            Err(error) => match super::native_audio_backend::runtime_plan() {
+                Some(plan) => {
+                    let route_plan = super::native_audio_backend::route_plan();
+                    let runtime_intent = super::native_audio_backend::runtime_intent(true, false);
+                    let default_input = route_plan
+                        .as_ref()
+                        .and_then(|route_plan| route_plan.default_input_label.clone())
+                        .or(plan.default_input_name)
+                        .unwrap_or_else(|| "not detected".to_string());
+                    let wasapi_summary = super::native_audio_backend::runtime_summary()
+                        .unwrap_or_else(|| {
+                            "Windows audio probing could not resolve a stable WASAPI candidate yet."
+                                .to_string()
+                        });
+                    format!(
+                        "DirectShow microphone discovery failed. Windows still reports default input `{default_input}`, {} capture endpoint{}, and {} render endpoint{}, so the app can keep using the Windows-default fallback today while Phase 2 moves to WASAPI. {} {} {wasapi_summary} {error}",
+                        plan.capture_endpoint_count,
+                        if plan.capture_endpoint_count == 1 {
+                            ""
+                        } else {
+                            "s"
+                        },
+                        plan.render_endpoint_count,
+                        if plan.render_endpoint_count == 1 {
+                            ""
+                        } else {
+                            "s"
+                        },
+                        route_plan
+                            .map(|route_plan| route_plan.default_input_note)
+                            .unwrap_or_default(),
+                        runtime_intent
+                            .map(|intent| intent.summary)
+                            .unwrap_or_default(),
+                    )
+                }
                 None => format!("DirectShow microphone discovery failed. {error}"),
             },
         }
@@ -327,11 +580,52 @@ mod platform {
                     )
                 }
             }
-            Err(error) => (
-                false,
-                format!("Windows could not inspect DirectShow audio devices. {error}"),
-            ),
+            Err(error) => match super::native_audio_backend::runtime_plan() {
+                Some(plan) if plan.render_endpoint_count > 0 => {
+                    let route_plan = super::native_audio_backend::route_plan();
+                    let runtime_intent = super::native_audio_backend::runtime_intent(false, true);
+                    let preferred_render = route_plan
+                        .as_ref()
+                        .and_then(|route_plan| route_plan.preferred_loopback_label.clone())
+                        .unwrap_or_else(|| "not resolved".to_string());
+                    (
+                        false,
+                        format!(
+                            "Windows did not expose a usable DirectShow loopback source, but it does report {} render endpoint{} for a future WASAPI loopback path. {} {} The current preferred render candidate is `{preferred_render}`. {error}",
+                            plan.render_endpoint_count,
+                            if plan.render_endpoint_count == 1 {
+                                ""
+                            } else {
+                                "s"
+                            },
+                            route_plan
+                                .map(|route_plan| route_plan.loopback_note)
+                                .unwrap_or_default(),
+                            runtime_intent
+                                .map(|intent| intent.summary)
+                                .unwrap_or_default(),
+                        ),
+                    )
+                }
+                _ => (
+                    false,
+                    format!("Windows could not inspect DirectShow audio devices. {error}"),
+                ),
+            },
         }
+    }
+
+    pub fn audio_start_plan_summary(options: &RecordingOptions) -> Option<String> {
+        let discovered_audio_inputs = discover_audio_inputs().unwrap_or_default();
+        Some(
+            super::native_audio_backend::start_plan(
+                &options.audio_input_id,
+                options.mic_enabled,
+                options.system_audio_enabled,
+                &discovered_audio_inputs,
+            )
+            .summary,
+        )
     }
 
     fn resolve_target(options: &RecordingOptions) -> Result<ResolvedTarget, CaptureError> {
@@ -466,9 +760,21 @@ mod platform {
 
         command.arg("-i").arg(&target.source);
 
+        let discovered_audio_inputs = discover_audio_inputs().unwrap_or_default();
+        let windows_audio_start_plan = super::native_audio_backend::start_plan(
+            &options.audio_input_id,
+            options.mic_enabled,
+            options.system_audio_enabled,
+            &discovered_audio_inputs,
+        );
+
         let mut audio_input_count = 0;
         if options.mic_enabled {
-            if let Some(device_name) = discover_audio_device(&options.audio_input_id)? {
+            if let Some(device_name) = discover_audio_device(
+                &options.audio_input_id,
+                &discovered_audio_inputs,
+                &windows_audio_start_plan,
+            )? {
                 command
                     .arg("-f")
                     .arg("dshow")
@@ -481,7 +787,8 @@ mod platform {
         }
 
         if options.system_audio_enabled {
-            let device_name = discover_system_audio_device()?;
+            let device_name =
+                discover_system_audio_device(&discovered_audio_inputs, &windows_audio_start_plan)?;
             command
                 .arg("-f")
                 .arg("dshow")
@@ -607,21 +914,12 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
 
     fn discover_audio_device(
         selected_audio_input_id: &str,
+        discovered_audio_inputs: &[AudioInputOption],
+        start_plan: &super::native_audio_backend::WindowsAudioStartPlan,
     ) -> Result<Option<String>, CaptureError> {
-        let audio_inputs = match discover_audio_inputs() {
-            Ok(audio_inputs) => audio_inputs,
-            Err(error) => {
-                if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
-                    return Ok(query_default_recording_device_name());
-                }
-
-                return Err(error);
-            }
-        };
-
-        if audio_inputs.is_empty() {
+        if discovered_audio_inputs.is_empty() {
             if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
-                return Ok(query_default_recording_device_name());
+                return Ok(start_plan.microphone_device_name.clone());
             }
 
             return Err(CaptureError::BackendUnavailable(
@@ -630,13 +928,10 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
         }
 
         if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
-            return Ok(resolve_audio_input_id(
-                selected_audio_input_id,
-                &audio_inputs,
-            ));
+            return Ok(start_plan.microphone_device_name.clone());
         }
 
-        resolve_audio_input_id(selected_audio_input_id, &audio_inputs)
+        resolve_audio_input_id(selected_audio_input_id, discovered_audio_inputs)
             .map(Some)
             .ok_or_else(|| {
                 CaptureError::BackendUnavailable(format!(
@@ -645,10 +940,24 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
             })
     }
 
-    fn discover_system_audio_device() -> Result<String, CaptureError> {
-        let audio_inputs = discover_audio_inputs()?;
-        preferred_system_audio_input(&audio_inputs)
-            .map(|input| input.id.clone())
+    fn native_preferred_input_label() -> Option<String> {
+        super::native_audio_backend::route_plan().and_then(|plan| plan.default_input_label)
+    }
+
+    fn native_preferred_render_label() -> Option<String> {
+        super::native_audio_backend::route_plan().and_then(|plan| plan.preferred_loopback_label)
+    }
+
+    fn discover_system_audio_device(
+        discovered_audio_inputs: &[AudioInputOption],
+        start_plan: &super::native_audio_backend::WindowsAudioStartPlan,
+    ) -> Result<String, CaptureError> {
+        start_plan
+            .system_audio_device_name
+            .clone()
+            .or_else(|| {
+                preferred_system_audio_input(discovered_audio_inputs).map(|input| input.id.clone())
+            })
             .ok_or_else(|| {
                 CaptureError::BackendUnavailable(
                     "Windows could not find a usable system-audio loopback source. Disable system audio and try again."
@@ -709,38 +1018,6 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
         }
 
         Ok(audio_inputs)
-    }
-
-    fn query_default_recording_device_name() -> Option<String> {
-        query_powershell_trimmed(
-            r#"$mapper = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Multimedia\Sound Mapper' -Name 'Record' -ErrorAction SilentlyContinue;
-if ($mapper -and $mapper.Record) {
-  $mapper.Record
-  exit 0
-}
-
-$endpoint = Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
-  Where-Object { $_.FriendlyName -match 'Microphone|Mic|Headset|Line In|Input' } |
-  Select-Object -First 1 -ExpandProperty FriendlyName;
-
-if ($endpoint) {
-  $endpoint
-}"#,
-        )
-    }
-
-    fn query_powershell_trimmed(script: &str) -> Option<String> {
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", script])
-            .output()
-            .ok()?;
-
-        if !output.status.success() {
-            return None;
-        }
-
-        let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if value.is_empty() { None } else { Some(value) }
     }
 
     fn parse_ffmpeg_quoted_device(line: &str) -> Option<String> {
@@ -963,8 +1240,11 @@ if ($endpoint) {
 
 #[cfg(target_os = "windows")]
 pub use platform::{
-    FfmpegWindowsCapture, audio_input_support_summary, custom_region_support_summary,
-    list_audio_inputs, list_capture_targets, preview_target_bounds, system_audio_support_summary,
+    FfmpegWindowsCapture, audio_backend_statuses, audio_input_support_summary,
+    audio_start_plan_summary, backend_statuses, custom_region_support_summary,
+    encoder_backend_statuses, list_audio_inputs, list_capture_targets, preview_target_bounds,
+    selected_audio_backend, selected_backend, selected_encoder_backend,
+    system_audio_support_summary,
 };
 
 #[cfg(not(target_os = "windows"))]
@@ -986,6 +1266,26 @@ pub fn audio_input_support_summary() -> String {
 }
 
 #[cfg(not(target_os = "windows"))]
+pub fn selected_audio_backend() -> &'static dyn capture::AudioBackendFactory {
+    panic!("selected_audio_backend is only available on Windows")
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn audio_backend_statuses() -> Vec<capture::AudioBackendStatus> {
+    vec![]
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn selected_encoder_backend() -> &'static dyn capture::EncoderBackendFactory {
+    panic!("selected_encoder_backend is only available on Windows")
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn encoder_backend_statuses() -> Vec<capture::EncoderBackendStatus> {
+    vec![]
+}
+
+#[cfg(not(target_os = "windows"))]
 pub fn custom_region_support_summary() -> (bool, String) {
     (
         false,
@@ -999,6 +1299,11 @@ pub fn system_audio_support_summary() -> (bool, String) {
         false,
         "Windows system-audio support is only available on Windows.".to_string(),
     )
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn audio_start_plan_summary(_options: &capture::RecordingOptions) -> Option<String> {
+    None
 }
 
 #[cfg(not(target_os = "windows"))]

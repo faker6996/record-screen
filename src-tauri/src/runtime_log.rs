@@ -6,6 +6,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use app_core::RuntimeDiagnostics;
+
 fn runtime_log_path() -> PathBuf {
     storage::app_config_directory().join("runtime.log")
 }
@@ -53,4 +55,35 @@ pub fn init(version: &str) {
 
 pub fn log_runtime_error(message: &str) {
     let _ = write_line("ERROR", message);
+}
+
+pub fn log_runtime_info(message: &str) {
+    let _ = write_line("INFO", message);
+}
+
+pub fn log_runtime_diagnostics(diagnostics: &RuntimeDiagnostics) {
+    let message = format!(
+        "runtime diagnostics | summary={} | capture={} | audio={} | encoder={} | capture_note={} | audio_note={} | encoder_note={} | preferred_target={} | preferred_input={} | preferred_system={} | preferred_encoder={}",
+        diagnostics.summary,
+        diagnostics.backend_path,
+        diagnostics.audio_backend_path,
+        diagnostics.encoder_backend_path,
+        diagnostics.capture_selection_note,
+        diagnostics.audio_selection_note,
+        diagnostics.encoder_selection_note,
+        "n/a",
+        diagnostics
+            .preferred_audio_input_label
+            .as_deref()
+            .unwrap_or("n/a"),
+        diagnostics
+            .preferred_system_audio_label
+            .as_deref()
+            .unwrap_or("n/a"),
+        diagnostics
+            .preferred_encoder_label
+            .as_deref()
+            .unwrap_or("n/a"),
+    );
+    let _ = write_line("INFO", &message);
 }

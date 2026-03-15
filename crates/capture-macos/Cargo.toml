@@ -7,3 +7,6 @@ edition = "2024"
 capture = { path = "../capture" }
 thiserror = { workspace = true }
 libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = { version = "1.5.4", features = ["macos_15_0"] }

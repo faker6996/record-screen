@@ -7,7 +7,7 @@ use time::{OffsetDateTime, UtcOffset, macros::format_description};
 
 use crate::{
     AppState, audio_inputs, emit_recent_sessions_refresh_request, emit_recorder_state,
-    emit_runtime_error, persist_settings, window, with_core,
+    emit_runtime_error, persist_settings, runtime_log, window, with_core,
 };
 
 fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
@@ -28,7 +28,8 @@ pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     let _ = crate::mic_check::stop_mic_check(app);
     let mut settings = with_core(app, |core| core.settings())?;
-    let available_audio_inputs = audio_inputs::refreshed_audio_inputs();
+    let available_audio_inputs = audio_inputs::available_audio_inputs();
+    let available_capture_targets = crate::capture_targets::available_capture_targets(&settings);
     let mut settings_changed = false;
     if let Some(next_audio_input_id) = audio_inputs::normalize_audio_input_selection(
         &settings.audio_input_id,
@@ -39,12 +40,39 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
             settings_changed = true;
         }
     }
+    if let Some(next_region_source_capture_target_id) =
+        crate::capture_targets::normalize_custom_region_source_target_id(
+            &settings.region_source_capture_target_id,
+            &available_capture_targets,
+        )
+    {
+        if next_region_source_capture_target_id != settings.region_source_capture_target_id {
+            let previous_target_id = settings.region_source_capture_target_id.clone();
+            settings = with_core(app, |core| {
+                core.update_custom_region(
+                    settings.region_x,
+                    settings.region_y,
+                    settings.region_width,
+                    settings.region_height,
+                    Some(next_region_source_capture_target_id.clone()),
+                    Some(settings.region_source_origin_x),
+                    Some(settings.region_source_origin_y),
+                    Some(settings.region_source_scale_factor_milli),
+                )
+            })?;
+            runtime_log::log_runtime_info(&format!(
+                "normalized custom-region source target before recording | from={} | to={}",
+                previous_target_id, next_region_source_capture_target_id
+            ));
+            settings_changed = true;
+        }
+    }
     if settings_changed {
         persist_settings(app)?;
     }
     let output_path = storage::next_recording_path(&settings.output_directory)
         .map_err(|error| error.to_string())?;
-    let controller = create_capture_controller(RecordingOptions {
+    let recording_options = RecordingOptions {
         output_path: output_path.clone(),
         quality_preset: settings.quality_preset,
         mic_enabled: settings.mic_enabled,
@@ -59,8 +87,13 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         region_source_origin_x: settings.region_source_origin_x,
         region_source_origin_y: settings.region_source_origin_y,
         region_source_scale_factor_milli: settings.region_source_scale_factor_milli,
-    })?;
+    };
+    let controller = create_capture_controller(recording_options)?;
     let active = controller.active_recording().clone();
+    let active_target_label = active.target_label.clone();
+    let active_encoder_label = active.encoder_label.clone();
+    let can_pause = controller.supports_pause_resume();
+    let pause_note = controller.pause_resume_note();
 
     {
         let state = app.state::<AppState>();
@@ -81,8 +114,26 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
             active.target_label,
             active.encoder_label,
             output_path.display().to_string(),
+            can_pause,
+            pause_note.clone(),
         )
     })?;
+
+    let diagnostics = crate::diagnostics::initial_runtime_diagnostics();
+    runtime_log::log_runtime_info(&format!(
+        "recording started | target={} | output={} | encoder={} | capture_backend={} | audio_backend={} | encoder_backend={} | can_pause={} | pause_note={} | capture_note={} | audio_note={} | encoder_note={}",
+        active_target_label,
+        output_path.display(),
+        active_encoder_label,
+        diagnostics.backend_path,
+        diagnostics.audio_backend_path,
+        diagnostics.encoder_backend_path,
+        can_pause,
+        pause_note.clone().unwrap_or_else(|| "n/a".to_string()),
+        diagnostics.capture_selection_note,
+        diagnostics.audio_selection_note,
+        diagnostics.encoder_selection_note,
+    ));
 
     sync_hud_for_current_settings(app, &snapshot);
     emit_recorder_state(app, &snapshot);
@@ -113,6 +164,12 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
                 let controller = controller
                     .as_mut()
                     .ok_or_else(|| "no active recorder process".to_string())?;
+                if !controller.supports_pause_resume() {
+                    return Err(controller.pause_resume_note().unwrap_or_else(|| {
+                        "Pause/resume is not available for the active recording backend."
+                            .to_string()
+                    }));
+                }
                 controller.pause().map_err(|error| error.to_string())?;
             }
             let snapshot = with_core(app, |core| core.pause_recording())?;
@@ -132,6 +189,12 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
                 let controller = controller
                     .as_mut()
                     .ok_or_else(|| "no active recorder process".to_string())?;
+                if !controller.supports_pause_resume() {
+                    return Err(controller.pause_resume_note().unwrap_or_else(|| {
+                        "Pause/resume is not available for the active recording backend."
+                            .to_string()
+                    }));
+                }
                 controller.resume().map_err(|error| error.to_string())?;
             }
             let snapshot = with_core(app, |core| core.resume_recording())?;
@@ -238,6 +301,12 @@ fn take_controller(app: &AppHandle) -> Result<Box<dyn CaptureController>, String
 fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureController>) {
     thread::spawn(move || match controller.stop() {
         Ok(completed) => {
+            runtime_log::log_runtime_info(&format!(
+                "recording finalized | output={} | bytes={} | duration_secs={}",
+                completed.output_path.display(),
+                completed.bytes_written,
+                completed.duration.as_secs()
+            ));
             let summary = CompletedRecording {
                 title: file_stem(&completed.output_path),
                 started_at_label: format_started_at(completed.started_at),
@@ -261,27 +330,27 @@ fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureControlle
 fn create_capture_controller(
     options: RecordingOptions,
 ) -> Result<Box<dyn CaptureController>, String> {
-    Ok(Box::new(
-        capture_macos::FfmpegMacosCapture::start(options).map_err(|error| error.to_string())?,
-    ))
+    capture_macos::selected_backend()
+        .start(options)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "linux")]
 fn create_capture_controller(
     options: RecordingOptions,
 ) -> Result<Box<dyn CaptureController>, String> {
-    Ok(Box::new(
-        capture_linux::FfmpegLinuxCapture::start(options).map_err(|error| error.to_string())?,
-    ))
+    capture_linux::selected_backend()
+        .start(options)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "windows")]
 fn create_capture_controller(
     options: RecordingOptions,
 ) -> Result<Box<dyn CaptureController>, String> {
-    Ok(Box::new(
-        capture_windows::FfmpegWindowsCapture::start(options).map_err(|error| error.to_string())?,
-    ))
+    capture_windows::selected_backend()
+        .start(options)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]

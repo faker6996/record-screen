@@ -157,6 +157,13 @@
   color: var(--recorder-button-label);
 }
 
+.recorder-panel__record-button--countdown {
+  background:
+    radial-gradient(circle at 50% 32%, color-mix(in srgb, var(--color-warning) 24%, transparent), transparent 58%),
+    var(--recorder-button-idle-bg);
+  border-color: color-mix(in srgb, var(--color-warning) 40%, var(--recorder-button-idle-border));
+}
+
 .recorder-panel__record-button--recording,
 .recorder-panel__record-button--paused {
   color: var(--recorder-button-live-fg);
@@ -168,6 +175,20 @@
   height: 32px;
   border-radius: 8px;
   background: currentColor;
+}
+
+.recorder-panel__record-core--countdown {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning) 18%, var(--color-bg-overlay));
+  color: var(--text-main);
+  font-size: 1.6rem;
+  font-weight: 720;
+  letter-spacing: -0.06em;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warning) 34%, transparent);
 }
 
 .recorder-panel__record-label {
@@ -182,6 +203,25 @@
 .recorder-panel__record-button--recording .recorder-panel__record-label,
 .recorder-panel__record-button--paused .recorder-panel__record-label {
   color: var(--recorder-button-live-label);
+}
+
+.recorder-panel__countdown-copy {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  text-align: center;
+}
+
+.recorder-panel__countdown-copy strong {
+  font-size: 1.15rem;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--text-main);
+}
+
+.recorder-panel__countdown-copy span {
+  color: var(--text-muted);
+  font-size: 0.88rem;
 }
 
 .recorder-panel__runtime {
@@ -468,6 +508,41 @@
   flex-wrap: wrap;
   color: var(--text-muted);
   font-size: 0.88rem;
+}
+
+.recorder-panel__technical {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  border: 1px solid var(--recorder-card-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--recorder-card-bg) 72%, transparent);
+}
+
+.recorder-panel__technical summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 14px 16px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.recorder-panel__technical summary::-webkit-details-marker {
+  display: none;
+}
+
+.recorder-panel__technical-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.recorder-panel__technical-body p {
+  margin: 0;
+  min-height: 0;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 720px) {

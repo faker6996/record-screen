@@ -6,6 +6,8 @@ export interface RecorderSnapshot {
   activeTarget: string
   activeOutputPath: string | null
   activeEncoderLabel: string | null
+  canPause: boolean
+  pauseNote: string | null
   qualityPreset: string
   outputDirectory: string
   micEnabled: boolean
@@ -68,7 +70,17 @@ export interface PermissionCheck {
 export interface RuntimeDiagnostics {
   summary: string
   backendPath: string
+  audioBackendPath: string
+  encoderBackendPath: string
   readiness: string
+  captureSelectionNote: string
+  audioSelectionNote: string
+  encoderSelectionNote: string
+  preferredAudioInputId: string | null
+  preferredAudioInputLabel: string | null
+  preferredSystemAudioId: string | null
+  preferredSystemAudioLabel: string | null
+  preferredEncoderLabel: string | null
   supportsCustomRegion: boolean
   customRegionNote: string
   supportsSystemAudio: boolean

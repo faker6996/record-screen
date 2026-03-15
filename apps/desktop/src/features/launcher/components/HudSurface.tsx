@@ -8,6 +8,8 @@ import { desktopClient } from '../../../services/desktop-client'
 import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
+  countdownValue: number | null
+  isStartingRecording: boolean
   onPauseResume: () => Promise<void>
   onToggleMicrophone: () => Promise<void>
   onToggleRecording: () => Promise<void>
@@ -75,6 +77,8 @@ function HudElapsed({
 }
 
 export function HudSurface({
+  countdownValue,
+  isStartingRecording,
   onPauseResume,
   onToggleMicrophone,
   onToggleRecording,
@@ -82,6 +86,9 @@ export function HudSurface({
 }: HudSurfaceProps) {
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
+  const isCountingDown = countdownValue !== null
+  const isStartPending = isCountingDown || isStartingRecording
+  const pauseDisabled = isIdle || !recorder.canPause
   const parsedElapsedSeconds = parseElapsedSeconds(recorder.elapsedLabel, recorder.status)
 
   function handleHudPointerDown(event: ReactPointerEvent<HTMLElement>) {
@@ -116,11 +123,15 @@ export function HudSurface({
           title="Drag HUD"
         >
           <span className={`status-dot status-${recorder.status}`} />
-          <HudElapsed
-            initialElapsedSeconds={parsedElapsedSeconds}
-            key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}`}
-            status={recorder.status}
-          />
+          {isStartPending ? (
+            <strong>{isCountingDown ? `00:00:0${countdownValue}` : 'START'}</strong>
+          ) : (
+            <HudElapsed
+              initialElapsedSeconds={parsedElapsedSeconds}
+              key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}`}
+              status={recorder.status}
+            />
+          )}
         </div>
 
         <div className="hud__divider" />
@@ -132,9 +143,15 @@ export function HudSurface({
             className={`button button--secondary hud__icon-button ${
               isPaused ? 'hud__icon-button--active' : ''
             }`}
-            disabled={isIdle}
+            disabled={pauseDisabled}
             onClick={() => void onPauseResume()}
-            title={recorder.status === 'paused' ? 'Resume' : 'Pause'}
+            title={
+              pauseDisabled
+                ? recorder.pauseNote ?? 'Pause is unavailable'
+                : recorder.status === 'paused'
+                  ? 'Resume'
+                  : 'Pause'
+            }
             type="button"
           >
             {isPaused ? (
@@ -147,7 +164,15 @@ export function HudSurface({
             aria-label={isIdle ? 'Start recording' : 'Stop recording'}
             className={`button ${isIdle ? 'button--primary button--record' : 'button--primary button--stop'} hud__icon-button`}
             onClick={() => void onToggleRecording()}
-            title={isIdle ? 'Start recording' : 'Stop recording'}
+            title={
+              isCountingDown
+                ? 'Cancel countdown'
+                : isStartingRecording
+                  ? 'Starting capture'
+                  : isIdle
+                    ? 'Start recording'
+                    : 'Stop recording'
+            }
             type="button"
           >
             <Square
@@ -163,6 +188,7 @@ export function HudSurface({
             className={`button button--secondary hud__icon-button ${
               recorder.micEnabled ? 'hud__icon-button--active' : ''
             }`}
+            disabled={isStartPending}
             onClick={() => void onToggleMicrophone()}
             title={recorder.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
             type="button"

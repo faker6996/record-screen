@@ -117,7 +117,17 @@ function HudLoadingState() {
 }
 
 function HudApp() {
-  const { error, isLoading, pauseResume, recorder, toggleMicrophone, toggleRecording } =
+  const {
+    error,
+    isLoading,
+    isRecordingCountdownActive,
+    isStartingRecording,
+    pauseResume,
+    recorder,
+    recordingStartCountdown,
+    toggleMicrophone,
+    toggleRecording,
+  } =
     useHudState()
 
   if (isLoading || !recorder) {
@@ -139,6 +149,10 @@ function HudApp() {
 
   return (
     <HudSurface
+      countdownValue={
+        isRecordingCountdownActive ? recordingStartCountdown : null
+      }
+      isStartingRecording={isStartingRecording}
       onPauseResume={pauseResume}
       onToggleMicrophone={toggleMicrophone}
       onToggleRecording={toggleRecording}
@@ -170,6 +184,8 @@ function LauncherApp() {
     actionError,
     error,
     focusLauncher,
+    isRecordingCountdownActive,
+    isStartingRecording,
     isLoading,
     openPermissionSettings,
     openRecording,
@@ -184,6 +200,7 @@ function LauncherApp() {
     showHud,
     showRegionSelector,
     snapshot,
+    recordingStartCountdown,
     toggleMicrophone,
     toggleRecording,
     updateAudioInput,
@@ -224,7 +241,11 @@ function LauncherApp() {
           <RecorderPanel
             audioInputs={currentSnapshot.audioInputs}
             captureTargets={currentSnapshot.captureTargets}
+            countdownValue={
+              isRecordingCountdownActive ? recordingStartCountdown : null
+            }
             diagnostics={currentSnapshot.diagnostics}
+            isStartingRecording={isStartingRecording}
             onOpenRegionSelector={showRegionSelector}
             onPauseResume={pauseResume}
             onUpdateAudioInput={updateAudioInput}

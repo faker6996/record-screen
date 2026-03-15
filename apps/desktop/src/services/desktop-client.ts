@@ -8,6 +8,7 @@ import type {
   MicCheckSnapshot,
   PermissionCheck,
   RecorderSnapshot,
+  RuntimeDiagnostics,
   SessionSummary,
   ShortcutBinding,
 } from '../types/desktop'
@@ -31,6 +32,8 @@ const mockSnapshot: BootstrapSnapshot = {
     activeTarget: 'Full desktop',
     activeOutputPath: null,
     activeEncoderLabel: null,
+    canPause: true,
+    pauseNote: null,
     qualityPreset: '1080p / 30 fps',
     outputDirectory: '~/Movies/Record Screen',
     micEnabled: true,
@@ -153,7 +156,17 @@ const mockSnapshot: BootstrapSnapshot = {
   diagnostics: {
     summary: 'Preview runtime',
     backendPath: 'Mock desktop client',
+    audioBackendPath: 'Mock audio backend',
+    encoderBackendPath: 'Mock encoder backend',
     readiness: 'Web preview uses mocked launcher state and does not start a native recorder.',
+    captureSelectionNote: 'Capture selected the first available backend in the registry.',
+    audioSelectionNote: 'Audio selected the first available backend in the registry.',
+    encoderSelectionNote: 'Encoder selected the first available backend in the registry.',
+    preferredAudioInputId: 'preview-mic-id',
+    preferredAudioInputLabel: 'Preview microphone',
+    preferredSystemAudioId: 'preview-speakers-id',
+    preferredSystemAudioLabel: 'Preview speakers',
+    preferredEncoderLabel: 'Preview H.264 encoder',
     supportsCustomRegion: true,
     customRegionNote: 'Preview mode can show the custom-region flow.',
     supportsSystemAudio: true,
@@ -463,6 +476,9 @@ function firstString(values: unknown[]): string | null {
 export const desktopClient = {
   getBootstrap() {
     return command<BootstrapSnapshot>('get_bootstrap')
+  },
+  getRuntimeDiagnostics() {
+    return command<RuntimeDiagnostics>('get_runtime_diagnostics')
   },
   getRecorderSnapshot() {
     return command<RecorderSnapshot>('get_recorder_snapshot')

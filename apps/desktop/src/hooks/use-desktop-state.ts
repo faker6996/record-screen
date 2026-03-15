@@ -1,10 +1,12 @@
 import { startTransition, useEffect, useRef, useState } from 'react'
 import { desktopClient } from '../services/desktop-client'
+import { useRecordingCountdown } from './use-recording-countdown'
 import type {
   AppSettings,
   BootstrapSnapshot,
   PermissionCheck,
   RecorderSnapshot,
+  RuntimeDiagnostics,
   SessionSummary,
   ShortcutAction,
   ShortcutBinding,
@@ -60,6 +62,20 @@ function updatePermissionsSnapshot(
   return {
     ...snapshot,
     permissions,
+  }
+}
+
+function updateDiagnosticsSnapshot(
+  snapshot: BootstrapSnapshot | null,
+  diagnostics: RuntimeDiagnostics,
+) {
+  if (!snapshot) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    diagnostics,
   }
 }
 
@@ -134,6 +150,38 @@ export function useDesktopState() {
             actionLoadError instanceof Error
               ? actionLoadError.message
               : 'Unable to refresh recent recordings.',
+          )
+        })
+      }
+    }
+
+    async function refreshRuntimeDiagnostics(options?: {
+      reportError?: boolean
+    }) {
+      try {
+        const diagnostics = await desktopClient.getRuntimeDiagnostics()
+        if (isDisposed) {
+          return
+        }
+
+        startTransition(() => {
+          setSnapshot((current) =>
+            updateDiagnosticsSnapshot(current, diagnostics),
+          )
+          if (options?.reportError) {
+            setActionError(null)
+          }
+        })
+      } catch (actionLoadError) {
+        if (isDisposed || !options?.reportError) {
+          return
+        }
+
+        startTransition(() => {
+          setActionError(
+            actionLoadError instanceof Error
+              ? actionLoadError.message
+              : 'Unable to refresh runtime diagnostics.',
           )
         })
       }
@@ -238,6 +286,7 @@ export function useDesktopState() {
         }
 
         void refreshDeviceDiscovery()
+        void refreshRuntimeDiagnostics()
         void refreshPermissionsInBackground()
         void refreshRecentSessions()
       }, 48)
@@ -338,24 +387,34 @@ export function useDesktopState() {
     }
   }, [])
 
-  async function toggleRecording() {
-    try {
-      const recorder = await desktopClient.toggleRecording()
+  async function toggleRecordingNow() {
+    const recorder = await desktopClient.toggleRecording()
 
+    startTransition(() => {
+      setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+      setActionError(null)
+    })
+  }
+
+  const {
+    countdownValue: recordingStartCountdown,
+    isCountingDown: isRecordingCountdownActive,
+    isStartingRecording,
+    toggleRecording,
+  } = useRecordingCountdown({
+    onClearError: () => {
       startTransition(() => {
-        setSnapshot((current) => updateRecorderSnapshot(current, recorder))
         setActionError(null)
       })
-    } catch (actionLoadError) {
+    },
+    onError: (message) => {
       startTransition(() => {
-        setActionError(
-          actionLoadError instanceof Error
-            ? actionLoadError.message
-            : 'Unable to start or stop the recorder.',
-        )
+        setActionError(message)
       })
-    }
-  }
+    },
+    status: snapshot?.recorder.status ?? 'idle',
+    toggleRecordingNow,
+  })
 
   async function pauseResume() {
     try {
@@ -769,9 +828,10 @@ export function useDesktopState() {
 
   return {
     actionError,
-    snapshot,
-    isLoading,
     error,
+    isLoading,
+    isRecordingCountdownActive,
+    isStartingRecording,
     focusLauncher: desktopClient.focusLauncher,
     hideHud: desktopClient.hideHud,
     openPermissionSettings,
@@ -786,13 +846,15 @@ export function useDesktopState() {
     trashRecordings,
     showHud: desktopClient.showHud,
     showRegionSelector,
+    snapshot,
+    recordingStartCountdown,
     toggleMicrophone,
+    toggleRecording,
     updateCaptureTarget,
     updateCustomRegion,
     updateAudioInput,
     updateShowHudDuringRecording,
     updateSystemAudioEnabled,
-    toggleRecording,
     updateLaunchOnLogin,
     updateOutputDirectory,
     updateQualityPreset,

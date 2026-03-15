@@ -1,3 +1,5 @@
+pub mod native_audio_backend;
+mod native_encoder_backend;
 pub mod wayland_portal;
 
 use std::{
@@ -12,10 +14,22 @@ use std::{
 };
 
 use capture::{
-    ActiveRecording, AudioInputKind, AudioInputOption, CUSTOM_REGION_TARGET_ID, CaptureController,
-    CaptureError, CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID,
-    RecordingArtifact, RecordingOptions, default_audio_input, full_desktop_target,
-    preferred_system_audio_input, resolve_audio_input_id,
+    ActiveRecording, AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory,
+    AudioBackendFamily, AudioBackendRuntimeReport, AudioBackendStatus, AudioInputKind,
+    AudioInputOption, CUSTOM_REGION_TARGET_ID, CaptureBackendAvailability,
+    CaptureBackendDescriptor, CaptureBackendFactory, CaptureBackendFamily,
+    CaptureBackendRuntimeReport, CaptureBackendRuntimeSnapshot, CaptureBackendStatus,
+    CaptureController, CaptureError, CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID,
+    EncoderBackendAvailability, EncoderBackendDescriptor, EncoderBackendFactory,
+    EncoderBackendFamily, EncoderBackendRuntimeReport, EncoderBackendRuntimeSnapshot,
+    EncoderBackendStatus, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
+    audio_backend_runtime_snapshot, audio_backend_statuses as shared_audio_backend_statuses,
+    backend_statuses as shared_backend_statuses, capture_backend_runtime_snapshot,
+    default_audio_input, encoder_backend_runtime_snapshot,
+    encoder_backend_statuses as shared_encoder_backend_statuses, explain_audio_backend_selection,
+    explain_capture_backend_selection, explain_encoder_backend_selection, full_desktop_target,
+    preferred_system_audio_input, resolve_audio_input_id, select_audio_backend, select_backend,
+    select_encoder_backend,
 };
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
@@ -59,6 +73,197 @@ pub struct FfmpegLinuxCapture {
     stderr_buffer: Arc<Mutex<String>>,
     finished_artifact: Option<RecordingArtifact>,
     paused: bool,
+}
+
+pub struct FfmpegLinuxBackend;
+pub struct PortalPipewireLinuxBackend;
+static FFMPEG_LINUX_BACKEND: FfmpegLinuxBackend = FfmpegLinuxBackend;
+static PORTAL_PIPEWIRE_LINUX_BACKEND: PortalPipewireLinuxBackend = PortalPipewireLinuxBackend;
+static FFMPEG_LINUX_AUDIO_BACKEND: FfmpegLinuxAudioBackend = FfmpegLinuxAudioBackend;
+static FFMPEG_LINUX_ENCODER_BACKEND: FfmpegLinuxEncoderBackend = FfmpegLinuxEncoderBackend;
+pub struct FfmpegLinuxAudioBackend;
+pub struct FfmpegLinuxEncoderBackend;
+
+pub fn selected_backend() -> &'static dyn CaptureBackendFactory {
+    select_backend(&backend_candidates())
+}
+
+fn backend_candidates() -> [&'static dyn CaptureBackendFactory; 2] {
+    [&PORTAL_PIPEWIRE_LINUX_BACKEND, &FFMPEG_LINUX_BACKEND]
+}
+
+pub fn backend_statuses() -> Vec<CaptureBackendStatus> {
+    shared_backend_statuses(&backend_candidates())
+}
+
+pub fn selected_audio_backend() -> &'static dyn AudioBackendFactory {
+    select_audio_backend(&audio_backend_candidates())
+}
+
+fn audio_backend_candidates() -> [&'static dyn AudioBackendFactory; 2] {
+    [native_audio_backend::backend(), &FFMPEG_LINUX_AUDIO_BACKEND]
+}
+
+pub fn audio_backend_statuses() -> Vec<AudioBackendStatus> {
+    shared_audio_backend_statuses(&audio_backend_candidates())
+}
+
+pub fn selected_encoder_backend() -> &'static dyn EncoderBackendFactory {
+    select_encoder_backend(&encoder_backend_candidates())
+}
+
+fn encoder_backend_candidates() -> [&'static dyn EncoderBackendFactory; 2] {
+    [
+        native_encoder_backend::backend(),
+        &FFMPEG_LINUX_ENCODER_BACKEND,
+    ]
+}
+
+pub fn encoder_backend_statuses() -> Vec<EncoderBackendStatus> {
+    shared_encoder_backend_statuses(&encoder_backend_candidates())
+}
+
+pub fn capture_selection_note() -> String {
+    explain_capture_backend_selection(&backend_candidates()).note
+}
+
+pub fn capture_runtime_snapshot() -> CaptureBackendRuntimeSnapshot {
+    capture_backend_runtime_snapshot(&backend_candidates())
+}
+
+pub fn audio_selection_note() -> String {
+    explain_audio_backend_selection(&audio_backend_candidates()).note
+}
+
+pub fn audio_runtime_snapshot() -> capture::AudioBackendRuntimeSnapshot {
+    audio_backend_runtime_snapshot(&audio_backend_candidates())
+}
+
+pub fn encoder_selection_note() -> String {
+    explain_encoder_backend_selection(&encoder_backend_candidates()).note
+}
+
+pub fn encoder_runtime_snapshot() -> EncoderBackendRuntimeSnapshot {
+    encoder_backend_runtime_snapshot(&encoder_backend_candidates())
+}
+
+impl CaptureBackendFactory for PortalPipewireLinuxBackend {
+    fn descriptor(&self) -> CaptureBackendDescriptor {
+        CaptureBackendDescriptor {
+            id: "linux-portal-pipewire",
+            label: "Linux ScreenCast Portal / PipeWire",
+            family: CaptureBackendFamily::Native,
+        }
+    }
+
+    fn availability(&self) -> CaptureBackendAvailability {
+        CaptureBackendAvailability::Unavailable {
+            reason: "The Linux Wayland-native portal / PipeWire backend is still experimental and is not yet the default recorder runtime.".to_string(),
+        }
+    }
+
+    fn runtime_report(&self) -> CaptureBackendRuntimeReport {
+        CaptureBackendRuntimeReport {
+            summary: Some(
+                "Linux native capture candidate negotiates ScreenCast Portal / PipeWire, but the production runtime is not ready yet."
+                    .to_string(),
+            ),
+            preferred_target_label: Some("Full desktop".to_string()),
+        }
+    }
+
+    fn start(
+        &self,
+        _options: RecordingOptions,
+    ) -> Result<Box<dyn CaptureController>, CaptureError> {
+        Err(CaptureError::BackendUnavailable(
+            "The Linux Wayland-native portal / PipeWire backend is not ready as the default runtime yet.".to_string(),
+        ))
+    }
+}
+
+impl CaptureBackendFactory for FfmpegLinuxBackend {
+    fn descriptor(&self) -> CaptureBackendDescriptor {
+        CaptureBackendDescriptor {
+            id: "linux-ffmpeg-capture",
+            label: "Linux ffmpeg recorder",
+            family: CaptureBackendFamily::FallbackFfmpeg,
+        }
+    }
+
+    fn availability(&self) -> CaptureBackendAvailability {
+        CaptureBackendAvailability::Available
+    }
+
+    fn runtime_report(&self) -> CaptureBackendRuntimeReport {
+        CaptureBackendRuntimeReport {
+            summary: Some(
+                "Current Linux capture runtime uses ffmpeg on X11/XWayland, with an experimental GStreamer path for pure Wayland sessions."
+                    .to_string(),
+            ),
+            preferred_target_label: Some("Full desktop".to_string()),
+        }
+    }
+
+    fn start(&self, options: RecordingOptions) -> Result<Box<dyn CaptureController>, CaptureError> {
+        Ok(Box::new(FfmpegLinuxCapture::start(options)?))
+    }
+}
+
+impl AudioBackendFactory for FfmpegLinuxAudioBackend {
+    fn descriptor(&self) -> AudioBackendDescriptor {
+        AudioBackendDescriptor {
+            id: "linux-ffmpeg-pulse-audio",
+            label: "Linux PulseAudio / ffmpeg audio",
+            family: AudioBackendFamily::FallbackFfmpeg,
+        }
+    }
+
+    fn availability(&self) -> AudioBackendAvailability {
+        AudioBackendAvailability::Available
+    }
+
+    fn runtime_report(&self) -> AudioBackendRuntimeReport {
+        let audio_inputs = query_audio_inputs().unwrap_or_default();
+        let preferred_input = capture::preferred_audio_input(&audio_inputs)
+            .map(|input| input.label.clone())
+            .or_else(native_preferred_input_label);
+        let preferred_system = preferred_system_audio_input(&audio_inputs)
+            .map(|input| input.label.clone())
+            .or_else(native_preferred_system_label);
+
+        AudioBackendRuntimeReport {
+            summary: Some(audio_input_support_summary()),
+            preferred_input_id: native_preferred_input_label(),
+            preferred_input_label: preferred_input,
+            preferred_system_id: native_preferred_system_label(),
+            preferred_system_label: preferred_system,
+        }
+    }
+}
+
+impl EncoderBackendFactory for FfmpegLinuxEncoderBackend {
+    fn descriptor(&self) -> EncoderBackendDescriptor {
+        EncoderBackendDescriptor {
+            id: "linux-ffmpeg-encoder",
+            label: "Linux ffmpeg encoder",
+            family: EncoderBackendFamily::FallbackFfmpeg,
+        }
+    }
+
+    fn availability(&self) -> EncoderBackendAvailability {
+        EncoderBackendAvailability::Available
+    }
+
+    fn runtime_report(&self) -> EncoderBackendRuntimeReport {
+        EncoderBackendRuntimeReport {
+            summary: Some(format!(
+                "Current Linux output pipeline uses ffmpeg with preferred encoder `{}`.",
+                encoder_label(&preferred_video_encoder())
+            )),
+            preferred_encoder_label: Some(encoder_label(&preferred_video_encoder())),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,9 +527,55 @@ pub fn list_capture_targets() -> Vec<CaptureTargetOption> {
 }
 
 pub fn list_audio_inputs() -> Vec<AudioInputOption> {
-    let mut inputs = vec![default_audio_input()];
+    let mut default_input = default_audio_input();
+    if let Some(preferred_input) = native_preferred_input_label() {
+        default_input.description =
+            format!("Use the preferred Linux input source: {preferred_input}.");
+    }
+
+    let mut inputs = vec![default_input];
     inputs.extend(query_audio_inputs().unwrap_or_default());
     inputs
+}
+
+pub fn audio_input_support_summary() -> String {
+    match query_audio_inputs() {
+        Ok(audio_inputs) => {
+            let microphone_count = audio_inputs
+                .iter()
+                .filter(|input| input.kind == AudioInputKind::Microphone)
+                .count();
+            let system_count = audio_inputs
+                .iter()
+                .filter(|input| input.kind == AudioInputKind::System)
+                .count();
+
+            let base = format!(
+                "Linux audio discovery is ready. Found {} microphone source{} and {} system-audio source{}.",
+                microphone_count,
+                if microphone_count == 1 { "" } else { "s" },
+                system_count,
+                if system_count == 1 { "" } else { "s" }
+            );
+
+            match native_audio_backend::pipewire_runtime_summary() {
+                Some(summary) => format!("{base} {summary}"),
+                None => base,
+            }
+        }
+        Err(error) => match native_audio_backend::pipewire_runtime_summary() {
+            Some(summary) => format!("Linux audio discovery failed. {summary} {error}"),
+            None => format!("Linux audio discovery failed. {error}"),
+        },
+    }
+}
+
+fn native_preferred_input_label() -> Option<String> {
+    native_audio_backend::preferred_input_source_name()
+}
+
+fn native_preferred_system_label() -> Option<String> {
+    native_audio_backend::preferred_monitor_source_name()
 }
 
 pub fn preview_target_bounds(

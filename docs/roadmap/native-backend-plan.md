@@ -51,10 +51,10 @@ This means "implemented" is not enough. The code must also be cleaner after the 
 | Phase 0 | Stable MVP baseline and migration guardrails | `complete` |
 | Phase 1 | Native capture foundations per OS | `partial` |
 | Phase 2 | Native audio input and system-audio foundations | `partial` |
-| Phase 3 | Native encode/output pipeline | `not_started` |
-| Phase 4 | Runtime hardening and fallback policy | `not_started` |
+| Phase 3 | Native encode/output pipeline | `partial` |
+| Phase 4 | Runtime hardening and fallback policy | `partial` |
 | Phase 5 | Packaging, distribution, and supportability | `in_progress` |
-| Phase 6 | Architecture cleanup and legacy retirement | `not_started` |
+| Phase 6 | Architecture cleanup and legacy retirement | `partial` |
 
 ## Phase 0: Stable MVP Baseline and Guardrails
 
@@ -118,9 +118,9 @@ Replace screen-source acquisition with native capture APIs that match modern des
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `partial` | Uses native permission and AVFoundation source concepts, but capture runtime is not yet `ScreenCaptureKit` |
-| Windows | `not_started` | No `Windows.Graphics.Capture` backend in repo yet |
-| Linux | `partial` | ScreenCast portal lifecycle and PipeWire groundwork exist, but Wayland-only capture is not production-ready |
+| macOS | `partial` | Uses native permission and AVFoundation source concepts; backend registry, selection policy, shared capture runtime reports, and a dedicated `ScreenCaptureKit` module now exist; the candidate no longer relies only on `sw_vers`, and now runs a real `ScreenCaptureKit` shareable-content probe for displays/windows/applications, while also exposing a recorder-facing start plan for full-desktop / monitor / custom-region targeting that can resolve a native display candidate label from probe results, carries stream configuration intent (`width/height/fps`), and is used by the current recording start path for resolved source-target selection plus stream sizing; in addition, the macOS lane can now build a real `SCContentFilter + SCStreamConfiguration` execution plan, construct an `SCStream` foundation object from it, prepare a real screen output handler on that stream, and expose a smoke `start_capture()/stop_capture()` lifecycle that can be enabled explicitly for native-lane validation and now records lightweight Rust-side screen/audio sample bridge stats; the recorder now also has two live native-leaning runtime lanes: a macOS 15+ `SCRecordingOutput` file-output path for display, monitor, and custom-region capture with system-audio plus native microphone-device-id routing, startup handshake checks, delegate-driven finish/error tracking, and runtime gating so older macOS versions fall back cleanly instead of attempting an unsupported direct lane, and a hybrid `ScreenCaptureKit -> ffmpeg` path for video-only display/custom-region capture, while the remaining unsupported combinations still fall back to `AVFoundation + ffmpeg`; pause/resume is still unavailable on the direct `SCRecordingOutput` lane, so the app surfaces that capability explicitly in HUD, tray, and shortcut handling instead of pretending it works |
+| Windows | `partial` | Backend registry, selection policy, and shared capture runtime reports now exist, but no `Windows.Graphics.Capture` runtime is implemented yet |
+| Linux | `partial` | Backend registry, selection policy, and shared capture runtime reports exist; ScreenCast portal lifecycle and PipeWire groundwork exist, but Wayland-only capture is not production-ready |
 
 ## Phase 2: Native Audio Foundations
 
@@ -155,13 +155,16 @@ Move microphone and system-audio capture to native OS audio stacks instead of re
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `partial` | Permissions and mic selection exist, but runtime still depends on ffmpeg-backed audio path |
-| Windows | `partial` | Default-input fallback logic exists, but not via WASAPI/native audio endpoints |
-| Linux | `partial` | Pulse/PipeWire monitor discovery exists, but not a production native PipeWire audio pipeline |
+| macOS | `partial` | Audio-backend registry, diagnostics, and a dedicated Core Audio native-audio module with structured device reporting and default input/output candidate summary now exist; those preferred candidates are surfaced through runtime diagnostics, are reused by fallback audio summaries/default-input copy, and now feed a recorder-facing audio start plan written into runtime support logs and used by the current recording start path for default-microphone resolution, but runtime still depends on the ffmpeg / AVFoundation audio path |
+| Windows | `partial` | Audio-backend registry, diagnostics, and a dedicated WASAPI native-audio module with default-device plus capture/render-endpoint probing and candidate selection now exist; those preferred candidates are surfaced through runtime diagnostics, carry structured endpoint identity (`instance_id + label`), and now feed shared Windows audio runtime/route plans plus recorder-facing runtime intent and start-plan helpers reused by `Default input` fallback, loopback support summaries, fallback copy, the current recording start path, and runtime support logs, but recording and loopback still depend on DirectShow / ffmpeg rather than WASAPI-native endpoints |
+| Linux | `partial` | Audio-backend registry, diagnostics, and a dedicated PipeWire native-audio module with structured source/sink reporting and preferred candidate summary now exist; those preferred candidates are surfaced through runtime diagnostics and are now reused by fallback audio summaries/default-input copy, but production microphone and system-audio capture still depend on PulseAudio / ffmpeg instead of a PipeWire-native audio pipeline |
+
+The Phase 2 boundary is now explicit in code: `src-tauri` consumes shared audio-backend runtime reports instead of calling OS-specific native-audio helpers directly.
+Those shared runtime reports now carry both candidate labels and candidate IDs, so the migration can move toward native endpoint identity without leaking per-platform types into the app layer.
 
 ## Phase 3: Native Encode and Output Pipeline
 
-**Status:** `not_started`
+**Status:** `partial`
 
 ### Goal
 
@@ -191,13 +194,13 @@ Stop depending on `ffmpeg` as the primary recording runtime by moving file creat
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `not_started` | No `AVAssetWriter` path yet |
-| Windows | `not_started` | No `Media Foundation` path yet |
-| Linux | `not_started` | No production native encode path yet |
+| macOS | `partial` | Encoder-backend registry, diagnostics, and a dedicated `AVAssetWriter` native-encoder module now exist; the candidate also exposes a recorder-facing output plan that is written into runtime support logs and is now consumed by the current output path for resolved codec/preset labeling, but recording still writes output through ffmpeg / AVFoundation |
+| Windows | `partial` | Encoder-backend registry, diagnostics, and a dedicated `Media Foundation` native-encoder module now exist, but recording still writes output through ffmpeg |
+| Linux | `partial` | Encoder-backend registry, diagnostics, and a dedicated GStreamer native-encoder module now exist, but recording still writes output through ffmpeg rather than a production PipeWire/GStreamer-native encoder path |
 
 ## Phase 4: Runtime Hardening and Fallback Policy
 
-**Status:** `not_started`
+**Status:** `partial`
 
 ### Goal
 
@@ -223,9 +226,9 @@ Make native backends dependable under the edge cases real users hit every day.
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `not_started` | Waiting on native runtime path |
-| Windows | `not_started` | Waiting on native runtime path |
-| Linux | `not_started` | Waiting on stable Wayland-native runtime path |
+| macOS | `partial` | Shared backend-selection explanations now exist for capture/audio/encoder paths and are surfaced through diagnostics/UI; unsupported pause is now surfaced explicitly in HUD, tray, and shortcut handling for the direct `SCRecordingOutput` lane, and a dedicated hardening checklist now exists in `docs/roadmap/macos-native-backend-qa.md`, but runtime hardening still lacks device-loss, sleep/wake, and production-scale scenario signoff |
+| Windows | `partial` | Shared backend-selection explanations now exist for capture/audio/encoder paths and are surfaced through diagnostics/UI, but runtime hardening still lacks device-loss, sleep/wake, and native fallback execution |
+| Linux | `partial` | Shared backend-selection explanations now exist for capture/audio/encoder paths and are surfaced through diagnostics/UI, but runtime hardening still lacks stable Wayland-native recovery and explicit device-loss handling |
 
 ## Phase 5: Packaging, Distribution, and Supportability
 
@@ -242,6 +245,7 @@ Make distribution and support match product expectations once native backends ar
 - runtime requirements clearly documented
 - support matrix kept in sync with actual backend state
 - optional bundled media runtime where still needed during migration
+- runtime logs capture active capture/audio/encoder backend selection plus recording lifecycle events for support handoff
 
 ### Exit Criteria
 
@@ -259,7 +263,7 @@ Make distribution and support match product expectations once native backends ar
 
 ## Phase 6: Architecture Cleanup and Legacy Retirement
 
-**Status:** `not_started`
+**Status:** `partial`
 
 ### Goal
 
@@ -284,9 +288,9 @@ Retire MVP-era recording paths and clean up migration scaffolding so the final c
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `not_started` | Cleanup depends on shipping native capture + encode first |
-| Windows | `not_started` | Cleanup depends on shipping native capture/audio first |
-| Linux | `not_started` | Cleanup depends on stabilizing the Wayland-native path and deciding X11 fallback policy |
+| macOS | `partial` | Shared runtime snapshots now reduce duplication between backend selection, diagnostics, and support logs, and the current macOS recorder path now builds one runtime plan that feeds capture/audio/encoder planning together, but native/fallback modules are not retired yet |
+| Windows | `partial` | Shared runtime snapshots now reduce duplication between backend selection, diagnostics, and support logs, but native/fallback modules are not retired yet |
+| Linux | `partial` | Shared runtime snapshots now reduce duplication between backend selection, diagnostics, and support logs, but Wayland/X11 fallback cleanup is still pending |
 
 ## Recommended Implementation Order
 

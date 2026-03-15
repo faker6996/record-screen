@@ -44,6 +44,7 @@ pub(crate) fn with_core<T>(
 }
 
 pub(crate) fn emit_recorder_state(app: &AppHandle, snapshot: &RecorderSnapshot) {
+    let _ = tray::sync_recorder_state(app, snapshot);
     let _ = app.emit("recorder://state-changed", snapshot);
 }
 
@@ -237,6 +238,7 @@ pub fn run() {
         )
         .setup(|app| {
             runtime_log::init(&app.package_info().version.to_string());
+            runtime_log::log_runtime_diagnostics(&diagnostics::initial_runtime_diagnostics());
             let launch_on_login_enabled =
                 with_core(app.handle(), |core| core.settings().launch_on_login).unwrap_or(false);
             if let Err(error) = launch_on_login::sync_launch_on_login(launch_on_login_enabled) {
@@ -261,6 +263,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap::get_bootstrap,
+            commands::bootstrap::get_runtime_diagnostics,
             commands::bootstrap::get_audio_inputs,
             commands::bootstrap::get_capture_targets,
             commands::bootstrap::reset_shortcuts,

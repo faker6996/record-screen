@@ -35,6 +35,31 @@ pub fn get_bootstrap(
             settings_changed = true;
         }
     }
+    if let Some(next_region_source_capture_target_id) =
+        capture_targets::normalize_custom_region_source_target_id(
+            &settings.region_source_capture_target_id,
+            &capture_targets,
+        )
+    {
+        if next_region_source_capture_target_id != settings.region_source_capture_target_id {
+            let previous_target_id = settings.region_source_capture_target_id.clone();
+            settings = core.update_custom_region(
+                settings.region_x,
+                settings.region_y,
+                settings.region_width,
+                settings.region_height,
+                Some(next_region_source_capture_target_id.clone()),
+                Some(settings.region_source_origin_x),
+                Some(settings.region_source_origin_y),
+                Some(settings.region_source_scale_factor_milli),
+            );
+            crate::runtime_log::log_runtime_info(&format!(
+                "normalized custom-region source target during bootstrap | from={} | to={}",
+                previous_target_id, next_region_source_capture_target_id
+            ));
+            settings_changed = true;
+        }
+    }
     if !available_capture_target_ids
         .iter()
         .any(|target_id| *target_id == settings.capture_target_id)
@@ -56,7 +81,7 @@ pub fn get_bootstrap(
         &app_version,
         capture_targets,
         audio_inputs,
-        diagnostics::runtime_diagnostics(),
+        diagnostics::initial_runtime_diagnostics(),
     );
     drop(core);
 
@@ -65,6 +90,11 @@ pub fn get_bootstrap(
     }
 
     Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn get_runtime_diagnostics() -> Result<app_core::RuntimeDiagnostics, String> {
+    Ok(diagnostics::refreshed_runtime_diagnostics())
 }
 
 #[tauri::command]

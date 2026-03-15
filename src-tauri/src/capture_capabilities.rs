@@ -9,13 +9,15 @@ pub struct CaptureCapabilities {
 pub fn current_capture_capabilities() -> CaptureCapabilities {
     #[cfg(target_os = "macos")]
     {
+        let (supports_custom_region, custom_region_note) =
+            capture_macos::custom_region_support_summary();
+        let (supports_system_audio, system_audio_note) =
+            capture_macos::system_audio_support_summary();
         return CaptureCapabilities {
-            supports_custom_region: true,
-            custom_region_note: "Custom region capture is available for macOS display capture."
-                .to_string(),
-            supports_system_audio: false,
-            system_audio_note: "System-audio mixing is not wired into the macOS backend yet."
-                .to_string(),
+            supports_custom_region,
+            custom_region_note,
+            supports_system_audio,
+            system_audio_note,
         };
     }
 

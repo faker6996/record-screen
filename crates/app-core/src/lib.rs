@@ -21,6 +21,8 @@ pub struct RecorderSnapshot {
     pub active_target: String,
     pub active_output_path: Option<String>,
     pub active_encoder_label: Option<String>,
+    pub can_pause: bool,
+    pub pause_note: Option<String>,
     pub quality_preset: String,
     pub output_directory: String,
     pub mic_enabled: bool,
@@ -31,7 +33,17 @@ pub struct RecorderSnapshot {
 pub struct RuntimeDiagnostics {
     pub summary: String,
     pub backend_path: String,
+    pub audio_backend_path: String,
+    pub encoder_backend_path: String,
     pub readiness: String,
+    pub capture_selection_note: String,
+    pub audio_selection_note: String,
+    pub encoder_selection_note: String,
+    pub preferred_audio_input_id: Option<String>,
+    pub preferred_audio_input_label: Option<String>,
+    pub preferred_system_audio_id: Option<String>,
+    pub preferred_system_audio_label: Option<String>,
+    pub preferred_encoder_label: Option<String>,
     pub supports_custom_region: bool,
     pub custom_region_note: String,
     pub supports_system_audio: bool,
@@ -86,6 +98,8 @@ pub struct AppCore {
     active_target: String,
     active_output_path: Option<String>,
     active_encoder_label: Option<String>,
+    active_can_pause: bool,
+    active_pause_note: Option<String>,
     started_at: Option<SystemTime>,
     paused_at: Option<SystemTime>,
     accumulated_paused: Duration,
@@ -107,6 +121,8 @@ impl AppCore {
             active_target: "Full desktop".to_string(),
             active_output_path: None,
             active_encoder_label: None,
+            active_can_pause: true,
+            active_pause_note: None,
             started_at: None,
             paused_at: None,
             accumulated_paused: Duration::default(),
@@ -175,11 +191,15 @@ impl AppCore {
         active_target: String,
         active_encoder_label: String,
         output_path: String,
+        can_pause: bool,
+        pause_note: Option<String>,
     ) -> RecorderSnapshot {
         self.status = RecorderStatus::Recording;
         self.active_target = active_target;
         self.active_output_path = Some(output_path);
         self.active_encoder_label = Some(active_encoder_label);
+        self.active_can_pause = can_pause;
+        self.active_pause_note = pause_note;
         self.started_at = Some(SystemTime::now());
         self.paused_at = None;
         self.accumulated_paused = Duration::default();
@@ -190,6 +210,8 @@ impl AppCore {
         self.status = RecorderStatus::Idle;
         self.active_output_path = None;
         self.active_encoder_label = None;
+        self.active_can_pause = true;
+        self.active_pause_note = None;
         self.started_at = None;
         self.paused_at = None;
         self.accumulated_paused = Duration::default();
@@ -374,6 +396,8 @@ impl AppCore {
             active_target: self.active_target.clone(),
             active_output_path: self.active_output_path.clone(),
             active_encoder_label: self.active_encoder_label.clone(),
+            can_pause: self.active_can_pause,
+            pause_note: self.active_pause_note.clone(),
             quality_preset: self.settings.quality_preset.clone(),
             output_directory: self.settings.output_directory.clone(),
             mic_enabled: self.settings.mic_enabled,

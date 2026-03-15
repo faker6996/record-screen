@@ -1,11 +1,40 @@
 import { startTransition, useEffect, useState } from 'react'
 import { desktopClient } from '../services/desktop-client'
+import { useRecordingCountdown } from './use-recording-countdown'
 import type { RecorderSnapshot } from '../types/desktop'
 
 export function useHudState() {
   const [recorder, setRecorder] = useState<RecorderSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  async function toggleRecordingNow() {
+    const nextRecorder = await desktopClient.toggleRecording()
+    startTransition(() => {
+      setRecorder(nextRecorder)
+      setError(null)
+    })
+  }
+
+  const {
+    countdownValue: recordingStartCountdown,
+    isCountingDown: isRecordingCountdownActive,
+    isStartingRecording,
+    toggleRecording,
+  } = useRecordingCountdown({
+    onClearError: () => {
+      startTransition(() => {
+        setError(null)
+      })
+    },
+    onError: (message) => {
+      startTransition(() => {
+        setError(message)
+      })
+    },
+    status: recorder?.status ?? 'idle',
+    toggleRecordingNow,
+  })
 
   useEffect(() => {
     let isDisposed = false
@@ -121,7 +150,10 @@ export function useHudState() {
   return {
     error,
     isLoading,
+    isRecordingCountdownActive,
+    isStartingRecording,
     recorder,
+    recordingStartCountdown,
     focusLauncher: async () => {
       await desktopClient.focusLauncher()
     },
@@ -141,12 +173,6 @@ export function useHudState() {
         setError(null)
       })
     },
-    toggleRecording: async () => {
-      const nextRecorder = await desktopClient.toggleRecording()
-      startTransition(() => {
-        setRecorder(nextRecorder)
-        setError(null)
-      })
-    },
+    toggleRecording,
   }
 }
