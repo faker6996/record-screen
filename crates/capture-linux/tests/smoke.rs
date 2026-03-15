@@ -32,6 +32,9 @@ fn linux_smoke_recording_creates_output_file() {
         region_y: 120,
         region_width: 1280,
         region_height: 720,
+        region_source_capture_target_id: capture::FULL_DESKTOP_TARGET_ID.to_string(),
+        region_source_origin_x: 0,
+        region_source_origin_y: 0,
     };
 
     let mut controller =
@@ -80,6 +83,9 @@ fn linux_wayland_smoke_recording_creates_output_file() {
         region_y: 120,
         region_width: 1280,
         region_height: 720,
+        region_source_capture_target_id: capture::FULL_DESKTOP_TARGET_ID.to_string(),
+        region_source_origin_x: 0,
+        region_source_origin_y: 0,
     };
 
     let mut controller =

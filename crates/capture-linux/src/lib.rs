@@ -345,6 +345,9 @@ pub fn preview_target_bounds(
         region_y,
         region_width,
         region_height,
+        region_source_capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
+        region_source_origin_x: 0,
+        region_source_origin_y: 0,
     })?;
     let (width, height) = target.video_size.unwrap_or((640, 360));
     Ok((target.origin_x, target.origin_y, width, height))
@@ -1380,7 +1383,7 @@ fn missing_display() -> String {
 mod tests {
     use std::{env, path::PathBuf};
 
-    use capture::{DEFAULT_AUDIO_INPUT_ID, RecordingOptions};
+    use capture::{DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID, RecordingOptions};
 
     use super::{
         LinuxDesktopSession, build_wayland_gstreamer_args, classify_desktop_session,
@@ -1484,6 +1487,9 @@ mod tests {
             region_y: 120,
             region_width: 1280,
             region_height: 720,
+            region_source_capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
+            region_source_origin_x: 0,
+            region_source_origin_y: 0,
         };
 
         let args = build_wayland_gstreamer_args(&options, 77).expect("wayland args should build");
@@ -1512,6 +1518,9 @@ mod tests {
             region_y: 120,
             region_width: 1280,
             region_height: 720,
+            region_source_capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
+            region_source_origin_x: 0,
+            region_source_origin_y: 0,
         };
 
         let args = build_wayland_gstreamer_args(&options, 9).expect("wayland args should build");

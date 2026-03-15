@@ -274,6 +274,9 @@ mod platform {
             region_y,
             region_width,
             region_height,
+            region_source_capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
+            region_source_origin_x: 0,
+            region_source_origin_y: 0,
         })?;
         let (width, height) = target.video_size.unwrap_or((640, 360));
         Ok((target.offset_x.unwrap_or(0), target.offset_y.unwrap_or(0), width, height))
