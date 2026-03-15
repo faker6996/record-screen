@@ -50,7 +50,7 @@ Ly do: kien truc hien tai phu hop hon voi app quay va xu ly cuc bo chat luong ca
 
 | Platform | Trang thai hien tai | Danh gia |
 | --- | --- | --- |
-| macOS | `AVFoundation + ffmpeg`, permission flow that, mic select/test, encoder uu tien `h264_videotoolbox` | Tot nhat hien tai |
+| macOS | `AVFoundation + ffmpeg`, permission flow that, mic select/test, encoder uu tien `h264_videotoolbox`, custom region crop da co | Tot nhat hien tai |
 | Windows | `gdigrab + dshow + ffmpeg`, mic diagnostics, multi-encoder selection, window/monitor targeting | Dung duoc, can hardening them |
 | Linux X11 | `x11grab + pulse + ffmpeg`, mic test, window discovery | Dung duoc |
 | Linux XWayland | co duong quay that qua compatibility path | Dung duoc |
@@ -156,15 +156,16 @@ Chua co:
 Da co:
 
 - custom region settings trong launcher
+- drag-to-select overlay tren man hinh
 - custom region target trong recorder khi backend/session hien tai support
+- macOS custom region crop qua `AVFoundation + ffmpeg`
 - Windows desktop path crop theo `offset_x / offset_y / video_size`
 - Linux X11/XWayland crop theo `x11grab + origin + video_size`
 
 Chua co:
 
-- macOS custom region path
 - Linux pure Wayland custom region path
-- visual region picker tren man hinh
+- multi-monitor region selector spanning dong thoi tat ca man hinh
 
 ### 8. Camera overlay / scene composition chua co
 

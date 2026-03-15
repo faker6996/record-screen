@@ -20,7 +20,7 @@
 - 🦀 **Rust App State** - High-performance, memory-safe backend as the source of truth.
 - 🧾 **Local Runtime Log** - Persist launch/runtime/panic logs in the app config directory for debugging real machines.
 - 🎯 **Flexible Capture Targets** - Record the full desktop, a specific display, or an individual window.
-- ✂️ **Custom Region Capture** - Configure a reusable capture rectangle on backends that support launcher-defined cropping.
+- ✂️ **Custom Region Capture** - Drag-select a reusable capture rectangle on supported backends and preview the selected target on screen.
 - 🔊 **Audio Input + System Audio Mixing** - Choose a microphone and optionally mix a supported system-audio loopback source where the backend can do it.
 - 🔒 **Native Permissions** - Seamless flow for `Screen recording` and `Microphone` access on macOS.
 - 🚀 **Automated Builds** - GitHub Actions CI/CD for macOS DMG, Windows setup EXE, and Linux DEB packages.
@@ -132,7 +132,8 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 - `ffmpeg` must be installed and available on `PATH`.
 - Must grant **Screen Recording** permission.
 - If narration is enabled, must grant **Microphone** permission.
-- `Custom region` and `system audio mixing` are not wired into the macOS backend yet.
+- `Custom region` now records through the AVFoundation display path with crop filtering.
+- `System audio mixing` is still not wired into the macOS backend yet.
 
 ### 🐧 Linux
 - Supports real recording on `X11` and `Wayland + XWayland`.
@@ -161,6 +162,7 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 - `ffmpeg` must be on `PATH`.
 - **PowerShell** is required to enumerate monitors/windows and control pause/resume.
 - Auto-selects the best available DirectShow microphone when `Default input` is selected.
+- If DirectShow microphone enumeration fails, the app now falls back to the current Windows default recording device when possible.
 - The launcher can target the full desktop, a single monitor, or a single top-level window.
 - `Custom region` is available on the desktop path.
 - `System audio mixing` depends on Windows exposing a usable DirectShow loopback source such as `Stereo Mix`.

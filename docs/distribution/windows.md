@@ -26,6 +26,20 @@ After launch:
 - verify the microphone setting
 - confirm the output folder before the first recording
 
+## Current backend scope
+
+- full desktop capture
+- single-display capture
+- top-level window capture
+- custom-region capture on the desktop path
+- microphone narration through DirectShow
+
+Notes:
+
+- when `Default input` is selected, the app prefers a discovered DirectShow microphone
+- if DirectShow discovery fails, the app attempts to fall back to the current Windows default recording device
+- system-audio mixing still depends on Windows exposing a usable loopback source such as `Stereo Mix`
+
 ## Uninstall
 
 - remove the app from Windows `Apps & features`

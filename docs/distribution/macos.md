@@ -30,6 +30,18 @@ On first launch:
 - allow `Screen Recording` access when prompted
 - allow `Microphone` access if you plan to record narration
 - verify the selected output folder and quality preset in the launcher
+- `Custom region` selection is available on macOS and records through the display capture path
+
+## Current backend scope
+
+- full desktop capture
+- single-display capture
+- custom-region capture on the selected display
+- microphone narration
+
+Not available yet:
+
+- system-audio mixing
 
 ## Homebrew status
 

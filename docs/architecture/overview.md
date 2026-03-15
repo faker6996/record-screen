@@ -25,12 +25,13 @@
 - Persisted shortcut remapping with runtime re-registration
 - Shared recorder snapshot model
 - Audio input classification for microphone vs system-audio loopback sources
-- Custom region settings and target injection on supported backends
+- Custom region settings, drag-to-select overlay, and target injection on supported backends
 - System-audio mix toggle with per-platform support guards
 - Real capture backends per OS:
-  - macOS: `AVFoundation + ffmpeg`
+  - macOS: `AVFoundation + ffmpeg`, including custom-region crop on the display path
   - Windows: `gdigrab + dshow + ffmpeg`
   - Linux X11/XWayland: `x11grab + pulse + ffmpeg`
+- Target preview overlay when choosing a display or custom region
 - Runtime diagnostics for active backend path and readiness
 - Local runtime crash/error logging
 - Cross-platform launch-on-login integration
@@ -42,5 +43,5 @@
 - Production-grade Linux pure Wayland capture hardening beyond the current experimental GStreamer PipeWire path
 - Richer diagnostics and benchmark telemetry
 - Deeper Windows permission and readiness hardening
-- macOS custom-region and system-audio backend work
+- macOS system-audio backend work
 - Richer export workflow
