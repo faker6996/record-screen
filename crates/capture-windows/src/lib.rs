@@ -951,8 +951,8 @@ if ($endpoint) {
 
 #[cfg(target_os = "windows")]
 pub use platform::{
-    FfmpegWindowsCapture, audio_input_support_summary, list_audio_inputs, list_capture_targets,
-    preview_target_bounds,
+    FfmpegWindowsCapture, audio_input_support_summary, custom_region_support_summary,
+    list_audio_inputs, list_capture_targets, preview_target_bounds, system_audio_support_summary,
 };
 
 #[cfg(not(target_os = "windows"))]
@@ -971,6 +971,22 @@ pub fn list_audio_inputs() -> Vec<capture::AudioInputOption> {
 #[cfg(not(target_os = "windows"))]
 pub fn audio_input_support_summary() -> String {
     "DirectShow microphone discovery is only available on Windows.".to_string()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn custom_region_support_summary() -> (bool, String) {
+    (
+        false,
+        "Windows custom-region support is only available on Windows.".to_string(),
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn system_audio_support_summary() -> (bool, String) {
+    (
+        false,
+        "Windows system-audio support is only available on Windows.".to_string(),
+    )
 }
 
 #[cfg(not(target_os = "windows"))]
