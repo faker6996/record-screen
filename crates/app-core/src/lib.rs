@@ -336,6 +336,7 @@ impl AppCore {
         region_source_capture_target_id: Option<String>,
         region_source_origin_x: Option<i32>,
         region_source_origin_y: Option<i32>,
+        region_source_scale_factor_milli: Option<u32>,
     ) -> AppSettings {
         self.settings.region_x = region_x;
         self.settings.region_y = region_y;
@@ -351,6 +352,10 @@ impl AppCore {
         }
         if let Some(region_source_origin_y) = region_source_origin_y {
             self.settings.region_source_origin_y = region_source_origin_y;
+        }
+        if let Some(region_source_scale_factor_milli) = region_source_scale_factor_milli {
+            self.settings.region_source_scale_factor_milli =
+                region_source_scale_factor_milli.max(1);
         }
         self.settings.clone()
     }

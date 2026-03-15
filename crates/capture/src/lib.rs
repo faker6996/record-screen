@@ -1,5 +1,7 @@
 use std::{
-    path::PathBuf,
+    env, io,
+    path::{Path, PathBuf},
+    process::Command,
     time::{Duration, SystemTime},
 };
 
@@ -50,6 +52,7 @@ pub struct RecordingOptions {
     pub region_source_capture_target_id: String,
     pub region_source_origin_x: i32,
     pub region_source_origin_y: i32,
+    pub region_source_scale_factor_milli: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +101,116 @@ pub enum CaptureError {
 
 pub fn capability_summary() -> &'static str {
     "Cross-platform capture abstraction. Platform crates implement backend-specific recording."
+}
+
+pub fn ffmpeg_command() -> Command {
+    Command::new(ffmpeg_program())
+}
+
+pub fn ffmpeg_program() -> PathBuf {
+    resolve_ffmpeg_program().unwrap_or_else(default_ffmpeg_program)
+}
+
+pub fn ffmpeg_launch_error_message(error: &io::Error, platform_label: &str) -> String {
+    if error.kind() == io::ErrorKind::NotFound {
+        return format!(
+            "ffmpeg is not available for the {platform_label} backend. Install ffmpeg, or place {} next to the app, in a bundled bin/resources directory, or in a common Chocolatey / Scoop / WinGet location.",
+            ffmpeg_file_name()
+        );
+    }
+
+    error.to_string()
+}
+
+fn resolve_ffmpeg_program() -> Option<PathBuf> {
+    if let Some(explicit) = env::var_os("RECORD_SCREEN_FFMPEG") {
+        let path = PathBuf::from(explicit);
+        if path_exists(&path) {
+            return Some(path);
+        }
+    }
+
+    if let Some(app_local) = current_exe_candidates()
+        .into_iter()
+        .find(|path| path_exists(path))
+    {
+        return Some(app_local);
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(common_install) = windows_ffmpeg_candidates()
+        .into_iter()
+        .find(|path| path_exists(path))
+    {
+        return Some(common_install);
+    }
+
+    None
+}
+
+fn path_exists(path: &Path) -> bool {
+    path.is_file()
+}
+
+fn default_ffmpeg_program() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        return PathBuf::from("ffmpeg.exe");
+    }
+
+    #[allow(unreachable_code)]
+    PathBuf::from("ffmpeg")
+}
+
+fn current_exe_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let Ok(current_exe) = env::current_exe() else {
+        return candidates;
+    };
+
+    if let Some(exe_dir) = current_exe.parent() {
+        candidates.push(exe_dir.join(ffmpeg_file_name()));
+        candidates.push(exe_dir.join("bin").join(ffmpeg_file_name()));
+        candidates.push(exe_dir.join("resources").join(ffmpeg_file_name()));
+        if let Some(parent_dir) = exe_dir.parent() {
+            candidates.push(parent_dir.join("bin").join(ffmpeg_file_name()));
+            candidates.push(parent_dir.join("resources").join(ffmpeg_file_name()));
+        }
+    }
+
+    candidates
+}
+
+fn ffmpeg_file_name() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        return "ffmpeg.exe";
+    }
+
+    #[allow(unreachable_code)]
+    "ffmpeg"
+}
+
+#[cfg(target_os = "windows")]
+fn windows_ffmpeg_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(choco) = env::var_os("ChocolateyInstall") {
+        candidates.push(PathBuf::from(choco).join("bin/ffmpeg.exe"));
+    }
+    candidates.push(PathBuf::from(r"C:\ProgramData\chocolatey\bin\ffmpeg.exe"));
+
+    if let Some(user_profile) = env::var_os("USERPROFILE") {
+        let user_profile = PathBuf::from(user_profile);
+        candidates.push(user_profile.join("scoop/shims/ffmpeg.exe"));
+        candidates.push(user_profile.join("AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe"));
+    }
+
+    if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(local_app_data).join("Microsoft/WinGet/Links/ffmpeg.exe"));
+    }
+
+    candidates
 }
 
 pub fn full_desktop_target() -> CaptureTargetOption {

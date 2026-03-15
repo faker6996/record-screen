@@ -142,7 +142,7 @@ fn selected_audio_input_id(app: &AppHandle) -> Result<String, String> {
 #[cfg(target_os = "linux")]
 fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
     let audio_input = selected_audio_input_id(app)?;
-    let mut command = Command::new("ffmpeg");
+    let mut command = capture::ffmpeg_command();
     command
         .args([
             "-hide_banner",
@@ -169,7 +169,7 @@ fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), Str
 #[cfg(target_os = "macos")]
 fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
     let audio_input = selected_audio_input_id(app)?;
-    let mut command = Command::new("ffmpeg");
+    let mut command = capture::ffmpeg_command();
     command
         .args([
             "-hide_banner",
@@ -196,7 +196,7 @@ fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), Str
 #[cfg(target_os = "windows")]
 fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
     let audio_input = selected_audio_input_id(app)?;
-    let mut command = Command::new("ffmpeg");
+    let mut command = capture::ffmpeg_command();
     command
         .args([
             "-hide_banner",

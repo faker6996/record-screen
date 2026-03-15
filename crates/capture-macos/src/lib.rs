@@ -64,9 +64,7 @@ impl FfmpegMacosCapture {
             .arg(fps.to_string());
 
         if options.capture_target_id != CUSTOM_REGION_TARGET_ID {
-            command
-                .arg("-video_size")
-                .arg(format!("{width}x{height}"));
+            command.arg("-video_size").arg(format!("{width}x{height}"));
         }
 
         command.arg("-i").arg(input).arg("-c:v").arg(encoder.codec);
@@ -432,19 +430,24 @@ fn resolve_screen_input_for_recording(
     resolve_screen_input(&options.capture_target_id)
 }
 
-fn video_filter(
-    options: &RecordingOptions,
-    width: u32,
-    height: u32,
-) -> Option<String> {
+fn video_filter(options: &RecordingOptions, width: u32, height: u32) -> Option<String> {
     if options.capture_target_id != CUSTOM_REGION_TARGET_ID {
         return None;
     }
 
-    let crop_x = (options.region_x as i32 - options.region_source_origin_x).max(0);
-    let crop_y = (options.region_y as i32 - options.region_source_origin_y).max(0);
-    let crop_width = options.region_width.max(64);
-    let crop_height = options.region_height.max(64);
+    let source_scale = (options.region_source_scale_factor_milli.max(1) as f64) / 1000.0;
+    let crop_x = (((options.region_x as i32 - options.region_source_origin_x).max(0)) as f64
+        / source_scale)
+        .round() as u32;
+    let crop_y = (((options.region_y as i32 - options.region_source_origin_y).max(0)) as f64
+        / source_scale)
+        .round() as u32;
+    let crop_width = ((options.region_width.max(64) as f64) / source_scale)
+        .round()
+        .max(64.0) as u32;
+    let crop_height = ((options.region_height.max(64) as f64) / source_scale)
+        .round()
+        .max(64.0) as u32;
     let crop = format!("crop={crop_width}:{crop_height}:{crop_x}:{crop_y}");
     let scale = scale_filter(width, height);
 

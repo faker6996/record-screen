@@ -36,6 +36,7 @@
 </details>
 
 ## 🗺️ Roadmap (Not Implemented Yet)
+- [ ] Native per-OS recording backend migration beyond the current ffmpeg-centric MVP.
 - [ ] Production-grade encoder pipeline beyond MVP.
 - [ ] Full video review and export workflow.
 
@@ -173,6 +174,7 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 ## 📚 Documentation
 Dive deeper into the project's design and conventions:
 - 📌 **Roadmap:** [`docs/roadmap/product-plan.md`](docs/roadmap/product-plan.md)
+- 🧭 **Native backend migration plan:** [`docs/roadmap/native-backend-plan.md`](docs/roadmap/native-backend-plan.md)
 - 📋 **Product audit:** [`docs/reports/product-audit-2026-03-14.md`](docs/reports/product-audit-2026-03-14.md)
 - 🏛 **Architecture:** [`docs/architecture/overview.md`](docs/architecture/overview.md)
 - 🐧 **Linux Wayland status:** [`docs/architecture/linux-wayland.md`](docs/architecture/linux-wayland.md)

@@ -24,7 +24,12 @@ pub fn preview_bounds_for_target(
             settings.region_height,
         )
         .ok()
-        .map(|(x, y, width, height)| PreviewBounds { x, y, width, height }));
+        .map(|(x, y, width, height)| PreviewBounds {
+            x,
+            y,
+            width,
+            height,
+        }));
     }
 
     #[cfg(target_os = "linux")]
@@ -37,12 +42,25 @@ pub fn preview_bounds_for_target(
             settings.region_height,
         )
         .ok()
-        .map(|(x, y, width, height)| PreviewBounds { x, y, width, height }));
+        .map(|(x, y, width, height)| PreviewBounds {
+            x,
+            y,
+            width,
+            height,
+        }));
     }
 
     #[cfg(target_os = "macos")]
     {
-        return macos_preview_bounds(app, capture_target_id, &settings.capture_target_id, settings.region_x, settings.region_y, settings.region_width, settings.region_height);
+        return macos_preview_bounds(
+            app,
+            capture_target_id,
+            &settings.capture_target_id,
+            settings.region_x,
+            settings.region_y,
+            settings.region_width,
+            settings.region_height,
+        );
     }
 
     #[allow(unreachable_code)]
@@ -70,7 +88,9 @@ fn macos_preview_bounds(
         }));
     }
 
-    let mut monitors = app.available_monitors().map_err(|error| error.to_string())?;
+    let mut monitors = app
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
     if monitors.is_empty() {
         return Ok(None);
     }
@@ -81,8 +101,16 @@ fn macos_preview_bounds(
     });
 
     if capture_target_id == FULL_DESKTOP_TARGET_ID {
-        let min_x = monitors.iter().map(|monitor| monitor.position().x).min().unwrap_or(0);
-        let min_y = monitors.iter().map(|monitor| monitor.position().y).min().unwrap_or(0);
+        let min_x = monitors
+            .iter()
+            .map(|monitor| monitor.position().x)
+            .min()
+            .unwrap_or(0);
+        let min_y = monitors
+            .iter()
+            .map(|monitor| monitor.position().y)
+            .min()
+            .unwrap_or(0);
         let max_x = monitors
             .iter()
             .map(|monitor| monitor.position().x + monitor.size().width as i32)

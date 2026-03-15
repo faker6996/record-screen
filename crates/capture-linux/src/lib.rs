@@ -348,6 +348,7 @@ pub fn preview_target_bounds(
         region_source_capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
         region_source_origin_x: 0,
         region_source_origin_y: 0,
+        region_source_scale_factor_milli: 1000,
     })?;
     let (width, height) = target.video_size.unwrap_or((640, 360));
     Ok((target.origin_x, target.origin_y, width, height))
@@ -1490,6 +1491,7 @@ mod tests {
             region_source_capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
             region_source_origin_x: 0,
             region_source_origin_y: 0,
+            region_source_scale_factor_milli: 1000,
         };
 
         let args = build_wayland_gstreamer_args(&options, 77).expect("wayland args should build");
@@ -1521,6 +1523,7 @@ mod tests {
             region_source_capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
             region_source_origin_x: 0,
             region_source_origin_y: 0,
+            region_source_scale_factor_milli: 1000,
         };
 
         let args = build_wayland_gstreamer_args(&options, 9).expect("wayland args should build");

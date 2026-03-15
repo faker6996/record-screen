@@ -11,8 +11,8 @@ pub fn current_capture_capabilities() -> CaptureCapabilities {
     {
         return CaptureCapabilities {
             supports_custom_region: true,
-            custom_region_note:
-                "Custom region capture is available for macOS display capture.".to_string(),
+            custom_region_note: "Custom region capture is available for macOS display capture."
+                .to_string(),
             supports_system_audio: false,
             system_audio_note: "System-audio mixing is not wired into the macOS backend yet."
                 .to_string(),

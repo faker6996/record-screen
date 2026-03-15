@@ -85,6 +85,7 @@ export function RegionSelectorSurface() {
         context.captureTargetId,
         context.originX,
         context.originY,
+        Math.max(1, Math.round((context.scaleFactor || 1) * 1000)),
       )
       await desktopClient.updateCaptureTarget('region:custom')
       await desktopClient.hideRegionSelector()

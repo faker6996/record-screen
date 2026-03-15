@@ -1,5 +1,7 @@
 # Record Screen Plan
 
+> For the phase-by-phase native backend migration status across macOS, Windows, and Linux, use [`native-backend-plan.md`](./native-backend-plan.md). This file remains the broader product plan.
+
 ## Product Goals
 
 - Launch a recorder from anywhere with a global shortcut.

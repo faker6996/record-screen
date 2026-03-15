@@ -25,6 +25,7 @@ pub struct AppSettings {
     pub region_source_capture_target_id: String,
     pub region_source_origin_x: i32,
     pub region_source_origin_y: i32,
+    pub region_source_scale_factor_milli: u32,
 }
 
 impl Default for AppSettings {
@@ -45,6 +46,7 @@ impl Default for AppSettings {
             region_source_capture_target_id: capture::FULL_DESKTOP_TARGET_ID.to_string(),
             region_source_origin_x: 0,
             region_source_origin_y: 0,
+            region_source_scale_factor_milli: 1000,
         }
     }
 }
@@ -116,7 +118,12 @@ pub fn load_app_settings() -> Result<AppSettings, StorageError> {
     }
 
     let contents = fs::read_to_string(&path).map_err(StorageError::ReadSettings)?;
-    serde_json::from_str(&contents).map_err(StorageError::ParseSettings)
+    let persisted: serde_json::Value =
+        serde_json::from_str(&contents).map_err(StorageError::ParseSettings)?;
+    let defaults =
+        serde_json::to_value(AppSettings::default()).map_err(StorageError::SerializeSettings)?;
+    let merged = merge_json(defaults, persisted);
+    serde_json::from_value(merged).map_err(StorageError::ParseSettings)
 }
 
 pub fn save_app_settings(settings: &AppSettings) -> Result<(), StorageError> {
@@ -177,6 +184,22 @@ pub fn next_recording_path(input: &str) -> Result<PathBuf, StorageError> {
         .as_secs();
 
     Ok(directory.join(format!("recording-{timestamp}.mp4")))
+}
+
+fn merge_json(defaults: serde_json::Value, persisted: serde_json::Value) -> serde_json::Value {
+    match (defaults, persisted) {
+        (serde_json::Value::Object(mut defaults), serde_json::Value::Object(persisted)) => {
+            for (key, value) in persisted {
+                let merged = match defaults.remove(&key) {
+                    Some(default_value) => merge_json(default_value, value),
+                    None => value,
+                };
+                defaults.insert(key, merged);
+            }
+            serde_json::Value::Object(defaults)
+        }
+        (_, persisted) => persisted,
+    }
 }
 
 #[cfg(test)]

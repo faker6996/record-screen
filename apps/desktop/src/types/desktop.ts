@@ -34,6 +34,7 @@ export interface AppSettings {
   regionSourceCaptureTargetId: string
   regionSourceOriginX: number
   regionSourceOriginY: number
+  regionSourceScaleFactorMilli: number
 }
 
 export interface CaptureTargetOption {

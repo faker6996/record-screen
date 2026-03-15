@@ -639,14 +639,14 @@ mod windows {
                 name: DESKTOP_CAPTURE.to_string(),
                 status: PermissionStatus::Granted,
                 guidance:
-                    "ffmpeg is available and the Windows desktop capture backend can start immediately."
+                    "ffmpeg is available to the app and the Windows desktop capture backend can start immediately."
                         .to_string(),
             }
         } else {
             PermissionCheck {
                 name: DESKTOP_CAPTURE.to_string(),
                 status: PermissionStatus::Pending,
-                guidance: "ffmpeg is missing from PATH. Install ffmpeg before recording the desktop on Windows.".to_string(),
+                guidance: "ffmpeg is not available to the app. Install ffmpeg, or place ffmpeg.exe next to the app, in a bundled bin/resources directory, or in a common Chocolatey / Scoop / WinGet location before recording on Windows.".to_string(),
             }
         }
     }
@@ -678,7 +678,7 @@ mod windows {
     }
 
     fn ffmpeg_available() -> bool {
-        Command::new("ffmpeg")
+        capture::ffmpeg_command()
             .args(["-hide_banner", "-version"])
             .output()
             .map(|output| output.status.success())
@@ -686,10 +686,14 @@ mod windows {
     }
 
     fn has_directshow_microphone() -> Result<bool, PermissionError> {
-        let output = Command::new("ffmpeg")
+        let output = capture::ffmpeg_command()
             .args(["-list_devices", "true", "-f", "dshow", "-i", "dummy"])
             .output()
-            .map_err(|error| PermissionError::RequestFailed(error.to_string()))?;
+            .map_err(|error| {
+                PermissionError::RequestFailed(capture::ffmpeg_launch_error_message(
+                    &error, "Windows",
+                ))
+            })?;
 
         let stderr = String::from_utf8_lossy(&output.stderr);
         let mut in_audio_section = false;

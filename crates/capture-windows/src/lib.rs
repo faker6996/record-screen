@@ -231,9 +231,8 @@ mod platform {
     pub fn list_audio_inputs() -> Vec<AudioInputOption> {
         let mut default_input = default_audio_input();
         if let Some(default_device_name) = query_default_recording_device_name() {
-            default_input.description = format!(
-                "Use the Windows default recording device: {default_device_name}."
-            );
+            default_input.description =
+                format!("Use the Windows default recording device: {default_device_name}.");
         }
 
         match discover_audio_inputs() {
@@ -277,9 +276,15 @@ mod platform {
             region_source_capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
             region_source_origin_x: 0,
             region_source_origin_y: 0,
+            region_source_scale_factor_milli: 1000,
         })?;
         let (width, height) = target.video_size.unwrap_or((640, 360));
-        Ok((target.offset_x.unwrap_or(0), target.offset_y.unwrap_or(0), width, height))
+        Ok((
+            target.offset_x.unwrap_or(0),
+            target.offset_y.unwrap_or(0),
+            width,
+            height,
+        ))
     }
 
     pub fn audio_input_support_summary() -> String {
@@ -433,7 +438,7 @@ mod platform {
     ) -> Result<(Child, Option<ChildStdin>), CaptureError> {
         let (width, height, fps) = quality_settings(&options.quality_preset);
         let encoder = encoder_for_quality(&options.quality_preset);
-        let mut command = Command::new("ffmpeg");
+        let mut command = capture::ffmpeg_command();
         command
             .arg("-y")
             .arg("-f")
@@ -539,9 +544,9 @@ mod platform {
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| CaptureError::SpawnFailed(error.to_string()))?;
+        let mut child = command.spawn().map_err(|error| {
+            CaptureError::SpawnFailed(capture::ffmpeg_launch_error_message(&error, "Windows"))
+        })?;
 
         let stdin = child.stdin.take();
         if let Some(mut stderr) = child.stderr.take() {
@@ -625,7 +630,10 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
         }
 
         if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
-            return Ok(resolve_audio_input_id(selected_audio_input_id, &audio_inputs));
+            return Ok(resolve_audio_input_id(
+                selected_audio_input_id,
+                &audio_inputs,
+            ));
         }
 
         resolve_audio_input_id(selected_audio_input_id, &audio_inputs)
@@ -650,10 +658,14 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
     }
 
     fn discover_audio_inputs() -> Result<Vec<AudioInputOption>, CaptureError> {
-        let output = Command::new("ffmpeg")
+        let output = capture::ffmpeg_command()
             .args(["-list_devices", "true", "-f", "dshow", "-i", "dummy"])
             .output()
-            .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+            .map_err(|error| {
+                CaptureError::BackendUnavailable(capture::ffmpeg_launch_error_message(
+                    &error, "Windows",
+                ))
+            })?;
 
         let listing = String::from_utf8_lossy(&output.stderr);
         let mut in_audio_section = false;
@@ -728,11 +740,7 @@ if ($endpoint) {
         }
 
         let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if value.is_empty() {
-            None
-        } else {
-            Some(value)
-        }
+        if value.is_empty() { None } else { Some(value) }
     }
 
     fn parse_ffmpeg_quoted_device(line: &str) -> Option<String> {
@@ -866,10 +874,14 @@ if ($endpoint) {
     }
 
     fn load_ffmpeg_encoders() -> Result<String, CaptureError> {
-        let output = Command::new("ffmpeg")
+        let output = capture::ffmpeg_command()
             .args(["-hide_banner", "-encoders"])
             .output()
-            .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+            .map_err(|error| {
+                CaptureError::BackendUnavailable(capture::ffmpeg_launch_error_message(
+                    &error, "Windows",
+                ))
+            })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);

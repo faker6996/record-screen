@@ -139,6 +139,63 @@ export function useDesktopState() {
       }
     }
 
+    async function refreshDeviceDiscovery(options?: { reportError?: boolean }) {
+      try {
+        const currentSettings = snapshotRef.current?.settings
+        const [captureTargets, audioInputs] = await Promise.all([
+          desktopClient.getCaptureTargets(),
+          desktopClient.getAudioInputs(),
+        ])
+        if (isDisposed) {
+          return
+        }
+
+        startTransition(() => {
+          setSnapshot((current) => {
+            if (!current) {
+              return current
+            }
+
+            const nextCaptureTargetId =
+              currentSettings?.captureTargetId && captureTargets.some((target) => target.id === currentSettings.captureTargetId)
+                ? currentSettings.captureTargetId
+                : current.settings.captureTargetId
+
+            const nextAudioInputId =
+              currentSettings?.audioInputId && audioInputs.some((input) => input.id === currentSettings.audioInputId)
+                ? currentSettings.audioInputId
+                : current.settings.audioInputId
+
+            return {
+              ...current,
+              captureTargets,
+              audioInputs,
+              settings: {
+                ...current.settings,
+                captureTargetId: nextCaptureTargetId,
+                audioInputId: nextAudioInputId,
+              },
+            }
+          })
+          if (options?.reportError) {
+            setActionError(null)
+          }
+        })
+      } catch (actionLoadError) {
+        if (isDisposed || !options?.reportError) {
+          return
+        }
+
+        startTransition(() => {
+          setActionError(
+            actionLoadError instanceof Error
+              ? actionLoadError.message
+              : 'Unable to refresh capture devices.',
+          )
+        })
+      }
+    }
+
     async function refreshPermissionsInBackground(options?: {
       reportError?: boolean
     }) {
@@ -180,6 +237,7 @@ export function useDesktopState() {
           return
         }
 
+        void refreshDeviceDiscovery()
         void refreshPermissionsInBackground()
         void refreshRecentSessions()
       }, 48)
@@ -531,6 +589,7 @@ export function useDesktopState() {
     regionSourceCaptureTargetId?: string,
     regionSourceOriginX?: number,
     regionSourceOriginY?: number,
+    regionSourceScaleFactorMilli?: number,
   ) {
     try {
       const settings = await desktopClient.updateCustomRegion(
@@ -541,6 +600,7 @@ export function useDesktopState() {
         regionSourceCaptureTargetId,
         regionSourceOriginX,
         regionSourceOriginY,
+        regionSourceScaleFactorMilli,
       )
       const captureTargets = await desktopClient.getCaptureTargets()
       startTransition(() => {

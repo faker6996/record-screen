@@ -559,14 +559,14 @@ fn escape_applescript_text(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        env,
-        time::{Duration, UNIX_EPOCH},
-    };
     #[cfg(target_os = "linux")]
     use std::ffi::OsString;
     #[cfg(target_os = "linux")]
     use std::sync::{Mutex, OnceLock};
+    use std::{
+        env,
+        time::{Duration, UNIX_EPOCH},
+    };
 
     #[cfg(target_os = "linux")]
     fn test_lock() -> &'static Mutex<()> {

@@ -2572,6 +2572,7 @@ name = "permissions"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "capture",
  "core-graphics",
  "objc2",
  "objc2-av-foundation",
@@ -3062,7 +3063,7 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "record-screen-desktop"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "app-core",
  "capture",

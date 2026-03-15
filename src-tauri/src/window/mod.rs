@@ -107,10 +107,7 @@ fn region_selector_init_script(context: &RegionSelectorContext) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn current_monitor_capture_target_id(
-    app: &AppHandle,
-    monitor: &tauri::Monitor,
-) -> String {
+fn current_monitor_capture_target_id(app: &AppHandle, monitor: &tauri::Monitor) -> String {
     let mut monitors = match app.available_monitors() {
         Ok(monitors) => monitors,
         Err(_) => return capture::FULL_DESKTOP_TARGET_ID.to_string(),
@@ -136,10 +133,7 @@ fn current_monitor_capture_target_id(
 }
 
 #[cfg(not(target_os = "macos"))]
-fn current_monitor_capture_target_id(
-    _app: &AppHandle,
-    _monitor: &tauri::Monitor,
-) -> String {
+fn current_monitor_capture_target_id(_app: &AppHandle, _monitor: &tauri::Monitor) -> String {
     capture::FULL_DESKTOP_TARGET_ID.to_string()
 }
 
@@ -200,7 +194,10 @@ pub fn hide_region_selector(app: &AppHandle) -> Result<(), String> {
 }
 
 pub fn ensure_target_preview_window(app: &AppHandle) -> Result<(), String> {
-    if app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL).is_some() {
+    if app
+        .get_webview_window(TARGET_PREVIEW_WINDOW_LABEL)
+        .is_some()
+    {
         return Ok(());
     }
 
@@ -242,7 +239,9 @@ pub fn show_target_preview(
     let sequence = TARGET_PREVIEW_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1;
     if let Some(window) = app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL) {
         window
-            .set_position(Position::Physical(PhysicalPosition::new(bounds.x, bounds.y)))
+            .set_position(Position::Physical(PhysicalPosition::new(
+                bounds.x, bounds.y,
+            )))
             .map_err(|error| error.to_string())?;
         window
             .set_size(Size::Physical(PhysicalSize::new(

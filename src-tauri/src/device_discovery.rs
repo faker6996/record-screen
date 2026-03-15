@@ -1,4 +1,5 @@
 use std::{
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
@@ -24,8 +25,23 @@ fn cache() -> &'static Mutex<Option<CachedDeviceDiscovery>> {
     CACHE.get_or_init(|| Mutex::new(None))
 }
 
+fn refresh_in_flight() -> &'static AtomicBool {
+    static REFRESH_IN_FLIGHT: OnceLock<AtomicBool> = OnceLock::new();
+    REFRESH_IN_FLIGHT.get_or_init(|| AtomicBool::new(false))
+}
+
 pub fn initial_snapshot() -> DeviceDiscoverySnapshot {
-    current_snapshot()
+    {
+        let cache = cache()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(entry) = cache.as_ref() {
+            return entry.snapshot.clone();
+        }
+    }
+
+    schedule_background_refresh();
+    fallback_snapshot()
 }
 
 pub fn current_snapshot() -> DeviceDiscoverySnapshot {
@@ -58,6 +74,34 @@ fn load_snapshot(force_refresh: bool) -> DeviceDiscoverySnapshot {
     snapshot
 }
 
+fn schedule_background_refresh() {
+    if refresh_in_flight()
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+
+    std::thread::spawn(|| {
+        let snapshot = discover_devices();
+        let mut cache = cache()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *cache = Some(CachedDeviceDiscovery {
+            snapshot,
+            refreshed_at: Instant::now(),
+        });
+        refresh_in_flight().store(false, Ordering::Release);
+    });
+}
+
+fn fallback_snapshot() -> DeviceDiscoverySnapshot {
+    DeviceDiscoverySnapshot {
+        capture_targets: vec![capture::full_desktop_target()],
+        audio_inputs: vec![capture::default_audio_input()],
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn discover_devices() -> DeviceDiscoverySnapshot {
     let (capture_targets, audio_inputs) = capture_macos::list_device_options();
@@ -85,8 +129,5 @@ fn discover_devices() -> DeviceDiscoverySnapshot {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn discover_devices() -> DeviceDiscoverySnapshot {
-    DeviceDiscoverySnapshot {
-        capture_targets: vec![capture::full_desktop_target()],
-        audio_inputs: vec![capture::default_audio_input()],
-    }
+    fallback_snapshot()
 }

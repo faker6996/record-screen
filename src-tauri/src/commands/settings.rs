@@ -203,6 +203,7 @@ pub fn update_custom_region(
     region_source_capture_target_id: Option<String>,
     region_source_origin_x: Option<i32>,
     region_source_origin_y: Option<i32>,
+    region_source_scale_factor_milli: Option<u32>,
 ) -> Result<AppSettings, String> {
     let (settings, recorder) = {
         let mut core = state
@@ -217,6 +218,7 @@ pub fn update_custom_region(
             region_source_capture_target_id,
             region_source_origin_x,
             region_source_origin_y,
+            region_source_scale_factor_milli,
         );
         let recorder = core.snapshot();
         (settings, recorder)

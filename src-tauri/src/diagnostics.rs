@@ -28,7 +28,9 @@ pub fn runtime_diagnostics() -> RuntimeDiagnostics {
             .iter()
             .filter(|input| input.kind == capture::AudioInputKind::Microphone)
             .count();
-        let fallback_default = audio_inputs.iter().find(|input| input.id == capture::DEFAULT_AUDIO_INPUT_ID);
+        let fallback_default = audio_inputs
+            .iter()
+            .find(|input| input.id == capture::DEFAULT_AUDIO_INPUT_ID);
         let audio_readiness = if enumerated_microphones > 0 {
             format!(
                 "Microphone discovery is ready. Found {} direct input{}.",

@@ -40,8 +40,10 @@
 
 ## Next Integration Targets
 
+- Native backend migration now tracks in `docs/roadmap/native-backend-plan.md`
+- The native migration now explicitly includes legacy cleanup and architecture-boundary tightening, not only feature parity
 - Production-grade Linux pure Wayland capture hardening beyond the current experimental GStreamer PipeWire path
+- Windows native capture/audio backend work beyond the current ffmpeg stack
+- macOS native encode/system-audio backend work beyond the current ffmpeg runtime
 - Richer diagnostics and benchmark telemetry
-- Deeper Windows permission and readiness hardening
-- macOS system-audio backend work
 - Richer export workflow
