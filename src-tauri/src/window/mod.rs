@@ -108,14 +108,10 @@ fn region_selector_init_script(context: &RegionSelectorContext) -> String {
 
 #[cfg(target_os = "macos")]
 fn current_monitor_capture_target_id(app: &AppHandle, monitor: &tauri::Monitor) -> String {
-    let mut monitors = match app.available_monitors() {
+    let monitors = match app.available_monitors() {
         Ok(monitors) => monitors,
         Err(_) => return capture::FULL_DESKTOP_TARGET_ID.to_string(),
     };
-    monitors.sort_by_key(|candidate| {
-        let position = candidate.position();
-        (position.y, position.x)
-    });
 
     let current_index = monitors.iter().position(|candidate| {
         candidate.position() == monitor.position() && candidate.size() == monitor.size()
@@ -232,29 +228,38 @@ pub fn ensure_target_preview_window(app: &AppHandle) -> Result<(), String> {
 
 pub fn show_target_preview(
     app: &AppHandle,
-    bounds: crate::target_preview::PreviewBounds,
+    preview: crate::target_preview::PreviewPresentation,
 ) -> Result<(), String> {
     ensure_target_preview_window(app)?;
 
     let sequence = TARGET_PREVIEW_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1;
     if let Some(window) = app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL) {
+        let payload = serde_json::json!({
+            "title": preview.title,
+            "sequence": sequence,
+        });
         window
             .set_position(Position::Physical(PhysicalPosition::new(
-                bounds.x, bounds.y,
+                preview.bounds.x,
+                preview.bounds.y,
             )))
             .map_err(|error| error.to_string())?;
         window
             .set_size(Size::Physical(PhysicalSize::new(
-                bounds.width.max(64),
-                bounds.height.max(64),
+                preview.bounds.width.max(64),
+                preview.bounds.height.max(64),
             )))
             .map_err(|error| error.to_string())?;
+        let script = format!(
+            "window.__RECORD_SCREEN_TARGET_PREVIEW_CONTEXT__ = {payload}; window.dispatchEvent(new Event('record-screen:target-preview'));"
+        );
+        let _ = window.eval(&script);
         window.show().map_err(|error| error.to_string())?;
     }
 
     let app_handle = app.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(1400));
+        thread::sleep(Duration::from_millis(3000));
         if TARGET_PREVIEW_SEQUENCE.load(Ordering::Relaxed) != sequence {
             return;
         }
@@ -317,7 +322,7 @@ pub fn sync_hud_visibility(
 ) -> Result<(), String> {
     match snapshot.status {
         RecorderStatus::Idle => hide_hud(app),
-        RecorderStatus::Recording | RecorderStatus::Paused => {
+        RecorderStatus::Recording | RecorderStatus::Paused | RecorderStatus::Finalizing => {
             if show_hud_during_recording {
                 show_hud(app)
             } else {

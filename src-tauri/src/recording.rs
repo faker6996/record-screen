@@ -1,4 +1,8 @@
-use std::{path::Path, thread, time::Duration};
+use std::{
+    path::Path,
+    thread,
+    time::{Duration, Instant},
+};
 
 use app_core::{CompletedRecording, RecorderSnapshot, RecorderStatus};
 use capture::{CaptureController, RecordingOptions};
@@ -22,6 +26,9 @@ pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     match status {
         RecorderStatus::Idle => start_recording(app),
         RecorderStatus::Recording | RecorderStatus::Paused => stop_recording(app),
+        RecorderStatus::Finalizing => {
+            Err("Recording is still finalizing the output file.".to_string())
+        }
     }
 }
 
@@ -72,6 +79,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     }
     let output_path = storage::next_recording_path(&settings.output_directory)
         .map_err(|error| error.to_string())?;
+    storage::validate_recording_output_path(&output_path).map_err(|error| error.to_string())?;
     let recording_options = RecordingOptions {
         output_path: output_path.clone(),
         quality_preset: settings.quality_preset,
@@ -88,7 +96,9 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         region_source_origin_y: settings.region_source_origin_y,
         region_source_scale_factor_milli: settings.region_source_scale_factor_milli,
     };
+    let start_started_at = Instant::now();
     let controller = create_capture_controller(recording_options)?;
+    let controller_ready_after = start_started_at.elapsed();
     let active = controller.active_recording().clone();
     let active_target_label = active.target_label.clone();
     let active_encoder_label = active.encoder_label.clone();
@@ -121,7 +131,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 
     let diagnostics = crate::diagnostics::initial_runtime_diagnostics();
     runtime_log::log_runtime_info(&format!(
-        "recording started | target={} | output={} | encoder={} | capture_backend={} | audio_backend={} | encoder_backend={} | can_pause={} | pause_note={} | capture_note={} | audio_note={} | encoder_note={}",
+        "recording started | target={} | output={} | encoder={} | capture_backend={} | audio_backend={} | encoder_backend={} | can_pause={} | pause_note={} | capture_note={} | audio_note={} | encoder_note={} | controller_ready_ms={}",
         active_target_label,
         output_path.display(),
         active_encoder_label,
@@ -133,6 +143,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         diagnostics.capture_selection_note,
         diagnostics.audio_selection_note,
         diagnostics.encoder_selection_note,
+        controller_ready_after.as_millis(),
     ));
 
     sync_hud_for_current_settings(app, &snapshot);
@@ -143,7 +154,8 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 
 pub fn stop_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     let controller = take_controller(app)?;
-    let snapshot = with_core(app, |core| core.stop_recording(None))?;
+    let snapshot = with_core(app, |core| core.begin_finalizing())?
+        .ok_or_else(|| "no active recorder process".to_string())?;
     emit_recorder_state(app, &snapshot);
     sync_hud_for_current_settings(app, &snapshot);
     spawn_stop_finalizer(app.clone(), controller);
@@ -205,6 +217,10 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
             Ok(snapshot)
         }
         RecorderStatus::Idle => Ok(None),
+        RecorderStatus::Finalizing => Err(
+            "Recording is finalizing the output file. Pause and resume are unavailable."
+                .to_string(),
+        ),
     }
 }
 
@@ -223,7 +239,7 @@ fn spawn_recorder_ticker(app: AppHandle) {
                 Ok(None) => {}
                 Err(error) => {
                     emit_runtime_error(&app, &error);
-                    if let Ok(snapshot) = with_core(&app, |core| core.stop_recording(None)) {
+                    if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
                         emit_recorder_state(&app, &snapshot);
                         sync_hud_for_current_settings(&app, &snapshot);
                     }
@@ -284,7 +300,7 @@ fn poll_runtime(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String> {
         size_bytes: artifact.bytes_written,
     };
 
-    with_core(app, |core| core.stop_recording(Some(summary))).map(Some)
+    with_core(app, |core| core.finish_recording(Some(summary))).map(Some)
 }
 
 fn take_controller(app: &AppHandle) -> Result<Box<dyn CaptureController>, String> {
@@ -299,29 +315,46 @@ fn take_controller(app: &AppHandle) -> Result<Box<dyn CaptureController>, String
 }
 
 fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureController>) {
-    thread::spawn(move || match controller.stop() {
-        Ok(completed) => {
-            runtime_log::log_runtime_info(&format!(
-                "recording finalized | output={} | bytes={} | duration_secs={}",
-                completed.output_path.display(),
-                completed.bytes_written,
-                completed.duration.as_secs()
-            ));
-            let summary = CompletedRecording {
-                title: file_stem(&completed.output_path),
-                started_at_label: format_started_at(completed.started_at),
-                duration: completed.duration,
-                location: completed.output_path.display().to_string(),
-                size_bytes: completed.bytes_written,
-            };
+    thread::spawn(move || {
+        let finalize_started_at = Instant::now();
+        match controller.stop() {
+            Ok(completed) => {
+                runtime_log::log_runtime_info(&format!(
+                    "recording finalized | output={} | bytes={} | duration_secs={} | finalize_ms={}",
+                    completed.output_path.display(),
+                    completed.bytes_written,
+                    completed.duration.as_secs(),
+                    finalize_started_at.elapsed().as_millis(),
+                ));
+                let summary = CompletedRecording {
+                    title: file_stem(&completed.output_path),
+                    started_at_label: format_started_at(completed.started_at),
+                    duration: completed.duration,
+                    location: completed.output_path.display().to_string(),
+                    size_bytes: completed.bytes_written,
+                };
 
-            let _ = with_core(&app, |core| {
-                core.push_completed_recording(summary);
-            });
-            emit_recent_sessions_refresh_request(&app);
-        }
-        Err(error) => {
-            emit_runtime_error(&app, &error.to_string());
+                let _ = with_core(&app, |core| {
+                    core.push_completed_recording(summary);
+                });
+                if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
+                    emit_recorder_state(&app, &snapshot);
+                    sync_hud_for_current_settings(&app, &snapshot);
+                }
+                emit_recent_sessions_refresh_request(&app);
+            }
+            Err(error) => {
+                runtime_log::log_runtime_error(&format!(
+                    "recording finalize failed after {} ms: {}",
+                    finalize_started_at.elapsed().as_millis(),
+                    error
+                ));
+                if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
+                    emit_recorder_state(&app, &snapshot);
+                    sync_hud_for_current_settings(&app, &snapshot);
+                }
+                emit_runtime_error(&app, &error.to_string());
+            }
         }
     });
 }

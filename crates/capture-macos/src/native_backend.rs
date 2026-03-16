@@ -11,7 +11,8 @@ use std::{
 use capture::{
     CUSTOM_REGION_TARGET_ID, CaptureBackendAvailability, CaptureBackendDescriptor,
     CaptureBackendFactory, CaptureBackendFamily, CaptureBackendRuntimeReport, CaptureController,
-    CaptureError, FULL_DESKTOP_TARGET_ID, RecordingOptions,
+    CaptureError, CaptureTargetOption, FULL_DESKTOP_TARGET_ID, RecordingOptions,
+    full_desktop_target,
 };
 #[cfg(target_os = "macos")]
 use screencapturekit::{
@@ -54,6 +55,7 @@ struct ScreenCaptureKitNativeTarget {
 pub struct ScreenCaptureKitStartPlan {
     pub target_id: String,
     pub resolved_source_target_id: String,
+    pub resolved_native_target_id: String,
     pub resolved_native_target_label: Option<String>,
     pub output_width: u32,
     pub output_height: u32,
@@ -116,6 +118,20 @@ pub fn start_plan(options: &RecordingOptions) -> ScreenCaptureKitStartPlan {
     enrich_start_plan(build_start_plan(options))
 }
 
+pub fn capture_target_options() -> Option<Vec<CaptureTargetOption>> {
+    let report = screen_capture_kit_probe().ok()?;
+    let mut targets = vec![full_desktop_target()];
+    targets.extend(report.targets.iter().map(|target| CaptureTargetOption {
+        id: format!("monitor:{}", target.display_index),
+        label: format!("Display {}", target.display_index),
+        description: format!(
+            "ScreenCaptureKit display {} mapped to native display {}.",
+            target.display_index, target.display_id
+        ),
+    }));
+    Some(targets)
+}
+
 pub fn execution_plan(options: &RecordingOptions) -> Result<ScreenCaptureKitExecutionPlan, String> {
     build_execution_plan(options)
 }
@@ -176,10 +192,17 @@ impl CaptureBackendFactory for ScreenCaptureKitMacosBackend {
     fn runtime_report(&self) -> CaptureBackendRuntimeReport {
         match screen_capture_kit_probe() {
             Ok(report) => CaptureBackendRuntimeReport {
-                summary: Some(format!(
-                    "{} ScreenCaptureKit now has a hybrid recorder path for display capture; unsupported cases still fall back to the ffmpeg / AVFoundation runtime.",
-                    report.summary
-                )),
+                summary: Some(if native_recording_output_runtime_is_supported() {
+                    format!(
+                        "{} ScreenCaptureKit is the active macOS native capture path; display, monitor, and custom-region recording now target the direct recording-output lane on supported runtimes.",
+                        report.summary
+                    )
+                } else {
+                    format!(
+                        "{} ScreenCaptureKit is available for native capture planning, while older macOS runtimes still rely on the compatibility bridge path.",
+                        report.summary
+                    )
+                }),
                 preferred_target_label: report.preferred_target_label,
             },
             Err(probe_error) => CaptureBackendRuntimeReport {
@@ -211,6 +234,10 @@ fn macos_version() -> Option<(u64, u64, u64)> {
     }
 
     parse_version(String::from_utf8_lossy(&output.stdout).trim())
+}
+
+fn native_recording_output_runtime_is_supported() -> bool {
+    matches!(macos_version(), Some((major, _, _)) if major >= 15)
 }
 
 #[cfg(target_os = "macos")]
@@ -293,6 +320,7 @@ fn build_start_plan(options: &RecordingOptions) -> ScreenCaptureKitStartPlan {
     } else {
         options.capture_target_id.clone()
     };
+    let resolved_native_target_id = normalize_native_target_id(&resolved_source_target_id);
 
     let target_summary = if options.capture_target_id == CUSTOM_REGION_TARGET_ID {
         format!(
@@ -334,6 +362,7 @@ fn build_start_plan(options: &RecordingOptions) -> ScreenCaptureKitStartPlan {
     ScreenCaptureKitStartPlan {
         target_id,
         resolved_source_target_id,
+        resolved_native_target_id,
         resolved_native_target_label: None,
         output_width,
         output_height,
@@ -350,7 +379,7 @@ fn enrich_start_plan(mut plan: ScreenCaptureKitStartPlan) -> ScreenCaptureKitSta
         return plan;
     };
 
-    let Some(native_target) = resolve_native_target(&probe_report, &plan.resolved_source_target_id)
+    let Some(native_target) = resolve_native_target(&probe_report, &plan.resolved_native_target_id)
     else {
         return plan;
     };
@@ -374,7 +403,7 @@ fn build_execution_plan(
         .get()
         .map_err(|error| error.to_string())?;
 
-    let display = resolve_native_display(&content, &start_plan.resolved_source_target_id)
+    let display = resolve_native_display(&content, &start_plan.resolved_native_target_id)
         .ok_or_else(|| {
             format!(
                 "ScreenCaptureKit could not resolve native display for `{}`.",
@@ -442,7 +471,7 @@ fn build_runtime_foundation(
         .get()
         .map_err(|error| error.to_string())?;
 
-    let display = resolve_native_display(&content, &start_plan.resolved_source_target_id)
+    let display = resolve_native_display(&content, &start_plan.resolved_native_target_id)
         .ok_or_else(|| {
             format!(
                 "ScreenCaptureKit could not resolve native display for `{}` while building stream foundation.",
@@ -504,7 +533,7 @@ fn build_prepared_runtime(
         .get()
         .map_err(|error| error.to_string())?;
 
-    let display = resolve_native_display(&content, &start_plan.resolved_source_target_id)
+    let display = resolve_native_display(&content, &start_plan.resolved_native_target_id)
         .ok_or_else(|| {
             format!(
                 "ScreenCaptureKit could not resolve native display for `{}` while preparing stream handlers.",
@@ -562,7 +591,7 @@ fn build_smoke_lifecycle(
         .get()
         .map_err(|error| error.to_string())?;
 
-    let display = resolve_native_display(&content, &start_plan.resolved_source_target_id)
+    let display = resolve_native_display(&content, &start_plan.resolved_native_target_id)
         .ok_or_else(|| {
             format!(
                 "ScreenCaptureKit could not resolve native display for `{}` while running smoke lifecycle.",
@@ -671,48 +700,69 @@ fn build_smoke_lifecycle(
 
 fn resolve_native_target<'a>(
     probe_report: &'a ScreenCaptureKitProbeReport,
-    resolved_source_target_id: &str,
+    resolved_native_target_id: &str,
 ) -> Option<&'a ScreenCaptureKitNativeTarget> {
-    if resolved_source_target_id == FULL_DESKTOP_TARGET_ID {
+    if resolved_native_target_id == FULL_DESKTOP_TARGET_ID {
         return probe_report.targets.first();
     }
 
     if let Some(target) = probe_report
         .targets
         .iter()
-        .find(|target| target.target_id == resolved_source_target_id)
+        .find(|target| target.target_id == resolved_native_target_id)
     {
         return Some(target);
     }
 
-    let parsed_monitor_index = resolved_source_target_id
+    let parsed_monitor_index = resolved_native_target_id
         .strip_prefix("monitor:")
         .and_then(|value| value.parse::<usize>().ok())?;
 
     probe_report
         .targets
-        .get(parsed_monitor_index.saturating_sub(1))
-        .or_else(|| probe_report.targets.get(parsed_monitor_index))
+        .iter()
+        .find(|target| target.display_index == parsed_monitor_index)
         .or_else(|| {
-            probe_report
-                .targets
-                .iter()
-                .find(|target| target.display_index == parsed_monitor_index)
+            parsed_monitor_index
+                .checked_sub(1)
+                .and_then(|legacy_index| {
+                    probe_report
+                        .targets
+                        .iter()
+                        .find(|target| target.display_index == legacy_index)
+                })
         })
+}
+
+fn resolve_native_display_index(
+    resolved_native_target_id: &str,
+    display_count: usize,
+) -> Option<usize> {
+    let parsed_monitor_index = resolved_native_target_id
+        .strip_prefix("monitor:")
+        .and_then(|value| value.parse::<usize>().ok())?;
+
+    if parsed_monitor_index < display_count {
+        return Some(parsed_monitor_index);
+    }
+
+    parsed_monitor_index
+        .checked_sub(1)
+        .filter(|legacy_index| *legacy_index < display_count)
 }
 
 #[cfg(target_os = "macos")]
 pub(crate) fn resolve_native_display(
     content: &SCShareableContent,
-    resolved_source_target_id: &str,
+    resolved_native_target_id: &str,
 ) -> Option<SCDisplay> {
     let displays = content.displays();
 
-    if resolved_source_target_id == FULL_DESKTOP_TARGET_ID {
+    if resolved_native_target_id == FULL_DESKTOP_TARGET_ID {
         return displays.into_iter().next();
     }
 
-    if let Some(display_id) = resolved_source_target_id
+    if let Some(display_id) = resolved_native_target_id
         .strip_prefix("monitor:")
         .and_then(|value| value.parse::<u32>().ok())
     {
@@ -724,14 +774,58 @@ pub(crate) fn resolve_native_display(
         }
     }
 
-    let parsed_monitor_index = resolved_source_target_id
-        .strip_prefix("monitor:")
-        .and_then(|value| value.parse::<usize>().ok())?;
+    resolve_native_display_index(resolved_native_target_id, displays.len())
+        .and_then(|display_index| displays.get(display_index).cloned())
+}
 
-    displays
-        .get(parsed_monitor_index.saturating_sub(1))
-        .cloned()
-        .or_else(|| displays.get(parsed_monitor_index).cloned())
+fn normalize_native_target_id(resolved_source_target_id: &str) -> String {
+    let Some(source_monitor_id) = resolved_source_target_id.strip_prefix("monitor:") else {
+        return resolved_source_target_id.to_string();
+    };
+
+    let Ok(probe_report) = screen_capture_kit_probe() else {
+        return resolved_source_target_id.to_string();
+    };
+
+    normalize_native_target_id_from_probe_report(source_monitor_id, &probe_report)
+        .unwrap_or_else(|| resolved_source_target_id.to_string())
+}
+
+fn normalize_native_target_id_from_probe_report(
+    source_monitor_id: &str,
+    probe_report: &ScreenCaptureKitProbeReport,
+) -> Option<String> {
+    let parsed_monitor_id = source_monitor_id.parse::<usize>().ok()?;
+
+    if probe_report
+        .targets
+        .iter()
+        .any(|target| target.display_index == parsed_monitor_id)
+    {
+        return Some(format!("monitor:{parsed_monitor_id}"));
+    }
+
+    if let Some(legacy_index) = parsed_monitor_id.checked_sub(1) {
+        if probe_report
+            .targets
+            .iter()
+            .any(|target| target.display_index == legacy_index)
+        {
+            return Some(format!("monitor:{legacy_index}"));
+        }
+    }
+
+    if let Some(legacy_display_index) = parsed_monitor_id.checked_sub(3) {
+        if probe_report
+            .targets
+            .iter()
+            .any(|target| target.display_index == legacy_display_index)
+        {
+            return Some(format!("monitor:{legacy_display_index}"));
+        }
+    }
+
+    None
 }
 
 fn parse_version(value: &str) -> Option<(u64, u64, u64)> {
@@ -759,7 +853,8 @@ mod tests {
         ScreenCaptureKitPreparedRuntime, ScreenCaptureKitProbeReport,
         ScreenCaptureKitRuntimeFoundation, ScreenCaptureKitSmokeLifecycle,
         ScreenCaptureKitStartPlan, build_probe_summary, build_start_plan, enrich_start_plan,
-        format_display_label, parse_version, resolve_native_target, stream_settings,
+        format_display_label, normalize_native_target_id_from_probe_report, parse_version,
+        resolve_native_display_index, resolve_native_target, stream_settings,
     };
     use capture::{CUSTOM_REGION_TARGET_ID, FULL_DESKTOP_TARGET_ID, RecordingOptions};
     use std::path::PathBuf;
@@ -827,7 +922,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_monitor_targets_by_exact_or_index_match() {
+    fn resolves_monitor_targets_by_exact_or_zero_based_index_match() {
         let report = ScreenCaptureKitProbeReport {
             summary: String::new(),
             preferred_target_label: None,
@@ -853,11 +948,58 @@ mod tests {
         let exact_target = resolve_native_target(&report, "monitor:69733248").unwrap();
         assert_eq!(exact_target.display_id, 69733248);
 
-        let index_target = resolve_native_target(&report, "monitor:1").unwrap();
+        let index_target = resolve_native_target(&report, "monitor:0").unwrap();
         assert_eq!(index_target.display_id, 69733248);
 
-        let second_index_target = resolve_native_target(&report, "monitor:2").unwrap();
+        let second_index_target = resolve_native_target(&report, "monitor:1").unwrap();
         assert_eq!(second_index_target.display_id, 1002);
+    }
+
+    #[test]
+    fn normalizes_legacy_monitor_ids_to_native_indices() {
+        let report = ScreenCaptureKitProbeReport {
+            summary: String::new(),
+            preferred_target_label: None,
+            display_count: 3,
+            window_count: 0,
+            application_count: 0,
+            targets: vec![
+                ScreenCaptureKitNativeTarget {
+                    target_id: "monitor:69733248".to_string(),
+                    display_index: 0,
+                    display_id: 69733248,
+                    label: "Display 69733248 (3024x1964)".to_string(),
+                },
+                ScreenCaptureKitNativeTarget {
+                    target_id: "monitor:1002".to_string(),
+                    display_index: 1,
+                    display_id: 1002,
+                    label: "Display 1002 (1920x1080)".to_string(),
+                },
+                ScreenCaptureKitNativeTarget {
+                    target_id: "monitor:1003".to_string(),
+                    display_index: 2,
+                    display_id: 1003,
+                    label: "Display 1003 (1920x1080)".to_string(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            normalize_native_target_id_from_probe_report("4", &report).as_deref(),
+            Some("monitor:1")
+        );
+        assert_eq!(
+            normalize_native_target_id_from_probe_report("2", &report).as_deref(),
+            Some("monitor:2")
+        );
+    }
+
+    #[test]
+    fn resolves_native_display_indices_for_zero_based_and_legacy_one_based_targets() {
+        assert_eq!(resolve_native_display_index("monitor:0", 3), Some(0));
+        assert_eq!(resolve_native_display_index("monitor:1", 3), Some(1));
+        assert_eq!(resolve_native_display_index("monitor:3", 3), Some(2));
     }
 
     #[test]
@@ -881,6 +1023,7 @@ mod tests {
 
         assert_eq!(plan.target_id, CUSTOM_REGION_TARGET_ID);
         assert_eq!(plan.resolved_source_target_id, "monitor:main");
+        assert_eq!(plan.resolved_native_target_id, "monitor:main");
         assert!(plan.summary.contains("custom region"));
         assert!(plan.summary.contains("monitor:main"));
         assert!(plan.summary.contains("scale=2000"));
@@ -909,6 +1052,7 @@ mod tests {
         });
 
         assert_eq!(plan.resolved_source_target_id, FULL_DESKTOP_TARGET_ID);
+        assert_eq!(plan.resolved_native_target_id, FULL_DESKTOP_TARGET_ID);
         assert!(plan.summary.contains("full desktop"));
         assert!(plan.region_summary.is_none());
     }
@@ -918,6 +1062,7 @@ mod tests {
         let plan = ScreenCaptureKitStartPlan {
             target_id: FULL_DESKTOP_TARGET_ID.to_string(),
             resolved_source_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
+            resolved_native_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
             resolved_native_target_label: None,
             output_width: 1920,
             output_height: 1080,

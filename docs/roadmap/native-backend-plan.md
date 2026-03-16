@@ -23,7 +23,7 @@ The rule for this document is simple:
 
 Today the app is a real cross-platform MVP, but the runtime still depends heavily on `ffmpeg`.
 
-- `macOS`: `AVFoundation + ffmpeg`
+- `macOS`: legacy `AVFoundation + ffmpeg`, with macOS 15+ now moving onto direct `ScreenCaptureKit / SCRecordingOutput`
 - `Windows`: `gdigrab + dshow + ffmpeg`
 - `Linux X11/XWayland`: `x11grab + pulse + ffmpeg`
 - `Linux Wayland-only`: ScreenCast portal / PipeWire lifecycle and experimental runtime path exist, but the path is not yet production-ready
@@ -81,7 +81,7 @@ Lock down the current recorder shell so the native migration does not destabiliz
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `complete` | MVP backend works via `AVFoundation + ffmpeg` |
+| macOS | `complete` | MVP backend shipped first via `AVFoundation + ffmpeg`; macOS 15+ mainline recording now targets direct `ScreenCaptureKit / SCRecordingOutput` |
 | Windows | `complete` | MVP backend works via `gdigrab + dshow + ffmpeg` |
 | Linux | `complete` | MVP backend works on `X11/XWayland`; Wayland-only remains experimental |
 
@@ -118,7 +118,7 @@ Replace screen-source acquisition with native capture APIs that match modern des
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `partial` | Uses native permission and AVFoundation source concepts; backend registry, selection policy, shared capture runtime reports, and a dedicated `ScreenCaptureKit` module now exist; the candidate no longer relies only on `sw_vers`, and now runs a real `ScreenCaptureKit` shareable-content probe for displays/windows/applications, while also exposing a recorder-facing start plan for full-desktop / monitor / custom-region targeting that can resolve a native display candidate label from probe results, carries stream configuration intent (`width/height/fps`), and is used by the current recording start path for resolved source-target selection plus stream sizing; in addition, the macOS lane can now build a real `SCContentFilter + SCStreamConfiguration` execution plan, construct an `SCStream` foundation object from it, prepare a real screen output handler on that stream, and expose a smoke `start_capture()/stop_capture()` lifecycle that can be enabled explicitly for native-lane validation and now records lightweight Rust-side screen/audio sample bridge stats; the recorder now also has two live native-leaning runtime lanes: a macOS 15+ `SCRecordingOutput` file-output path for display, monitor, and custom-region capture with system-audio plus native microphone-device-id routing, startup handshake checks, delegate-driven finish/error tracking, and runtime gating so older macOS versions fall back cleanly instead of attempting an unsupported direct lane, and a hybrid `ScreenCaptureKit -> ffmpeg` path for video-only display/custom-region capture, while the remaining unsupported combinations still fall back to `AVFoundation + ffmpeg`; pause/resume is still unavailable on the direct `SCRecordingOutput` lane, so the app surfaces that capability explicitly in HUD, tray, and shortcut handling instead of pretending it works |
+| macOS | `partial` | Uses native permission and AVFoundation source concepts; backend registry, selection policy, shared capture runtime reports, and a dedicated `ScreenCaptureKit` module now exist; the candidate no longer relies only on `sw_vers`, now runs a real `ScreenCaptureKit` shareable-content probe for displays/windows/applications, and now also feeds the capture-target list so the app no longer depends on `ffmpeg -list_devices` to populate monitor choices; it also exposes a recorder-facing start plan for full-desktop / monitor / custom-region targeting that can resolve a native display candidate label from probe results, carries stream configuration intent (`width/height/fps`), and is used by the current recording start path for resolved source-target selection plus stream sizing; in addition, the macOS lane can now build a real `SCContentFilter + SCStreamConfiguration` execution plan, construct an `SCStream` foundation object from it, prepare a real screen output handler on that stream, and expose a smoke `start_capture()/stop_capture()` lifecycle that can be enabled explicitly for native-lane validation and now records lightweight Rust-side screen/audio sample bridge stats; the recorder now targets a macOS 15+ `SCRecordingOutput` file-output path for display, monitor, and custom-region capture with system-audio plus native microphone-device-id routing, startup handshake checks, delegate-driven finish/error tracking, explicit `Finalizing` state between stop and idle, output-path preflight, startup/finalize timing logs, clearer output-inspection errors, and explicit runtime gating so older macOS versions fail cleanly instead of attempting unsupported native audio/file-output combinations; microphone selection also now comes from native device discovery, the app path now selects only native capture/audio/encoder backends instead of silently dropping back to ffmpeg, and the legacy ffmpeg capture/output compatibility code has been retired from the macOS crate; pause/resume is still unavailable on the direct `SCRecordingOutput` lane, so the app surfaces that capability explicitly in HUD, tray, and shortcut handling instead of pretending it works |
 | Windows | `partial` | Backend registry, selection policy, and shared capture runtime reports now exist, but no `Windows.Graphics.Capture` runtime is implemented yet |
 | Linux | `partial` | Backend registry, selection policy, and shared capture runtime reports exist; ScreenCast portal lifecycle and PipeWire groundwork exist, but Wayland-only capture is not production-ready |
 
@@ -155,7 +155,7 @@ Move microphone and system-audio capture to native OS audio stacks instead of re
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `partial` | Audio-backend registry, diagnostics, and a dedicated Core Audio native-audio module with structured device reporting and default input/output candidate summary now exist; those preferred candidates are surfaced through runtime diagnostics, are reused by fallback audio summaries/default-input copy, and now feed a recorder-facing audio start plan written into runtime support logs and used by the current recording start path for default-microphone resolution, but runtime still depends on the ffmpeg / AVFoundation audio path |
+| macOS | `partial` | Audio-backend registry, diagnostics, and a dedicated Core Audio native-audio module with structured device reporting and default input/output candidate summary now exist; those preferred candidates are surfaced through runtime diagnostics, now populate the primary selectable microphone list, and now feed a recorder-facing audio start plan written into runtime support logs and used by the current recording start path for default-microphone resolution; on macOS 15+ the direct `SCRecordingOutput` lane now consumes that native microphone routing, while older runtimes fail cleanly because the app no longer ships a separate ffmpeg-based compatibility path |
 | Windows | `partial` | Audio-backend registry, diagnostics, and a dedicated WASAPI native-audio module with default-device plus capture/render-endpoint probing and candidate selection now exist; those preferred candidates are surfaced through runtime diagnostics, carry structured endpoint identity (`instance_id + label`), and now feed shared Windows audio runtime/route plans plus recorder-facing runtime intent and start-plan helpers reused by `Default input` fallback, loopback support summaries, fallback copy, the current recording start path, and runtime support logs, but recording and loopback still depend on DirectShow / ffmpeg rather than WASAPI-native endpoints |
 | Linux | `partial` | Audio-backend registry, diagnostics, and a dedicated PipeWire native-audio module with structured source/sink reporting and preferred candidate summary now exist; those preferred candidates are surfaced through runtime diagnostics and are now reused by fallback audio summaries/default-input copy, but production microphone and system-audio capture still depend on PulseAudio / ffmpeg instead of a PipeWire-native audio pipeline |
 
@@ -172,7 +172,7 @@ Stop depending on `ffmpeg` as the primary recording runtime by moving file creat
 
 ### Target Stack
 
-- `macOS`: `AVAssetWriter` plus hardware-backed VideoToolbox path where applicable
+- `macOS`: native recording output today, with deeper `AVAssetWriter` separation still planned where applicable
 - `Windows`: `Media Foundation`
 - `Linux`: GStreamer / PipeWire-friendly encode pipeline, plus hardware acceleration where practical
 
@@ -194,7 +194,7 @@ Stop depending on `ffmpeg` as the primary recording runtime by moving file creat
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | `partial` | Encoder-backend registry, diagnostics, and a dedicated `AVAssetWriter` native-encoder module now exist; the candidate also exposes a recorder-facing output plan that is written into runtime support logs and is now consumed by the current output path for resolved codec/preset labeling, but recording still writes output through ffmpeg / AVFoundation |
+| macOS | `partial` | Encoder-backend registry, diagnostics, and a dedicated native-output module now exist; the candidate exposes a recorder-facing output plan that is written into runtime support logs and is now consumed by the current output path for resolved codec/preset labeling, and on macOS 15+ file output now targets direct `ScreenCaptureKit / SCRecordingOutput` with no ffmpeg-based mainline path left in the macOS crate |
 | Windows | `partial` | Encoder-backend registry, diagnostics, and a dedicated `Media Foundation` native-encoder module now exist, but recording still writes output through ffmpeg |
 | Linux | `partial` | Encoder-backend registry, diagnostics, and a dedicated GStreamer native-encoder module now exist, but recording still writes output through ffmpeg rather than a production PipeWire/GStreamer-native encoder path |
 

@@ -83,6 +83,10 @@ export function useRecordingCountdown({
   }, [clearCountdownTimer, commitRecordingStart, countdownValue])
 
   const toggleRecording = useCallback(async () => {
+    if (status === 'finalizing') {
+      return
+    }
+
     if (status !== 'idle') {
       resetCountdownState()
       await toggleRecordingNow()

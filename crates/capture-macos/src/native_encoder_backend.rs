@@ -31,21 +31,25 @@ pub fn output_plan(options: &RecordingOptions) -> AvAssetWriterOutputPlan {
 impl EncoderBackendFactory for AvAssetWriterMacosEncoderBackend {
     fn descriptor(&self) -> EncoderBackendDescriptor {
         EncoderBackendDescriptor {
-            id: "macos-avassetwriter",
-            label: "macOS AVAssetWriter",
+            id: "macos-native-recording-output",
+            label: "macOS native recording output",
             family: EncoderBackendFamily::Native,
         }
     }
 
     fn availability(&self) -> EncoderBackendAvailability {
-        let reason = match runtime_summary() {
-            Some(summary) => format!(
-                "{summary} The recorder still writes output through the ffmpeg / AVFoundation pipeline instead of an AVAssetWriter-native encoder runtime."
-            ),
-            None => "A native AVAssetWriter / VideoToolbox encoder path is planned for Phase 3, but the recorder still writes output through ffmpeg today.".to_string(),
-        };
+        if native_recording_output_runtime_is_supported() {
+            EncoderBackendAvailability::Available
+        } else {
+            let reason = match runtime_summary() {
+                Some(summary) => format!(
+                    "{summary} Older macOS runtimes still rely on the compatibility bridge path instead of direct native recording output."
+                ),
+                None => "A fully native macOS recording-output path is only active on macOS 15+; older runtimes still rely on the compatibility bridge today.".to_string(),
+            };
 
-        EncoderBackendAvailability::Unavailable { reason }
+            EncoderBackendAvailability::Unavailable { reason }
+        }
     }
 
     fn runtime_report(&self) -> EncoderBackendRuntimeReport {
@@ -57,14 +61,20 @@ impl EncoderBackendFactory for AvAssetWriterMacosEncoderBackend {
 }
 
 pub fn preferred_encoder_label() -> Option<String> {
-    runtime_summary().map(|_| "H.264 VideoToolbox".to_string())
+    runtime_summary().map(|_| "H.264 native recording output".to_string())
 }
 
 pub fn runtime_summary() -> Option<String> {
     let version = macos_version()?;
-    Some(format!(
-        "macOS reports version `{version}`; AVAssetWriter with VideoToolbox is the planned native encoder path."
-    ))
+    Some(if native_recording_output_runtime_is_supported() {
+        format!(
+            "macOS reports version `{version}`; ScreenCaptureKit recording output is active for native file creation on supported runtimes."
+        )
+    } else {
+        format!(
+            "macOS reports version `{version}`; native recording output is only fully active on macOS 15+, so older runtimes still rely on the compatibility bridge."
+        )
+    })
 }
 
 fn build_output_plan(options: &RecordingOptions) -> AvAssetWriterOutputPlan {
@@ -76,13 +86,13 @@ fn build_output_plan(options: &RecordingOptions) -> AvAssetWriterOutputPlan {
         .filter(|ext| !ext.is_empty())
         .map(|ext| format!("{ext} container"))
         .unwrap_or_else(|| "QuickTime-compatible container".to_string());
-    let (codec_name, codec_preset) = current_runtime_encoder_profile(&options.quality_preset);
+    let (codec_name, codec_preset) = native_recording_output_profile(&options.quality_preset);
     let encoder_label = match codec_preset.as_deref() {
         Some(preset) => format!("{codec_name} · {preset}"),
         None => codec_name.clone(),
     };
     let summary = format!(
-        "AVAssetWriter output plan would write {} using {} for preset `{}` to `{}`.",
+        "Native recording output would write {} using {} for preset `{}` to `{}`.",
         container_label,
         encoder_label,
         options.quality_preset,
@@ -117,39 +127,21 @@ fn macos_version() -> Option<String> {
     }
 }
 
-fn current_runtime_encoder_profile(quality_preset: &str) -> (String, Option<String>) {
-    let encoders = ffmpeg_encoders().unwrap_or_default();
-    if encoders.contains("h264_videotoolbox") {
-        ("h264_videotoolbox".to_string(), None)
-    } else {
-        (
-            "libx264".to_string(),
-            Some(cpu_preset_for_quality(quality_preset).to_string()),
-        )
+fn native_recording_output_runtime_is_supported() -> bool {
+    matches!(macos_version(), Some(version) if version.starts_with("15.") || parse_major_version(&version).is_some_and(|major| major >= 15))
+}
+
+fn native_recording_output_profile(quality_preset: &str) -> (String, Option<String>) {
+    match quality_preset {
+        "4K / 60 fps" | "1440p / 60 fps" => {
+            ("hevc".to_string(), Some("high-efficiency".to_string()))
+        }
+        _ => ("h264".to_string(), Some("balanced".to_string())),
     }
 }
 
-fn ffmpeg_encoders() -> Option<String> {
-    let output = Command::new("ffmpeg")
-        .args(["-hide_banner", "-encoders"])
-        .output()
-        .ok()?;
-    Some(
-        format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .to_ascii_lowercase(),
-    )
-}
-
-fn cpu_preset_for_quality(preset: &str) -> &'static str {
-    match preset {
-        "4K / 60 fps" | "1440p / 60 fps" => "ultrafast",
-        "1080p / 60 fps" => "superfast",
-        _ => "veryfast",
-    }
+fn parse_major_version(version: &str) -> Option<u64> {
+    version.trim().split('.').next()?.parse().ok()
 }
 
 #[cfg(test)]
@@ -179,7 +171,7 @@ mod tests {
 
         assert_eq!(plan.container_label, "MP4 container");
         assert!(!plan.codec_name.is_empty());
-        assert!(plan.summary.contains("AVAssetWriter output plan"));
+        assert!(plan.summary.contains("Native recording output"));
         assert!(plan.summary.contains("1080p / 30 fps"));
     }
 }

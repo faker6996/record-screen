@@ -1,4 +1,4 @@
-export type RecorderStatus = 'idle' | 'recording' | 'paused'
+export type RecorderStatus = 'idle' | 'recording' | 'paused' | 'finalizing'
 
 export interface RecorderSnapshot {
   status: RecorderStatus

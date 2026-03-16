@@ -111,6 +111,8 @@ body {
   --recorder-status-recording-border: color-mix(in srgb, var(--color-accent) 42%, var(--color-control-border));
   --recorder-status-paused-fg: color-mix(in srgb, var(--color-warning) 76%, var(--text-main));
   --recorder-status-paused-border: color-mix(in srgb, var(--color-warning) 38%, var(--color-control-border));
+  --recorder-status-finalizing-fg: color-mix(in srgb, var(--color-warning) 84%, var(--text-main));
+  --recorder-status-finalizing-border: color-mix(in srgb, var(--color-warning) 52%, var(--color-control-border));
   --recorder-status-meta-bg: color-mix(in srgb, var(--color-bg-base) 46%, transparent);
   --recorder-status-meta-border: var(--recorder-card-border);
   --recorder-status-meta-fg: var(--text-muted);

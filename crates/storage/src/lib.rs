@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use shortcuts::{ShortcutAction, ShortcutBinding, default_shortcuts};
 use std::{
     env, fs,
+    fs::OpenOptions,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -55,6 +56,8 @@ impl Default for AppSettings {
 pub enum StorageError {
     #[error("failed to create output directory: {0}")]
     CreateDirectory(#[from] std::io::Error),
+    #[error("failed to validate recording output path: {0}")]
+    ValidateOutputPath(std::io::Error),
     #[error("failed to create app config directory: {0}")]
     CreateConfigDirectory(std::io::Error),
     #[error("failed to read app settings: {0}")]
@@ -184,6 +187,31 @@ pub fn next_recording_path(input: &str) -> Result<PathBuf, StorageError> {
         .as_secs();
 
     Ok(directory.join(format!("recording-{timestamp}.mp4")))
+}
+
+pub fn validate_recording_output_path(path: &Path) -> Result<(), StorageError> {
+    let directory = path.parent().map(Path::to_path_buf).ok_or_else(|| {
+        StorageError::ValidateOutputPath(std::io::Error::other("missing output directory"))
+    })?;
+    fs::create_dir_all(&directory).map_err(StorageError::CreateDirectory)?;
+
+    let probe_path = directory.join(format!(
+        ".record-screen-write-test-{}-{}.tmp",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+        .map_err(StorageError::ValidateOutputPath)?;
+    drop(file);
+    fs::remove_file(&probe_path).map_err(StorageError::ValidateOutputPath)?;
+    Ok(())
 }
 
 fn merge_json(defaults: serde_json::Value, persisted: serde_json::Value) -> serde_json::Value {

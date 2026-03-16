@@ -37,15 +37,20 @@
 - The macOS lane can now also register a real screen output handler on that `SCStream` foundation object and write that prepared-runtime summary into runtime logs, so native runtime setup has progressed past object creation into handler wiring
 - The macOS lane now also has a gated smoke lifecycle for `SCStream::start_capture()/stop_capture()`, enabled only when `RECORD_SCREEN_MACOS_SCSTREAM_SMOKE` is set, so native capture lifecycle can be validated explicitly without running on every recording by default
 - That macOS smoke lifecycle now also records lightweight Rust-side bridge stats for observed screen/audio samples plus first sample PTS values, so ScreenCaptureKit sample-buffer flow can be inspected without switching the recorder over end-to-end yet
-- The macOS lane now also has a hybrid recorder path where `ScreenCaptureKit` provides real screen frames for video-only display and custom-region capture while the current runtime still uses `ffmpeg` to encode the file, and microphone/system-audio cases still fall back to the older `AVFoundation + ffmpeg` path
+- On macOS 15+ display, monitor, custom-region, microphone, and system-audio capture now all target the direct `SCRecordingOutput` lane instead of the older hybrid or legacy microphone fallback
+- Older macOS runtimes now also enumerate capture targets from `ScreenCaptureKit` instead of `ffmpeg -list_devices`, and unsupported native runtime combinations fail explicitly instead of falling back to a legacy ffmpeg path
+- macOS microphone selection now also prefers native device discovery, so the launcher no longer depends on `ffmpeg` just to populate the primary microphone combobox
+- The macOS app path now also selects only native capture/audio/encoder backends, so unsupported runtimes fail explicitly instead of silently dropping back to an ffmpeg-based runtime
 - On macOS 15.0+, the recorder now also has a direct `SCRecordingOutput` lane for display, monitor, and custom-region capture and can request system-audio plus microphone-device-id capture there, so the native migration has started touching real file-output APIs instead of only feeding native frames into the older encoder path
 - That direct `SCRecordingOutput` lane now also tracks delegate start/fail/finish state and exposes real `poll_finished()` behavior, so stop/finalize logic no longer relies only on “wait for file to appear”
+- The macOS direct lane now also preflights the output path before startup, logs controller-start and finalize timings in `runtime.log`, and reports missing-output / permission / storage-full failures more explicitly for QA and support
+- The shared recorder state now also exposes a real `Finalizing` phase, so stop/finalize no longer flashes back to idle while the macOS direct lane is still writing the output file
 - That direct `SCRecordingOutput` lane is also surfaced as non-pausing in the recorder state, so HUD/UI/tray/shortcut handling now disables pause/resume there instead of letting users hit a backend error path
 - The macOS runtime now also gates that direct `SCRecordingOutput` lane behind real OS-version support and falls back cleanly on older macOS versions, so system-audio/native-output testing no longer depends on accidentally running only on macOS 15+
 - The macOS `ScreenCaptureKit` candidate now also exposes a recorder-facing start plan for target and custom-region routing, and that plan is written into runtime support logs when recording starts
-- The current macOS recording start path now also consumes that ScreenCaptureKit start plan for resolved source-target selection, so fallback AVFoundation capture stays aligned with the native-capture migration model
+- The current macOS recording start path now also consumes that ScreenCaptureKit start plan for resolved source-target selection, so native runtime selection stays aligned with the capture migration model
 - The macOS Core Audio candidate now also exposes a recorder-facing audio start plan, and that plan is written into runtime support logs when recording starts
-- The current macOS recording start path now also consumes that Core Audio start plan for default-microphone resolution, so fallback AVFoundation behavior stays aligned with the native-audio migration model
+- The current macOS recording start path now also consumes that Core Audio start plan for default-microphone resolution, so the direct native mic lane stays aligned with the native-audio migration model
 - Native-audio candidates now also live in dedicated OS modules instead of staying embedded as inline placeholders in the main capture crates
 - Those native-audio modules now do lightweight runtime probing so diagnostics can describe real OS readiness instead of only static roadmap intent
 - Windows native-audio probing now inspects default, capture, and render endpoints to prepare the WASAPI migration path
@@ -60,8 +65,8 @@
 - Windows recorder start-up now also consumes a shared audio start plan, so microphone and loopback routing in the active recording path no longer diverge from the WASAPI migration model used by diagnostics/support copy
 - Windows runtime logging now also records the shared audio start-plan summary when a recording begins, so support logs can show the intended microphone/loopback route instead of only static backend selection
 - Phase 3 is now started behind the same style of boundary: a shared encoder-backend registry exists, each OS has a dedicated native-encoder module plus an ffmpeg fallback encoder module, and diagnostics surface the active encoder path separately from capture/audio paths
-- The macOS `AVAssetWriter` candidate now also exposes a recorder-facing output plan, and that plan is written into runtime support logs when recording starts
-- The current macOS output path now also consumes that `AVAssetWriter` output plan for resolved codec/preset labeling, so fallback ffmpeg output stays aligned with the native-encoder migration model
+- The macOS native-output candidate now also exposes a recorder-facing output plan, and that plan is written into runtime support logs when recording starts
+- The current macOS output path now also consumes that native-output plan for resolved codec/preset labeling, so the direct `SCRecordingOutput` lane stays aligned with the native-encoder migration model
 - Phase 1 capture diagnostics now also go through shared capture runtime reports instead of hardcoded app-layer copy, so `src-tauri` sees capture/audio/encoder backends through the same style of abstraction
 - Phase 4 has now started as well: backend selection for capture/audio/encoder is explained through shared selection notes, so diagnostics/UI can tell the user why a fallback path was chosen instead of only naming the active backend
 - Runtime supportability now also records those backend selections and recording lifecycle events into `runtime.log`, so the same explanation visible in the launcher can be inspected after the fact during debugging
@@ -72,7 +77,7 @@
 - Custom region settings, drag-to-select overlay, and target injection on supported backends
 - System-audio mix toggle with per-platform support guards
 - Real capture backends per OS:
-  - macOS: `AVFoundation + ffmpeg`, including custom-region crop on the display path
+  - macOS: direct `ScreenCaptureKit / SCRecordingOutput` on supported runtimes, with older runtimes failing explicitly instead of dropping back to ffmpeg
   - Windows: `gdigrab + dshow + ffmpeg`
   - Linux X11/XWayland: `x11grab + pulse + ffmpeg`
 - Target preview overlay when choosing a display or custom region

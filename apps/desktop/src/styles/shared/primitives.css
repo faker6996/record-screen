@@ -107,6 +107,10 @@
   background: var(--accent);
 }
 
+.status-finalizing {
+  background: var(--pending);
+}
+
 .button,
 .chip {
   display: inline-flex;

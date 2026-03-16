@@ -1,6 +1,7 @@
 use capture::{
     AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory, AudioBackendFamily,
-    AudioBackendRuntimeReport, AudioInputOption, DEFAULT_AUDIO_INPUT_ID, resolve_audio_input_id,
+    AudioBackendRuntimeReport, AudioInputKind, AudioInputOption, DEFAULT_AUDIO_INPUT_ID,
+    resolve_audio_input_id,
 };
 #[cfg(target_os = "macos")]
 use screencapturekit::audio_devices::AudioInputDevice;
@@ -59,19 +60,35 @@ impl AudioBackendFactory for CoreAudioMacosBackend {
     }
 
     fn availability(&self) -> AudioBackendAvailability {
-        let reason = match runtime_summary() {
-            Some(summary) => format!(
-                "{summary} The recorder still uses the ffmpeg / AVFoundation audio path instead of a dedicated Core Audio runtime."
-            ),
-            None => "A dedicated Core Audio microphone and system-audio runtime is planned for Phase 2, but the recorder still uses the ffmpeg / AVFoundation audio path today.".to_string(),
-        };
+        if native_recording_output_runtime_is_supported() {
+            AudioBackendAvailability::Available
+        } else {
+            let reason = match runtime_summary() {
+                Some(summary) => format!(
+                    "{summary} On older macOS runtimes the app still lacks a fully separate Core Audio capture runtime for every path, so native audio routing is only partial there."
+                ),
+                None => "A dedicated Core Audio microphone and system-audio runtime is planned for older macOS runtimes; today the fully native audio lane is only active together with ScreenCaptureKit recording output on macOS 15+.".to_string(),
+            };
 
-        AudioBackendAvailability::Unavailable { reason }
+            AudioBackendAvailability::Unavailable { reason }
+        }
     }
 
     fn runtime_report(&self) -> AudioBackendRuntimeReport {
         AudioBackendRuntimeReport {
-            summary: runtime_summary(),
+            summary: Some(match runtime_summary() {
+                Some(summary) if native_recording_output_runtime_is_supported() => format!(
+                    "{summary} Native microphone routing is active through the ScreenCaptureKit recording-output lane on supported macOS runtimes."
+                ),
+                Some(summary) => format!(
+                    "{summary} Older macOS runtimes still rely on compatibility behavior for some audio paths."
+                ),
+                None if native_recording_output_runtime_is_supported() =>
+                    "Native microphone routing is active through the ScreenCaptureKit recording-output lane on supported macOS runtimes."
+                        .to_string(),
+                None => "Native microphone routing is only partially active on this macOS runtime; older runtimes still need compatibility behavior for some paths."
+                    .to_string(),
+            }),
             preferred_input_id: preferred_input_device_name(),
             preferred_input_label: preferred_input_device_name(),
             preferred_system_id: preferred_output_device_name(),
@@ -100,6 +117,37 @@ pub fn preferred_output_device_name() -> Option<String> {
             .or_else(|| report.devices.first())
             .map(|device| device.name.clone())
     })
+}
+
+pub fn selectable_audio_inputs() -> Vec<AudioInputOption> {
+    let native_inputs = native_input_devices();
+    if !native_inputs.is_empty() {
+        return native_inputs
+            .into_iter()
+            .map(|device| AudioInputOption {
+                id: device.id,
+                label: device.name.clone(),
+                description: format!("Native macOS input: {}", device.name),
+                kind: AudioInputKind::Microphone,
+            })
+            .collect();
+    }
+
+    device_report()
+        .map(|report| {
+            report
+                .devices
+                .into_iter()
+                .filter(|device| device.default_input)
+                .map(|device| AudioInputOption {
+                    id: device.name.clone(),
+                    label: device.name.clone(),
+                    description: format!("Native macOS input: {}", device.name),
+                    kind: AudioInputKind::Microphone,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn runtime_summary() -> Option<String> {
@@ -205,12 +253,14 @@ fn resolve_native_microphone_device(
     }
 
     if selected_audio_input_id == DEFAULT_AUDIO_INPUT_ID {
-        if let Some(default_device) = native_inputs.iter().find(|device| device.is_default) {
-            return (
-                Some(default_device.id.clone()),
-                Some(default_device.name.clone()),
-            );
-        }
+        return (
+            None,
+            native_inputs
+                .iter()
+                .find(|device| device.is_default)
+                .map(|device| device.name.clone())
+                .or_else(preferred_input_device_name),
+        );
     }
 
     let selected_label = discovered_inputs
@@ -270,6 +320,30 @@ fn device_report() -> Option<MacosAudioDeviceReport> {
     }
 
     parse_system_profiler_audio_report(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn native_recording_output_runtime_is_supported() -> bool {
+    matches!(macos_version(), Some((major, _, _)) if major >= 15)
+}
+
+fn macos_version() -> Option<(u64, u64, u64)> {
+    let output = Command::new("sw_vers")
+        .args(["-productVersion"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    parse_macos_version(String::from_utf8_lossy(&output.stdout).trim())
+}
+
+fn parse_macos_version(value: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = value.trim().split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().unwrap_or("0").parse().ok()?;
+    let patch = parts.next().unwrap_or("0").parse().ok()?;
+    Some((major, minor, patch))
 }
 
 fn parse_system_profiler_audio_report(stdout: &str) -> Option<MacosAudioDeviceReport> {
@@ -366,6 +440,7 @@ Audio:
         ];
 
         let plan = start_plan(DEFAULT_AUDIO_INPUT_ID, true, false, &discovered);
+        assert_eq!(plan.microphone_device_id, None);
         assert_eq!(
             plan.microphone_device_name.as_deref(),
             Some("MacBook Pro Microphone")

@@ -11,6 +11,7 @@ pub enum RecorderStatus {
     Idle,
     Recording,
     Paused,
+    Finalizing,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,7 +207,29 @@ impl AppCore {
         self.current_snapshot()
     }
 
-    pub fn stop_recording(&mut self, completed: Option<CompletedRecording>) -> RecorderSnapshot {
+    pub fn begin_finalizing(&mut self) -> Option<RecorderSnapshot> {
+        if !matches!(
+            self.status,
+            RecorderStatus::Recording | RecorderStatus::Paused
+        ) {
+            return None;
+        }
+
+        if let Some(paused_at) = self.paused_at.take() {
+            self.accumulated_paused += SystemTime::now()
+                .duration_since(paused_at)
+                .unwrap_or_default();
+        }
+
+        self.status = RecorderStatus::Finalizing;
+        self.active_can_pause = false;
+        self.active_pause_note = Some(
+            "Recording is finalizing the output file. Pause is unavailable right now.".to_string(),
+        );
+        Some(self.current_snapshot())
+    }
+
+    pub fn finish_recording(&mut self, completed: Option<CompletedRecording>) -> RecorderSnapshot {
         self.status = RecorderStatus::Idle;
         self.active_output_path = None;
         self.active_encoder_label = None;
@@ -388,6 +411,7 @@ impl AppCore {
             RecorderStatus::Idle => "Ready when you are".to_string(),
             RecorderStatus::Recording => format_duration(elapsed),
             RecorderStatus::Paused => format!("Paused at {}", format_duration(elapsed)),
+            RecorderStatus::Finalizing => format!("Finalizing {}", format_duration(elapsed)),
         };
 
         RecorderSnapshot {

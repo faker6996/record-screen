@@ -29,10 +29,27 @@ Before running any scenario, inspect:
 
 - `runtime.log` in the app config directory
 - `capture_backend`, `audio_backend`, and `encoder_backend` selection notes
-- `capture_start_plan`, `capture_execution_plan`, `capture_runtime_foundation`, `capture_prepared_runtime`
-- `audio_start_plan`
-- `encoder_start_plan`
+- `controller_ready_ms` on `recording started`
+- `finalize_ms` on `recording finalized`
+- `finalizing` recorder state between stop request and idle completion
 - `can_pause` and `pause_note`
+- any output-path preflight error before startup
+- any finalize/output-inspection error that mentions missing output, permissions, or full disk
+
+## Instrumentation Added In Code
+
+The current macOS lane now includes:
+
+- output-path writability preflight before recording starts
+- startup timing in `runtime.log`
+- finalize timing in `runtime.log`
+- explicit `Finalizing` recorder state while `SCRecordingOutput` completes file output
+- clearer output inspection errors for:
+  - missing finalized file
+  - permission-denied output
+  - storage-full output
+
+These help QA identify whether a failure happened before capture, during encoder start, or during output finalization.
 
 ## Scenario Matrix
 
@@ -41,6 +58,7 @@ Before running any scenario, inspect:
 - [ ] Start recording and stop normally on a single internal display
 - [ ] Start and stop within 1 second
 - [ ] Start and stop repeatedly 10 times in a row
+- [ ] Stop transitions through `Finalizing` instead of flashing idle before the file is done
 - [ ] Record for 30+ minutes without stop/finalize corruption
 - [ ] Quit the launcher window while a recording is running
 - [ ] Hide/show HUD while a recording is running
@@ -65,6 +83,17 @@ Before running any scenario, inspect:
 - [ ] System audio + default microphone together
 - [ ] System audio + explicit microphone together
 - [ ] Switch microphone selection between runs and verify the recorded source changes
+
+Current observed note:
+
+- automated smoke currently passes for:
+  - `full desktop`
+  - `custom region`
+  - `full desktop + system audio`
+- `full desktop + system audio` now has an automated macOS smoke pass on the current machine.
+- `full desktop + microphone` now starts through the native `SCRecordingOutput` lane instead of the legacy `ffmpeg / AVFoundation` microphone fallback.
+- the current automated smoke failure is now a native-lane start failure in the `cargo test` harness: `SpawnFailed("Failed to start capture: Stream error: The user declined TCCs for application, window, display capture")`.
+- that means the previous `ffmpeg` microphone-stop bug is no longer the active blocker; the remaining gap is TCC/permission verification for the native mic lane on real app/test binaries.
 
 ### Permissions and session changes
 

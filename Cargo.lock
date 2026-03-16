@@ -405,6 +405,7 @@ name = "capture-macos"
 version = "0.1.0"
 dependencies = [
  "capture",
+ "core-graphics",
  "libc",
  "screencapturekit",
  "thiserror 2.0.18",

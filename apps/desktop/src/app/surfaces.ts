@@ -9,10 +9,16 @@ export interface RegionSelectorSurfaceContext {
   captureTargetId: string
 }
 
+export interface TargetPreviewSurfaceContext {
+  title: string
+  sequence: number
+}
+
 declare global {
   interface Window {
     __RECORD_SCREEN_SURFACE__?: AppSurface
     __RECORD_SCREEN_SELECTOR_CONTEXT__?: RegionSelectorSurfaceContext
+    __RECORD_SCREEN_TARGET_PREVIEW_CONTEXT__?: TargetPreviewSurfaceContext
   }
 }
 

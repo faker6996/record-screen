@@ -30,6 +30,7 @@ struct TrayMenuItems {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TrayMenuPresentation {
     toggle_recording_label: String,
+    toggle_recording_enabled: bool,
     pause_resume_label: String,
     pause_resume_enabled: bool,
 }
@@ -115,6 +116,10 @@ pub fn sync_recorder_state(_app: &AppHandle, snapshot: &RecorderSnapshot) -> Res
         .set_text(&presentation.toggle_recording_label)
         .map_err(|error| error.to_string())?;
     menu_items
+        .toggle_recording
+        .set_enabled(presentation.toggle_recording_enabled)
+        .map_err(|error| error.to_string())?;
+    menu_items
         .pause_resume
         .set_text(&presentation.pause_resume_label)
         .map_err(|error| error.to_string())?;
@@ -130,12 +135,15 @@ fn tray_menu_presentation(snapshot: &RecorderSnapshot) -> TrayMenuPresentation {
     let toggle_recording_label = match snapshot.status {
         RecorderStatus::Idle => "Start recording".to_string(),
         RecorderStatus::Recording | RecorderStatus::Paused => "Stop recording".to_string(),
+        RecorderStatus::Finalizing => "Finalizing recording...".to_string(),
     };
+    let toggle_recording_enabled = snapshot.status != RecorderStatus::Finalizing;
 
     let (pause_resume_label, pause_resume_enabled) = match snapshot.status {
         RecorderStatus::Idle => ("Pause recording".to_string(), false),
         RecorderStatus::Recording if snapshot.can_pause => ("Pause recording".to_string(), true),
         RecorderStatus::Paused if snapshot.can_pause => ("Resume recording".to_string(), true),
+        RecorderStatus::Finalizing => ("Finalizing output".to_string(), false),
         RecorderStatus::Recording | RecorderStatus::Paused => (
             snapshot
                 .pause_note
@@ -148,6 +156,7 @@ fn tray_menu_presentation(snapshot: &RecorderSnapshot) -> TrayMenuPresentation {
 
     TrayMenuPresentation {
         toggle_recording_label,
+        toggle_recording_enabled,
         pause_resume_label,
         pause_resume_enabled,
     }
@@ -181,6 +190,7 @@ mod tests {
     fn idle_snapshot_disables_pause_in_tray() {
         let presentation = tray_menu_presentation(&snapshot(RecorderStatus::Idle, true, None));
         assert_eq!(presentation.toggle_recording_label, "Start recording");
+        assert!(presentation.toggle_recording_enabled);
         assert_eq!(presentation.pause_resume_label, "Pause recording");
         assert!(!presentation.pause_resume_enabled);
     }
@@ -189,6 +199,7 @@ mod tests {
     fn recording_snapshot_enables_pause_when_supported() {
         let presentation = tray_menu_presentation(&snapshot(RecorderStatus::Recording, true, None));
         assert_eq!(presentation.toggle_recording_label, "Stop recording");
+        assert!(presentation.toggle_recording_enabled);
         assert_eq!(presentation.pause_resume_label, "Pause recording");
         assert!(presentation.pause_resume_enabled);
     }
@@ -201,7 +212,24 @@ mod tests {
             Some("Pause/resume is not available for the active recording backend."),
         ));
         assert_eq!(presentation.toggle_recording_label, "Stop recording");
+        assert!(presentation.toggle_recording_enabled);
         assert_eq!(presentation.pause_resume_label, "Pause unavailable");
+        assert!(!presentation.pause_resume_enabled);
+    }
+
+    #[test]
+    fn finalizing_snapshot_disables_stop_and_pause_in_tray() {
+        let presentation = tray_menu_presentation(&snapshot(
+            RecorderStatus::Finalizing,
+            false,
+            Some("Recording is finalizing the output file."),
+        ));
+        assert_eq!(
+            presentation.toggle_recording_label,
+            "Finalizing recording..."
+        );
+        assert!(!presentation.toggle_recording_enabled);
+        assert_eq!(presentation.pause_resume_label, "Finalizing output");
         assert!(!presentation.pause_resume_enabled);
     }
 }

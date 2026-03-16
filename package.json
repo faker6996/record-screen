@@ -10,6 +10,7 @@
     "dev:web": "npm run dev --workspace @record-screen/desktop",
     "build": "npm exec tauri -- build --config src-tauri/tauri.conf.json",
     "build:web": "npm run build --workspace @record-screen/desktop",
-    "lint": "npm run lint --workspace @record-screen/desktop"
+    "lint": "npm run lint --workspace @record-screen/desktop",
+    "test:e2e:web": "npm run test:e2e --workspace @record-screen/desktop"
   }
 }

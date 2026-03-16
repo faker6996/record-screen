@@ -206,6 +206,14 @@ let mockMicCheckState: MicCheckSnapshot = {
 }
 
 let mockMicCheckTimer: number | null = null
+const mockRecorderListeners = new Set<(snapshot: RecorderSnapshot) => void>()
+
+function emitMockRecorderState() {
+  const snapshot = structuredClone(mockSnapshot.recorder)
+  for (const listener of mockRecorderListeners) {
+    listener(snapshot)
+  }
+}
 
 function stopMockMicCheck() {
   if (mockMicCheckTimer !== null) {
@@ -239,34 +247,53 @@ async function command<T>(
       case 'get_audio_inputs':
         return structuredClone(mockSnapshot.audioInputs) as T
       case 'toggle_recording':
-        mockSnapshot.recorder.status =
-          mockSnapshot.recorder.status === 'idle' ? 'recording' : 'idle'
-        mockSnapshot.recorder.activeOutputPath =
-          mockSnapshot.recorder.status === 'idle'
-            ? null
-            : '~/Movies/Record Screen/recording-preview.mp4'
-        mockSnapshot.recorder.activeEncoderLabel =
-          mockSnapshot.recorder.status === 'idle' ? null : 'h264_videotoolbox'
-        mockSnapshot.recorder.elapsedLabel =
-          mockSnapshot.recorder.status === 'idle'
-            ? 'Ready when you are'
-            : '00:12:41'
+        if (mockSnapshot.recorder.status === 'idle') {
+          mockSnapshot.recorder.status = 'recording'
+          mockSnapshot.recorder.activeOutputPath =
+            '~/Movies/Record Screen/recording-preview.mp4'
+          mockSnapshot.recorder.activeEncoderLabel = 'h264_videotoolbox'
+          mockSnapshot.recorder.elapsedLabel = '00:12:41'
+          mockSnapshot.recorder.canPause = true
+          mockSnapshot.recorder.pauseNote = null
+          emitMockRecorderState()
+          return structuredClone(mockSnapshot.recorder) as T
+        }
+        if (mockSnapshot.recorder.status === 'recording' || mockSnapshot.recorder.status === 'paused') {
+          mockSnapshot.recorder.status = 'finalizing'
+          mockSnapshot.recorder.canPause = false
+          mockSnapshot.recorder.pauseNote =
+            'Recording is finalizing the output file. Pause is unavailable right now.'
+          mockSnapshot.recorder.elapsedLabel = 'Finalizing 00:12:41'
+          emitMockRecorderState()
+          window.setTimeout(() => {
+            mockSnapshot.recorder.status = 'idle'
+            mockSnapshot.recorder.activeOutputPath = null
+            mockSnapshot.recorder.activeEncoderLabel = null
+            mockSnapshot.recorder.canPause = true
+            mockSnapshot.recorder.pauseNote = null
+            mockSnapshot.recorder.elapsedLabel = 'Ready when you are'
+            emitMockRecorderState()
+          }, 900)
+        }
         return structuredClone(mockSnapshot.recorder) as T
       case 'pause_resume':
         if (mockSnapshot.recorder.status === 'recording') {
           mockSnapshot.recorder.status = 'paused'
           mockSnapshot.recorder.elapsedLabel = 'Paused at 00:12:41'
+          emitMockRecorderState()
           return structuredClone(mockSnapshot.recorder) as T
         }
         if (mockSnapshot.recorder.status === 'paused') {
           mockSnapshot.recorder.status = 'recording'
           mockSnapshot.recorder.elapsedLabel = '00:12:41'
+          emitMockRecorderState()
           return structuredClone(mockSnapshot.recorder) as T
         }
         return null as T
       case 'toggle_microphone':
         mockSnapshot.recorder.micEnabled = !mockSnapshot.recorder.micEnabled
         mockSnapshot.settings.micEnabled = mockSnapshot.recorder.micEnabled
+        emitMockRecorderState()
         return structuredClone(mockSnapshot.recorder) as T
       case 'start_mic_check':
         stopMockMicCheck()
@@ -608,7 +635,11 @@ export const desktopClient = {
     listener: (snapshot: RecorderSnapshot) => void,
   ) {
     if (!isTauriRuntime()) {
-      return () => undefined
+      listener(structuredClone(mockSnapshot.recorder))
+      mockRecorderListeners.add(listener)
+      return () => {
+        mockRecorderListeners.delete(listener)
+      }
     }
 
     const unlisten = await listen<RecorderSnapshot>(

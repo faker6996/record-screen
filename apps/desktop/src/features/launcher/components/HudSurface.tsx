@@ -21,7 +21,7 @@ function parseElapsedSeconds(label: string, status: RecorderSnapshot['status']) 
     return 0
   }
 
-  const normalized = label.replace(/^Paused at\s+/i, '').trim()
+  const normalized = label.replace(/^(Paused at|Finalizing)\s+/i, '').trim()
   const parts = normalized
     .split(':')
     .map((part) => Number.parseInt(part, 10))
@@ -86,9 +86,10 @@ export function HudSurface({
 }: HudSurfaceProps) {
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
+  const isFinalizing = recorder.status === 'finalizing'
   const isCountingDown = countdownValue !== null
   const isStartPending = isCountingDown || isStartingRecording
-  const pauseDisabled = isIdle || !recorder.canPause
+  const pauseDisabled = isIdle || isFinalizing || !recorder.canPause
   const parsedElapsedSeconds = parseElapsedSeconds(recorder.elapsedLabel, recorder.status)
 
   function handleHudPointerDown(event: ReactPointerEvent<HTMLElement>) {
@@ -163,12 +164,15 @@ export function HudSurface({
           <button
             aria-label={isIdle ? 'Start recording' : 'Stop recording'}
             className={`button ${isIdle ? 'button--primary button--record' : 'button--primary button--stop'} hud__icon-button`}
+            disabled={isFinalizing}
             onClick={() => void onToggleRecording()}
             title={
               isCountingDown
                 ? 'Cancel countdown'
                 : isStartingRecording
                   ? 'Starting capture'
+                  : isFinalizing
+                    ? 'Finalizing recording'
                   : isIdle
                     ? 'Start recording'
                     : 'Stop recording'

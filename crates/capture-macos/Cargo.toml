@@ -9,4 +9,5 @@ thiserror = { workspace = true }
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.25"
 screencapturekit = { version = "1.5.4", features = ["macos_15_0"] }

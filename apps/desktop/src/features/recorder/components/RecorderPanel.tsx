@@ -58,10 +58,11 @@ export function RecorderPanel({
 
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
+  const isFinalizing = recorder.status === 'finalizing'
   const isCountingDown = countdownValue !== null
   const isStartPending = isCountingDown || isStartingRecording
-  const pauseDisabled = !recorder.canPause
-  const recordLabel = isIdle ? (isCountingDown ? 'CANCEL' : 'REC') : 'STOP'
+  const pauseDisabled = !recorder.canPause || isFinalizing
+  const recordLabel = isIdle ? (isCountingDown ? 'CANCEL' : 'REC') : isFinalizing ? 'WAIT' : 'STOP'
   const selectedCaptureTarget =
     captureTargets.find((target) => target.id === selectedCaptureTargetId) ?? null
   const selectedAudioInput =
@@ -101,7 +102,13 @@ export function RecorderPanel({
       : recorder.micEnabled
         ? selectedAudioInput?.label ?? 'Default input'
         : 'Audio capture muted'
-  const title = isIdle ? 'Ready to Record' : isPaused ? 'Paused' : 'Recording'
+  const title = isIdle
+    ? 'Ready to Record'
+    : isPaused
+      ? 'Paused'
+      : isFinalizing
+        ? 'Finalizing'
+        : 'Recording'
   const copy = isIdle
     ? isCountingDown
       ? `Recording starts in ${countdownValue}. Click again to cancel.`
@@ -110,20 +117,10 @@ export function RecorderPanel({
         : 'Select your target and start capturing.'
     : isPaused
       ? 'Capture is paused. Resume when you are ready.'
+      : isFinalizing
+        ? 'Writing the recording file. Wait a moment before starting another capture.'
       : 'Recording is in progress. Stop when your session is complete.'
   const customRegionSelected = selectedCaptureTargetId === 'region:custom'
-  const preferredRuntimeHints = [
-    diagnostics.preferredAudioInputLabel
-      ? `Input: ${diagnostics.preferredAudioInputLabel}`
-      : null,
-    diagnostics.preferredSystemAudioLabel
-      ? `System audio: ${diagnostics.preferredSystemAudioLabel}`
-      : null,
-    diagnostics.preferredEncoderLabel
-      ? `Encoder: ${diagnostics.preferredEncoderLabel}`
-      : null,
-  ].filter(Boolean) as string[]
-
   useEffect(() => {
     if (!isIdle && micCheckActive) {
       void stopMicCheck()
@@ -138,6 +135,7 @@ export function RecorderPanel({
         <div className="recorder-panel__status-row">
           <span
             className={`recorder-panel__status-pill recorder-panel__status-pill--${recorder.status}`}
+            data-testid="recorder-status-pill"
           >
             {recorder.status}
           </span>
@@ -165,6 +163,8 @@ export function RecorderPanel({
             className={`recorder-panel__record-button recorder-panel__record-button--${recorder.status} ${
               isStartPending ? 'recorder-panel__record-button--countdown' : ''
             }`}
+            data-testid="recorder-record-button"
+            disabled={isFinalizing}
             onClick={() => void onToggleRecording()}
             type="button"
           >
@@ -180,7 +180,11 @@ export function RecorderPanel({
         </div>
 
         {isStartPending ? (
-          <div className="recorder-panel__countdown-copy" aria-live="polite">
+          <div
+            aria-live="polite"
+            className="recorder-panel__countdown-copy"
+            data-testid="recorder-countdown-copy"
+          >
             <strong>
               {isCountingDown
                 ? `Starting in ${countdownValue}`
@@ -197,27 +201,29 @@ export function RecorderPanel({
         {!isIdle ? (
           <div className="recorder-panel__runtime">
             <strong className="recorder-panel__timer">{recorder.elapsedLabel}</strong>
-            <button
-              className={`recorder-panel__pause-button ${
-                isPaused ? 'recorder-panel__pause-button--paused' : ''
-              }`}
-              disabled={pauseDisabled}
-              onClick={() => void onPauseResume()}
-              title={pauseDisabled ? recorder.pauseNote ?? 'Pause is unavailable' : undefined}
-              type="button"
-            >
-              {isPaused ? (
-                <>
-                  <Play aria-hidden="true" size={18} strokeWidth={2} />
-                  <span>Resume</span>
-                </>
-              ) : (
-                <>
-                  <Pause aria-hidden="true" size={18} strokeWidth={2} />
-                  <span>Pause</span>
-                </>
-              )}
-            </button>
+            {!isFinalizing ? (
+              <button
+                className={`recorder-panel__pause-button ${
+                  isPaused ? 'recorder-panel__pause-button--paused' : ''
+                }`}
+                disabled={pauseDisabled}
+                onClick={() => void onPauseResume()}
+                title={pauseDisabled ? recorder.pauseNote ?? 'Pause is unavailable' : undefined}
+                type="button"
+              >
+                {isPaused ? (
+                  <>
+                    <Play aria-hidden="true" size={18} strokeWidth={2} />
+                    <span>Resume</span>
+                  </>
+                ) : (
+                  <>
+                    <Pause aria-hidden="true" size={18} strokeWidth={2} />
+                    <span>Pause</span>
+                  </>
+                )}
+              </button>
+            ) : null}
             {pauseDisabled && recorder.pauseNote ? (
               <span className="subtle-copy recorder-panel__helper">{recorder.pauseNote}</span>
             ) : null}
@@ -378,35 +384,6 @@ export function RecorderPanel({
         <span aria-hidden="true">•</span>
         <span>{recorder.outputDirectory}</span>
       </div>
-
-      <div className="recorder-panel__meta">
-        <span>{diagnostics.backendPath}</span>
-        <span aria-hidden="true">•</span>
-        <span>{diagnostics.audioBackendPath}</span>
-        <span aria-hidden="true">•</span>
-        <span>{diagnostics.encoderBackendPath}</span>
-      </div>
-      {preferredRuntimeHints.length > 0 ? (
-        <div className="recorder-panel__meta">
-          {preferredRuntimeHints.map((hint, index) => (
-            <span key={hint}>
-              {index > 0 ? <span aria-hidden="true">•</span> : null}
-              {index > 0 ? ' ' : ''}
-              {hint}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <details className="recorder-panel__technical">
-        <summary>Technical status</summary>
-        <div className="recorder-panel__technical-body">
-          <p className="subtle-copy">{diagnostics.summary}</p>
-          <p className="subtle-copy">{diagnostics.captureSelectionNote}</p>
-          <p className="subtle-copy">{diagnostics.audioSelectionNote}</p>
-          <p className="subtle-copy">{diagnostics.encoderSelectionNote}</p>
-          <p className="subtle-copy">{diagnostics.readiness}</p>
-        </div>
-      </details>
     </section>
   )
 }

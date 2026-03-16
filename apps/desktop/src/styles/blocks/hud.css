@@ -152,6 +152,11 @@
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-warning) 20%, transparent);
 }
 
+.hud .status-finalizing {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-warning) 18%, transparent);
+}
+
 .hud .status-idle {
   background: var(--color-text-tertiary);
   box-shadow: none;

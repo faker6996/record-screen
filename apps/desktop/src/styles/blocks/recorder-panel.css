@@ -48,6 +48,11 @@
   border-color: var(--recorder-status-paused-border);
 }
 
+.recorder-panel__status-pill--finalizing {
+  color: var(--recorder-status-finalizing-fg);
+  border-color: var(--recorder-status-finalizing-border);
+}
+
 .recorder-panel__status-meta {
   background: var(--recorder-status-meta-bg);
   border: 1px solid var(--recorder-status-meta-border);
@@ -165,12 +170,14 @@
 }
 
 .recorder-panel__record-button--recording,
-.recorder-panel__record-button--paused {
+.recorder-panel__record-button--paused,
+.recorder-panel__record-button--finalizing {
   color: var(--recorder-button-live-fg);
 }
 
 .recorder-panel__record-button--recording .recorder-panel__record-core,
-.recorder-panel__record-button--paused .recorder-panel__record-core {
+.recorder-panel__record-button--paused .recorder-panel__record-core,
+.recorder-panel__record-button--finalizing .recorder-panel__record-core {
   width: 32px;
   height: 32px;
   border-radius: 8px;
@@ -201,7 +208,8 @@
 }
 
 .recorder-panel__record-button--recording .recorder-panel__record-label,
-.recorder-panel__record-button--paused .recorder-panel__record-label {
+.recorder-panel__record-button--paused .recorder-panel__record-label,
+.recorder-panel__record-button--finalizing .recorder-panel__record-label {
   color: var(--recorder-button-live-label);
 }
 
@@ -508,41 +516,6 @@
   flex-wrap: wrap;
   color: var(--text-muted);
   font-size: 0.88rem;
-}
-
-.recorder-panel__technical {
-  width: min(100%, 760px);
-  margin: 0 auto;
-  border: 1px solid var(--recorder-card-border);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--recorder-card-bg) 72%, transparent);
-}
-
-.recorder-panel__technical summary {
-  cursor: pointer;
-  list-style: none;
-  padding: 14px 16px;
-  color: var(--text-muted);
-  font-size: 0.84rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.recorder-panel__technical summary::-webkit-details-marker {
-  display: none;
-}
-
-.recorder-panel__technical-body {
-  display: grid;
-  gap: 10px;
-  padding: 0 16px 16px;
-}
-
-.recorder-panel__technical-body p {
-  margin: 0;
-  min-height: 0;
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 720px) {
