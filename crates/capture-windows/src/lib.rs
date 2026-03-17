@@ -490,6 +490,8 @@ mod platform {
             system_audio_enabled: false,
             capture_target_id: capture_target_id.to_string(),
             audio_input_id: DEFAULT_AUDIO_INPUT_ID.to_string(),
+            portal_parent_window: None,
+            portal_restore_token: None,
             region_x,
             region_y,
             region_width,

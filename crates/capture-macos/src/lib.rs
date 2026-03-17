@@ -21,8 +21,10 @@ use capture::{
     default_audio_input, encoder_backend_runtime_snapshot,
     encoder_backend_statuses as shared_encoder_backend_statuses, explain_audio_backend_selection,
     explain_capture_backend_selection, explain_encoder_backend_selection, full_desktop_target,
-    select_audio_backend, select_backend, select_encoder_backend,
+    resolve_audio_input_id, select_audio_backend, select_backend, select_encoder_backend,
 };
+#[cfg(target_os = "macos")]
+use capture::ffmpeg_command;
 #[cfg(target_os = "macos")]
 use core_graphics::display::CGDisplay;
 #[cfg(target_os = "macos")]
@@ -914,6 +916,8 @@ mod tests {
             system_audio_enabled: false,
             capture_target_id: CUSTOM_REGION_TARGET_ID.to_string(),
             audio_input_id: "default".to_string(),
+            portal_parent_window: None,
+            portal_restore_token: None,
             region_x: 200,
             region_y: 100,
             region_width: 400,

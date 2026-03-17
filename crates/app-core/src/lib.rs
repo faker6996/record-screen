@@ -372,6 +372,16 @@ impl AppCore {
         self.settings.clone()
     }
 
+    pub fn update_wayland_restore_token(
+        &mut self,
+        wayland_restore_token: Option<String>,
+    ) -> AppSettings {
+        self.settings.wayland_restore_token = wayland_restore_token
+            .map(|token| token.trim().to_string())
+            .filter(|token| !token.is_empty());
+        self.settings.clone()
+    }
+
     pub fn update_custom_region(
         &mut self,
         region_x: u32,

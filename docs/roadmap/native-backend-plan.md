@@ -21,11 +21,11 @@ The rule for this document is simple:
 
 ## Current Baseline
 
-Today the app is a real cross-platform MVP, but the runtime still depends heavily on `ffmpeg`.
+Today the app is a real cross-platform MVP, but some platforms still depend heavily on `ffmpeg`.
 
 - `macOS`: legacy `AVFoundation + ffmpeg`, with macOS 15+ now moving onto direct `ScreenCaptureKit / SCRecordingOutput`
 - `Windows`: `gdigrab + dshow + ffmpeg`
-- `Linux X11/XWayland`: `x11grab + pulse + ffmpeg`
+- `Linux X11/XWayland`: native `GStreamer ximagesrc + pulsesrc`
 - `Linux Wayland-only`: ScreenCast portal / PipeWire lifecycle and experimental runtime path exist, but the path is not yet production-ready
 
 This means the shell, UX, shortcuts, permissions, region selection, target preview, and basic recording flows are already in place, while the next major step is replacing runtime capture/encode dependencies with native per-OS stacks.
@@ -157,7 +157,7 @@ Move microphone and system-audio capture to native OS audio stacks instead of re
 | --- | --- | --- |
 | macOS | `partial` | Audio-backend registry, diagnostics, and a dedicated Core Audio native-audio module with structured device reporting and default input/output candidate summary now exist; those preferred candidates are surfaced through runtime diagnostics, now populate the primary selectable microphone list, and now feed a recorder-facing audio start plan written into runtime support logs and used by the current recording start path for default-microphone resolution; on macOS 15+ the direct `SCRecordingOutput` lane now consumes that native microphone routing, while older runtimes fail cleanly because the app no longer ships a separate ffmpeg-based compatibility path |
 | Windows | `partial` | Audio-backend registry, diagnostics, and a dedicated WASAPI native-audio module with default-device plus capture/render-endpoint probing and candidate selection now exist; those preferred candidates are surfaced through runtime diagnostics, carry structured endpoint identity (`instance_id + label`), and now feed shared Windows audio runtime/route plans plus recorder-facing runtime intent and start-plan helpers reused by `Default input` fallback, loopback support summaries, fallback copy, the current recording start path, and runtime support logs, but recording and loopback still depend on DirectShow / ffmpeg rather than WASAPI-native endpoints |
-| Linux | `partial` | Audio-backend registry, diagnostics, and a dedicated PipeWire native-audio module with structured source/sink reporting and preferred candidate summary now exist; those preferred candidates are surfaced through runtime diagnostics and are now reused by fallback audio summaries/default-input copy, but production microphone and system-audio capture still depend on PulseAudio / ffmpeg instead of a PipeWire-native audio pipeline |
+| Linux | `partial` | Audio-backend registry, diagnostics, and a dedicated PipeWire native-audio module with structured source/sink reporting and preferred candidate summary now exist; those preferred candidates are surfaced through runtime diagnostics, reused by the current Linux launcher/runtime selection, and the X11/XWayland mainline recorder path now runs through native GStreamer audio capture instead of an ffmpeg lane; pure Wayland runtime hardening is still incomplete |
 
 The Phase 2 boundary is now explicit in code: `src-tauri` consumes shared audio-backend runtime reports instead of calling OS-specific native-audio helpers directly.
 Those shared runtime reports now carry both candidate labels and candidate IDs, so the migration can move toward native endpoint identity without leaking per-platform types into the app layer.
@@ -196,7 +196,7 @@ Stop depending on `ffmpeg` as the primary recording runtime by moving file creat
 | --- | --- | --- |
 | macOS | `partial` | Encoder-backend registry, diagnostics, and a dedicated native-output module now exist; the candidate exposes a recorder-facing output plan that is written into runtime support logs and is now consumed by the current output path for resolved codec/preset labeling, and on macOS 15+ file output now targets direct `ScreenCaptureKit / SCRecordingOutput` with no ffmpeg-based mainline path left in the macOS crate |
 | Windows | `partial` | Encoder-backend registry, diagnostics, and a dedicated `Media Foundation` native-encoder module now exist, but recording still writes output through ffmpeg |
-| Linux | `partial` | Encoder-backend registry, diagnostics, and a dedicated GStreamer native-encoder module now exist, but recording still writes output through ffmpeg rather than a production PipeWire/GStreamer-native encoder path |
+| Linux | `partial` | Encoder-backend registry, diagnostics, and a dedicated GStreamer native-encoder module now exist, and the X11/XWayland mainline recorder path now writes through the native GStreamer encoder/muxer lane; pure Wayland still needs more runtime hardening before it reaches the same production bar |
 
 ## Phase 4: Runtime Hardening and Fallback Policy
 

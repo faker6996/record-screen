@@ -142,22 +142,23 @@ fn selected_audio_input_id(app: &AppHandle) -> Result<String, String> {
 #[cfg(target_os = "linux")]
 fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
     let audio_input = selected_audio_input_id(app)?;
-    let mut command = capture::ffmpeg_command();
+    let mut command = Command::new("gst-launch-1.0");
     command
         .args([
-            "-hide_banner",
-            "-loglevel",
-            "info",
-            "-nostdin",
-            "-f",
-            "pulse",
-            "-i",
-            &audio_input,
-            "-af",
-            "astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level",
-            "-f",
-            "null",
-            "-",
+            "-m",
+            "pulsesrc",
+            "do-timestamp=true",
+            &format!("device={audio_input}"),
+            "!",
+            "audioconvert",
+            "!",
+            "audioresample",
+            "!",
+            "level",
+            "interval=150000000",
+            "post-messages=true",
+            "!",
+            "fakesink",
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -238,6 +239,10 @@ fn spawn_probe_process(mut command: Command) -> Result<(Child, ChildStderr), Str
 }
 
 fn parse_rms_level(line: &str) -> Option<f32> {
+    if let Some(level) = parse_gstreamer_rms_level(line) {
+        return Some(level);
+    }
+
     let (_, value) = line.split_once("lavfi.astats.Overall.RMS_level=")?;
     let normalized = match value.trim() {
         "-inf" => 0.0,
@@ -250,6 +255,22 @@ fn parse_rms_level(line: &str) -> Option<f32> {
     Some(normalized)
 }
 
+fn parse_gstreamer_rms_level(line: &str) -> Option<f32> {
+    let (_, tail) = line.split_once("rms=(GValueArray)<")?;
+    let values = tail.split('>').next()?.trim();
+    let decibels = values
+        .split(',')
+        .filter_map(|value| value.trim().parse::<f32>().ok())
+        .collect::<Vec<_>>();
+
+    if decibels.is_empty() {
+        return None;
+    }
+
+    let average = decibels.iter().copied().sum::<f32>() / decibels.len() as f32;
+    Some((10f32.powf(average / 20.0) * 6.0).clamp(0.0, 1.0))
+}
+
 fn detect_probe_error(line: &str) -> Option<String> {
     let lowered = line.to_ascii_lowercase();
     if lowered.contains("permission denied")
@@ -258,6 +279,15 @@ fn detect_probe_error(line: &str) -> Option<String> {
         || lowered.contains("operation not permitted")
     {
         return Some("Microphone access was denied by the operating system.".to_string());
+    }
+
+    if lowered.contains("no element")
+        || lowered.contains("pulsesrc")
+        || lowered.contains("failed to connect")
+        || lowered.contains("could not open audio")
+    {
+        return Some("The Linux microphone probe could not attach to the selected audio source."
+            .to_string());
     }
 
     if lowered.contains("no such process")

@@ -47,12 +47,15 @@ The direct DMG install path still remains valid.
 
 ## Runtime dependency policy
 
-The current app expects `ffmpeg` to be available on `PATH` at runtime on all desktop platforms.
-That dependency is documented per-platform in the OS guides below.
+Runtime dependencies are now platform-specific:
+
+- Linux: native GStreamer / PipeWire runtime packages
+- macOS: no Linux-style external runtime dependency
+- Windows: `ffmpeg` still remains part of the current runtime path
 
 Current capability highlights:
 
 - macOS: full desktop, display, and custom-region capture
 - Windows: full desktop, display, window, and custom-region capture
-- Linux X11/XWayland: full desktop, display, window, and custom-region capture
+- Linux X11/XWayland: full desktop, display, window, and custom-region capture through the native GStreamer lane
 - Linux Wayland-only: still experimental and not yet at the same production level as X11/XWayland

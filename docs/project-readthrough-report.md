@@ -355,10 +355,10 @@ Abstraction nay du de dung chung cho ca ba backend, nhung khong co gang ep moi p
 
 ### 11.1. Cong nghe
 
-- Video: `ffmpeg` + `x11grab`
-- Audio mic: `PulseAudio` input `default`
+- Video: native `GStreamer ximagesrc`
+- Audio mic: native `GStreamer pulsesrc` / PipeWire-Pulse runtime
 - Pause/Resume: `SIGSTOP` / `SIGCONT`
-- Stop: ghi `q` vao stdin cua ffmpeg
+- Stop: dung process control tren lane native GStreamer
 
 ### 11.2. Target support
 

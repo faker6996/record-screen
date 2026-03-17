@@ -14,8 +14,9 @@ Those components keep their own licenses.
 
 Important runtime note:
 
-- `ffmpeg` is currently expected as an external runtime dependency
-- it is not bundled into the desktop app packages in this repository
+- runtime dependencies are platform-specific and are not bundled uniformly into every desktop package in this repository
+- Linux now expects native GStreamer / PipeWire runtime packages instead of a Linux `ffmpeg` dependency
+- Windows still relies on `ffmpeg` as part of the current runtime path
 
 That keeps the release packages simpler, but operators still need to review the licenses of the external tools they install on user machines.
 

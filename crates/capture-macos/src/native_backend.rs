@@ -1,5 +1,7 @@
+use std::process::Command;
+
+#[cfg(target_os = "macos")]
 use std::{
-    process::Command,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -1011,6 +1013,8 @@ mod tests {
             system_audio_enabled: false,
             capture_target_id: CUSTOM_REGION_TARGET_ID.to_string(),
             audio_input_id: "default".to_string(),
+            portal_parent_window: None,
+            portal_restore_token: None,
             region_x: 100,
             region_y: 120,
             region_width: 1280,
@@ -1041,6 +1045,8 @@ mod tests {
             system_audio_enabled: false,
             capture_target_id: FULL_DESKTOP_TARGET_ID.to_string(),
             audio_input_id: "default".to_string(),
+            portal_parent_window: None,
+            portal_restore_token: None,
             region_x: 0,
             region_y: 0,
             region_width: 0,

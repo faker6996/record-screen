@@ -310,28 +310,10 @@ mod linux {
                 guidance: "The app shell is ready to react to shortcuts and UI commands."
                     .to_string(),
             },
-            ffmpeg_check(),
             x11_display_check(),
             wayland_portal_check(),
             microphone_check(),
         ]
-    }
-
-    fn ffmpeg_check() -> PermissionCheck {
-        if command_succeeds("ffmpeg", &["-hide_banner", "-version"]) {
-            PermissionCheck {
-                name: "ffmpeg".to_string(),
-                status: PermissionStatus::Granted,
-                guidance: "ffmpeg is available on PATH for the Linux capture backend.".to_string(),
-            }
-        } else {
-            PermissionCheck {
-                name: "ffmpeg".to_string(),
-                status: PermissionStatus::Pending,
-                guidance: "ffmpeg is missing from PATH. Install ffmpeg before recording on Linux."
-                    .to_string(),
-            }
-        }
     }
 
     fn x11_display_check() -> PermissionCheck {
@@ -347,21 +329,21 @@ mod linux {
                 name: "X11 display access".to_string(),
                 status: PermissionStatus::Granted,
                 guidance: format!(
-                    "Wayland session {wayland} is running with XWayland display {display}. The current recorder can use the X11 compatibility path."
+                    "Wayland session {wayland} is running with XWayland display {display}. The app can use the native X11 GStreamer lane while the full Wayland portal path is also available."
                 ),
             },
             (Some(display), None) => PermissionCheck {
                 name: "X11 display access".to_string(),
                 status: PermissionStatus::Granted,
                 guidance: format!(
-                    "X11 session detected on {display}. Screen recording can start immediately from the current desktop session."
+                    "X11 session detected on {display}. Screen recording can start immediately through the native X11 GStreamer lane."
                 ),
             },
             (None, Some(wayland)) => PermissionCheck {
                 name: "X11 display access".to_string(),
                 status: PermissionStatus::Unsupported,
                 guidance: format!(
-                    "Wayland session {wayland} was detected without XWayland DISPLAY. The current recorder backend cannot capture this session through X11grab."
+                    "Wayland session {wayland} was detected without XWayland DISPLAY. The app must rely on the native ScreenCast portal / PipeWire path instead of X11."
                 ),
             },
             (None, None) => PermissionCheck {
@@ -392,9 +374,9 @@ mod linux {
         match screen_cast_portal_capabilities() {
             Some(capabilities) => PermissionCheck {
                 name: "Wayland portal".to_string(),
-                status: PermissionStatus::Pending,
+                status: PermissionStatus::Granted,
                 guidance: format!(
-                    "ScreenCast portal detected. It reports {} and {}. A native Wayland ScreenCast/PipeWire backend is still needed before pure Wayland capture can start.",
+                    "ScreenCast portal detected. It reports {} and {}. Pure Wayland recording can use the native ScreenCast / PipeWire / GStreamer lane after the desktop grants screen sharing access.",
                     capabilities.source_summary,
                     capabilities.cursor_summary
                 ),
@@ -403,7 +385,7 @@ mod linux {
                 name: "Wayland portal".to_string(),
                 status: PermissionStatus::Pending,
                 guidance:
-                    "XDG Desktop Portal is installed, but the app could not inspect ScreenCast portal capabilities from the session bus. A native Wayland ScreenCast/PipeWire backend is still needed before pure Wayland capture can start."
+                    "XDG Desktop Portal is installed, but the app could not inspect ScreenCast capabilities from the session bus. Pure Wayland capture may still work after the desktop grants screen sharing access."
                         .to_string(),
             },
             None => PermissionCheck {
@@ -417,20 +399,14 @@ mod linux {
     }
 
     fn microphone_check() -> PermissionCheck {
-        let output = Command::new("ffmpeg")
+        let output = Command::new("gst-launch-1.0")
             .args([
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-f",
-                "pulse",
-                "-i",
-                "default",
-                "-t",
-                "0.1",
-                "-f",
-                "null",
-                "-",
+                "-q",
+                "pulsesrc",
+                "device=default",
+                "num-buffers=8",
+                "!",
+                "fakesink",
             ])
             .output();
 

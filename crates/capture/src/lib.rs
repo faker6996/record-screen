@@ -45,6 +45,8 @@ pub struct RecordingOptions {
     pub system_audio_enabled: bool,
     pub capture_target_id: String,
     pub audio_input_id: String,
+    pub portal_parent_window: Option<String>,
+    pub portal_restore_token: Option<String>,
     pub region_x: u32,
     pub region_y: u32,
     pub region_width: u32,

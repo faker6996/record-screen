@@ -4,8 +4,8 @@
 
 The Linux recorder has two practical paths today:
 
-- `X11`: real recording through `ffmpeg + x11grab + pulse`
-- `Wayland + XWayland`: real recording through the same X11 compatibility path
+- `X11`: real recording through `GStreamer + ximagesrc + pulsesrc`
+- `Wayland + XWayland`: real recording through the same native X11 GStreamer path
 
 Pure `Wayland-only` sessions are not fully recordable yet, but the repo now contains a dedicated `ScreenCast portal / PipeWire` module in:
 
@@ -21,7 +21,7 @@ Pure `Wayland-only` sessions are not fully recordable yet, but the repo now cont
 - ScreenCast portal capability probing
   - `AvailableSourceTypes`
   - `AvailableCursorModes`
-- ffmpeg PipeWire device probing
+- GStreamer PipeWire runtime probing
 - native DBus lifecycle execution for:
   - `CreateSession`
   - `SelectSources`
@@ -36,14 +36,14 @@ Pure `Wayland-only` sessions are not fully recordable yet, but the repo now cont
 
 ## What Is Not Implemented Yet
 
-- ingesting the returned PipeWire remote fd into the recorder
-- replacing `x11grab` with a pure Wayland capture path during actual recording
+- hardening the returned PipeWire remote fd path into a consistently working production recorder on pure Wayland
+- end-to-end runtime validation of the native Wayland lane across more real GNOME / NVIDIA / portal combinations
 
 ## Practical Meaning
 
 - Linux is stable today on `X11`
 - Linux is usable on `Wayland + XWayland`
-- Linux `Wayland-only` is now diagnosed correctly and can negotiate a real ScreenCast portal session, but it still cannot ingest the returned PipeWire stream into the recorder
+- Linux `Wayland-only` is now diagnosed correctly, negotiates a real ScreenCast portal session, and routes into the native GStreamer lane, but it still is not hardened enough to claim production-ready support
 
 ## Next Work On A Linux Machine
 
@@ -56,7 +56,7 @@ If you want to continue implementation on a real Linux Wayland desktop, the rema
 2. attach a PipeWire client to the returned remote fd
 3. enumerate the remote registry and confirm the selected stream node appears there
 4. bind a capture stream to that node
-5. bridge decoded video frames into the existing recorder pipeline or replace the Linux `ffmpeg + x11grab` path with a dedicated Wayland capture path
+5. harden the PipeWire -> GStreamer runtime path until it is production-stable across the supported Linux desktop combinations
 
 ## Files To Continue In
 
@@ -69,5 +69,5 @@ If you want to continue implementation on a real Linux Wayland desktop, the rema
 - run on a real `Wayland-only` session, not `XWayland`
 - ensure `xdg-desktop-portal` and the compositor-specific portal backend are installed
 - ensure `PipeWire` is running for the user session
-- verify `ffmpeg` is available for the current fallback paths
+- verify `gst-launch-1.0`, `pipewiresrc`, `x264enc`, and `mp4mux` are available
 - keep one terminal open to capture portal / PipeWire logs while testing

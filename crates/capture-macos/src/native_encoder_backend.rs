@@ -159,6 +159,8 @@ mod tests {
             system_audio_enabled: false,
             capture_target_id: "full-desktop".to_string(),
             audio_input_id: "default".to_string(),
+            portal_parent_window: None,
+            portal_restore_token: None,
             region_x: 0,
             region_y: 0,
             region_width: 0,

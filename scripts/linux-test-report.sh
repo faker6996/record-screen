@@ -42,19 +42,6 @@ run_timed() {
   fi
 }
 
-ffmpeg_pipewire_support() {
-  if ! command -v ffmpeg >/dev/null 2>&1; then
-    echo "unknown"
-    return
-  fi
-
-  if ffmpeg -hide_banner -devices 2>&1 | tr '[:upper:]' '[:lower:]' | grep -q ' pipewire'; then
-    echo "available"
-  else
-    echo "missing"
-  fi
-}
-
 gst_plugin_support() {
   if ! command -v gst-inspect-1.0 >/dev/null 2>&1; then
     echo "unknown"
@@ -62,8 +49,11 @@ gst_plugin_support() {
   fi
 
   if gst-inspect-1.0 pipewiresrc >/dev/null 2>&1 \
+    && gst-inspect-1.0 ximagesrc >/dev/null 2>&1 \
     && gst-inspect-1.0 x264enc >/dev/null 2>&1 \
-    && gst-inspect-1.0 mp4mux >/dev/null 2>&1; then
+    && gst-inspect-1.0 mp4mux >/dev/null 2>&1 \
+    && gst-inspect-1.0 pulsesrc >/dev/null 2>&1 \
+    && gst-inspect-1.0 level >/dev/null 2>&1; then
     echo "available"
   else
     echo "missing"
@@ -79,15 +69,13 @@ kv "WAYLAND_DISPLAY" "${WAYLAND_DISPLAY:-<unset>}"
 kv "XDG_SESSION_TYPE" "${XDG_SESSION_TYPE:-<unset>}"
 
 section "Runtime Tools"
-bool_check "ffmpeg" command -v ffmpeg
 bool_check "gst-launch-1.0" command -v gst-launch-1.0
 bool_check "gst-inspect-1.0" command -v gst-inspect-1.0
 bool_check "pactl" command -v pactl
 bool_check "pw-top" command -v pw-top
 bool_check "xrandr" command -v xrandr
 bool_check "xwininfo" command -v xwininfo
-kv "ffmpeg pipewire" "$(ffmpeg_pipewire_support)"
-kv "gst pipewire path" "$(gst_plugin_support)"
+kv "gst native path" "$(gst_plugin_support)"
 
 section "Audio Inputs"
 if command -v pactl >/dev/null 2>&1; then
@@ -108,10 +96,11 @@ else
 fi
 
 section "Pulse Probe"
-if command -v ffmpeg >/dev/null 2>&1; then
-  run_timed "ffmpeg pulse probe" /tmp/record-screen-linux-pulse.log ffmpeg -hide_banner -f pulse -i default -t 1 -f null - || true
+if command -v gst-launch-1.0 >/dev/null 2>&1; then
+  run_timed "gstreamer pulse probe" /tmp/record-screen-linux-pulse.log \
+    gst-launch-1.0 -q pulsesrc device=default num-buffers=16 ! level interval=100000000 post-messages=true ! fakesink || true
 else
-  echo "[skip] ffmpeg unavailable"
+  echo "[skip] gst-launch-1.0 unavailable"
 fi
 
 section "Summary"

@@ -396,6 +396,9 @@ name = "capture-linux"
 version = "0.1.0"
 dependencies = [
  "capture",
+ "gdkwayland-sys",
+ "glib",
+ "gtk",
  "libc",
  "zbus",
 ]
@@ -3072,6 +3075,9 @@ dependencies = [
  "capture-linux",
  "capture-macos",
  "capture-windows",
+ "gdkwayland-sys",
+ "glib",
+ "gtk",
  "permissions",
  "serde",
  "serde_json",

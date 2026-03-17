@@ -45,11 +45,15 @@
     "licenseFile": "../LICENSE",
     "category": "Video",
     "shortDescription": "Desktop screen recorder with launcher, HUD, and shortcut-driven capture.",
-    "longDescription": "Record Screen is a Tauri desktop recorder for macOS, Linux, and Windows with global shortcuts, a launcher and HUD, and ffmpeg-backed capture flows for full desktop, display, and window targets where supported.",
+    "longDescription": "Record Screen is a Tauri desktop recorder for macOS, Linux, and Windows with global shortcuts, a launcher and HUD, and native capture flows for full desktop, display, and window targets where supported.",
     "linux": {
       "deb": {
         "depends": [
-          "ffmpeg",
+          "gstreamer1.0-tools",
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-plugins-ugly",
+          "gstreamer1.0-pipewire",
           "xdg-utils"
         ],
         "recommends": [

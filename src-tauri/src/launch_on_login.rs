@@ -127,6 +127,7 @@ fn sync_windows_launch_on_login(enabled: bool) -> Result<(), String> {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")

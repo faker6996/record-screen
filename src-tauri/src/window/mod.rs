@@ -1,4 +1,5 @@
 use std::{
+    sync::mpsc,
     sync::atomic::{AtomicU64, Ordering},
     thread,
     time::Duration,
@@ -19,6 +20,9 @@ pub const TARGET_PREVIEW_WINDOW_LABEL: &str = "target-preview";
 
 static TARGET_PREVIEW_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(target_os = "linux")]
+static EXPORTED_PORTAL_PARENT_WINDOW: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
 struct RegionSelectorContext {
     origin_x: i32,
     origin_y: i32,
@@ -38,6 +42,143 @@ pub fn focus_launcher(app: &AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn portal_parent_window_handle(app: &AppHandle) -> Option<String> {
+    let handle = EXPORTED_PORTAL_PARENT_WINDOW
+        .get_or_init(|| export_wayland_parent_window_handle(app).ok().flatten())
+        .clone();
+    if let Some(handle) = &handle {
+        eprintln!("[wayland-parent] exported parent window handle: {handle}");
+    } else {
+        eprintln!("[wayland-parent] no exported parent window handle was available");
+    }
+    handle
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn portal_parent_window_handle(_app: &AppHandle) -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn export_wayland_parent_window_handle(app: &AppHandle) -> Result<Option<String>, String> {
+    use glib::translate::ToGlibPtr;
+    use gtk::prelude::WidgetExt;
+    use std::{
+        ffi::CStr,
+        os::raw::{c_char, c_void},
+    };
+
+    unsafe extern "C" fn on_exported_handle(
+        _window: *mut gdk_wayland_sys::GdkWaylandWindow,
+        handle: *const c_char,
+        user_data: *mut c_void,
+    ) {
+        let sender = unsafe { &*(user_data as *const mpsc::SyncSender<Result<String, String>>) };
+        let result = if handle.is_null() {
+            Err("Wayland exported-handle callback returned a null handle".to_string())
+        } else {
+            let handle = unsafe { CStr::from_ptr(handle) }
+                .to_string_lossy()
+                .into_owned();
+            Ok(format!("wayland:{handle}"))
+        };
+        let _ = sender.send(result);
+    }
+
+    unsafe extern "C" fn drop_export_sender(user_data: *mut c_void) {
+        unsafe {
+            drop(Box::<mpsc::SyncSender<Result<String, String>>>::from_raw(
+                user_data as *mut _,
+            ));
+        }
+    }
+
+    let window = app
+        .get_webview_window(MAIN_WINDOW_LABEL)
+        .ok_or_else(|| "main window is not available".to_string())?;
+    let window_for_main_thread = window.clone();
+    let (result_tx, result_rx) = mpsc::sync_channel(1);
+
+    window
+        .run_on_main_thread(move || {
+            let result = (|| -> Result<Option<String>, String> {
+                let gtk_window = window_for_main_thread
+                    .gtk_window()
+                    .map_err(|error| error.to_string())?;
+                let Some(gdk_window) = gtk_window.window() else {
+                    return Err("main GTK window is not realized yet".to_string());
+                };
+                let (handle_tx, handle_rx) = mpsc::sync_channel(1);
+                let gdk_window_ptr: *mut gtk::gdk::ffi::GdkWindow = gdk_window.to_glib_none().0;
+
+                let sender_ptr = Box::into_raw(Box::new(handle_tx)) as *mut c_void;
+                let exported = unsafe {
+                    gdk_wayland_sys::gdk_wayland_window_export_handle(
+                        gdk_window_ptr.cast(),
+                        Some(on_exported_handle),
+                        sender_ptr,
+                        Some(drop_export_sender),
+                    )
+                };
+                if exported == 0 {
+                    unsafe {
+                        drop_export_sender(sender_ptr);
+                    }
+                    return Ok(None);
+                }
+
+                let main_context = glib::MainContext::default();
+                let started_at = std::time::Instant::now();
+                loop {
+                    match handle_rx.try_recv() {
+                        Ok(Ok(handle)) => return Ok(Some(handle)),
+                        Ok(Err(error)) => return Err(error),
+                        Err(mpsc::TryRecvError::Empty) => {
+                            if started_at.elapsed() >= Duration::from_secs(2) {
+                                unsafe {
+                                    gdk_wayland_sys::gdk_wayland_window_unexport_handle(
+                                        gdk_window_ptr.cast(),
+                                    );
+                                }
+                                return Err(
+                                    "timed out while exporting the Wayland parent window handle"
+                                        .to_string(),
+                                );
+                            }
+                            main_context.iteration(true);
+                        }
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            unsafe {
+                                gdk_wayland_sys::gdk_wayland_window_unexport_handle(
+                                    gdk_window_ptr.cast(),
+                                );
+                            }
+                            return Err(
+                                "the Wayland exported-handle callback disconnected unexpectedly"
+                                    .to_string(),
+                            );
+                        }
+                    }
+                }
+            })();
+
+            let _ = result_tx.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+
+    match result_rx.recv_timeout(Duration::from_secs(3)) {
+        Ok(Ok(handle)) => Ok(handle),
+        Ok(Err(error)) => Err(error),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(
+            "timed out while waiting to export the Wayland parent window handle".to_string(),
+        ),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(
+            "the main-thread Wayland handle exporter disconnected unexpectedly".to_string(),
+        ),
+    }
 }
 
 pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {

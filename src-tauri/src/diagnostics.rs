@@ -267,8 +267,8 @@ fn runtime_diagnostics_now() -> RuntimeDiagnostics {
 #[cfg(target_os = "linux")]
 fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
     use capture_linux::wayland_portal::{
-        PipeWireFfmpegSupport, PipeWireGstreamerSupport, ScreenCastPortalProbe,
-        ffmpeg_pipewire_support, gstreamer_pipewire_support, probe_screen_cast_portal,
+        PipeWireGstreamerSupport, ScreenCastPortalProbe, gstreamer_pipewire_support,
+        probe_screen_cast_portal,
     };
     use std::env;
 
@@ -291,7 +291,7 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
             audio_backend_path: audio_runtime.path.clone(),
             encoder_backend_path: encoder_runtime.path.clone(),
             readiness: build_readiness(
-                "Recording can use the X11 compatibility path today. The pure Wayland ScreenCast portal lifecycle now exists in code, but PipeWire stream ingestion is still pending.",
+                "Recording can use the X11 compatibility path today. Pure Wayland sessions now route through the ScreenCast portal / PipeWire backend instead of the X11 lane.",
                 &capture_runtime,
                 Some(capture_linux::audio_input_support_summary),
                 &audio_runtime,
@@ -316,7 +316,7 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
             audio_backend_path: audio_runtime.path.clone(),
             encoder_backend_path: encoder_runtime.path.clone(),
             readiness: build_readiness(
-                "Recording can start directly through X11grab.",
+                "Recording can start directly through the Linux native X11 GStreamer path.",
                 &capture_runtime,
                 Some(capture_linux::audio_input_support_summary),
                 &audio_runtime,
@@ -340,14 +340,10 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
             backend_path: capture_runtime.path.clone(),
             audio_backend_path: audio_runtime.path.clone(),
             encoder_backend_path: encoder_runtime.path.clone(),
-            readiness: match (
-                probe_screen_cast_portal(),
-                ffmpeg_pipewire_support(),
-                gstreamer_pipewire_support(),
-            ) {
-                (ScreenCastPortalProbe::Available(_), PipeWireFfmpegSupport::Available, _) => {
+            readiness: match (probe_screen_cast_portal(), gstreamer_pipewire_support()) {
+                (ScreenCastPortalProbe::Available(_), PipeWireGstreamerSupport::Available) => {
                     extend_with_native_notes(
-                        "ScreenCast portal is reachable and ffmpeg reports PipeWire support. The app can use the native portal lifecycle today, and ffmpeg remains a viable future capture path if the PipeWire device is wired in directly.".to_string(),
+                        "ScreenCast portal is reachable and the required GStreamer PipeWire plugins are installed. The Linux backend can use the native portal + PipeWire + GStreamer recording path in pure Wayland sessions.".to_string(),
                         &capture_runtime,
                         &audio_runtime,
                         &encoder_runtime,
@@ -355,53 +351,16 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
                 }
                 (
                     ScreenCastPortalProbe::Available(_),
-                    PipeWireFfmpegSupport::Missing,
-                    PipeWireGstreamerSupport::Available,
-                ) => {
-                    extend_with_native_notes(
-                        "ScreenCast portal is reachable, ffmpeg does not expose a PipeWire input device, but the required GStreamer PipeWire plugins are installed. The Linux backend now attempts an experimental portal + PipeWire + GStreamer recording path in pure Wayland sessions.".to_string(),
-                        &capture_runtime,
-                        &audio_runtime,
-                        &encoder_runtime,
-                    )
-                }
-                (
-                    ScreenCastPortalProbe::Available(_),
-                    PipeWireFfmpegSupport::Missing,
                     PipeWireGstreamerSupport::Missing | PipeWireGstreamerSupport::Unknown,
                 ) => {
                     extend_with_native_notes(
-                        "ScreenCast portal is reachable, but this machine is missing both ffmpeg PipeWire support and the required GStreamer PipeWire plugins. Pure Wayland recording will not start until one of those runtime paths is installed.".to_string(),
+                        "ScreenCast portal is reachable, but a usable GStreamer PipeWire runtime was not detected. Install the required GStreamer PipeWire plugins before pure Wayland recording can start.".to_string(),
                         &capture_runtime,
                         &audio_runtime,
                         &encoder_runtime,
                     )
                 }
-                (
-                    ScreenCastPortalProbe::Available(_),
-                    PipeWireFfmpegSupport::Unknown,
-                    PipeWireGstreamerSupport::Available,
-                ) => {
-                    extend_with_native_notes(
-                        "ScreenCast portal is reachable and the app can negotiate the full lifecycle. ffmpeg PipeWire support could not be determined, but the required GStreamer plugins are present, so the backend can attempt the experimental Wayland recording path.".to_string(),
-                        &capture_runtime,
-                        &audio_runtime,
-                        &encoder_runtime,
-                    )
-                }
-                (
-                    ScreenCastPortalProbe::Available(_),
-                    PipeWireFfmpegSupport::Unknown,
-                    PipeWireGstreamerSupport::Missing | PipeWireGstreamerSupport::Unknown,
-                ) => {
-                    extend_with_native_notes(
-                        "ScreenCast portal is reachable and the app can negotiate the full lifecycle, but a usable PipeWire capture runtime was not detected. Install the GStreamer PipeWire plugins or a PipeWire-enabled ffmpeg build for pure Wayland recording.".to_string(),
-                        &capture_runtime,
-                        &audio_runtime,
-                        &encoder_runtime,
-                    )
-                }
-                (ScreenCastPortalProbe::MissingPortal, _, _) => {
+                (ScreenCastPortalProbe::MissingPortal, _) => {
                     extend_with_native_notes(
                         "Wayland is active, but no ScreenCast portal could be reached. Install xdg-desktop-portal or switch to an X11/XWayland session.".to_string(),
                         &capture_runtime,
@@ -409,7 +368,7 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
                         &encoder_runtime,
                     )
                 }
-                (ScreenCastPortalProbe::MissingDbusTools, _, _) => {
+                (ScreenCastPortalProbe::MissingDbusTools, _) => {
                     extend_with_native_notes(
                         "Wayland is active, but the app could not inspect ScreenCast portal readiness because neither gdbus nor busctl is available.".to_string(),
                         &capture_runtime,
@@ -417,7 +376,7 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
                         &encoder_runtime,
                     )
                 }
-                (ScreenCastPortalProbe::Unreachable, _, _) => {
+                (ScreenCastPortalProbe::Unreachable, _) => {
                     extend_with_native_notes(
                         "Wayland is active and a portal may be installed, but the ScreenCast portal could not be reached on the session bus.".to_string(),
                         &capture_runtime,

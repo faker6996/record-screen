@@ -20,15 +20,13 @@ This report covers a full Linux verification pass for the current `record-screen
 - `DISPLAY`: `:1`
 - `WAYLAND_DISPLAY`: unset
 - Runtime tools present:
-  - `ffmpeg`
-  - `ffprobe`
   - `xdotool`
   - `wmctrl`
   - `gst-launch-1.0`
   - `gst-inspect-1.0`
+  - `ffprobe`
 - Runtime notes:
   - `pactl` missing on this machine
-  - `ffmpeg` PipeWire device missing
   - GStreamer PipeWire path available
 
 ## Automated Checks
@@ -94,7 +92,7 @@ Verified by script:
 - `capture-linux` unit tests
 - Linux smoke test without microphone
 - Linux smoke test with microphone
-- `ffmpeg -f pulse -i default` probe
+- `gst-launch-1.0 pulsesrc` probe
 
 ### 4b. Linux library command tests
 

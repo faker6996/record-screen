@@ -1,9 +1,12 @@
 use std::{
-    env, fs,
+    fs,
     path::{Path, PathBuf},
     process::Command,
     time::SystemTime,
 };
+
+#[cfg(target_os = "macos")]
+use std::env;
 
 use app_core::SessionSummary;
 use storage::expand_home_path;

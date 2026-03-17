@@ -87,6 +87,8 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         system_audio_enabled: settings.system_audio_enabled,
         capture_target_id: settings.capture_target_id,
         audio_input_id: settings.audio_input_id,
+        portal_parent_window: window::portal_parent_window_handle(app),
+        portal_restore_token: settings.wayland_restore_token.clone(),
         region_x: settings.region_x,
         region_y: settings.region_y,
         region_width: settings.region_width,
@@ -99,6 +101,16 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     let start_started_at = Instant::now();
     let controller = create_capture_controller(recording_options)?;
     let controller_ready_after = start_started_at.elapsed();
+
+    #[cfg(target_os = "linux")]
+    if let Some(next_restore_token) = capture_linux::current_wayland_restore_token() {
+        if settings.wayland_restore_token.as_deref() != Some(next_restore_token.as_str()) {
+            with_core(app, |core| {
+                core.update_wayland_restore_token(Some(next_restore_token.clone()))
+            })?;
+            persist_settings(app)?;
+        }
+    }
     let active = controller.active_recording().clone();
     let active_target_label = active.target_label.clone();
     let active_encoder_label = active.encoder_label.clone();

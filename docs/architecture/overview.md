@@ -79,7 +79,7 @@
 - Real capture backends per OS:
   - macOS: direct `ScreenCaptureKit / SCRecordingOutput` on supported runtimes, with older runtimes failing explicitly instead of dropping back to ffmpeg
   - Windows: `gdigrab + dshow + ffmpeg`
-  - Linux X11/XWayland: `x11grab + pulse + ffmpeg`
+  - Linux X11/XWayland: native `GStreamer ximagesrc + pulsesrc`
 - Target preview overlay when choosing a display or custom region
 - Runtime diagnostics for active backend path and readiness
 - Local runtime crash/error logging

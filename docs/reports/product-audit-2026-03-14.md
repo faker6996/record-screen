@@ -52,8 +52,8 @@ Ly do: kien truc hien tai phu hop hon voi app quay va xu ly cuc bo chat luong ca
 | --- | --- | --- |
 | macOS | `AVFoundation + ffmpeg`, permission flow that, mic select/test, encoder uu tien `h264_videotoolbox`, custom region crop da co | Tot nhat hien tai |
 | Windows | `gdigrab + dshow + ffmpeg`, mic diagnostics, multi-encoder selection, window/monitor targeting | Dung duoc, can hardening them |
-| Linux X11 | `x11grab + pulse + ffmpeg`, mic test, window discovery | Dung duoc |
-| Linux XWayland | co duong quay that qua compatibility path | Dung duoc |
+| Linux X11 | `GStreamer ximagesrc + pulsesrc`, mic test, window discovery | Dung duoc |
+| Linux XWayland | co duong quay that qua native X11 GStreamer path | Dung duoc |
 | Linux Wayland-only | da co ScreenCast portal lifecycle client va PipeWire/GStreamer readiness path, nhung chua dat muc on dinh nhu X11 | Chua hoan tat |
 
 ## Features Chua Hoan Thien Hoac Chua Phat Trien
@@ -160,7 +160,7 @@ Da co:
 - custom region target trong recorder khi backend/session hien tai support
 - macOS custom region crop qua `AVFoundation + ffmpeg`
 - Windows desktop path crop theo `offset_x / offset_y / video_size`
-- Linux X11/XWayland crop theo `x11grab + origin + video_size`
+- Linux X11/XWayland crop theo native X11 capture region + output sizing plan
 
 Chua co:
 
