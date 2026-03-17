@@ -322,10 +322,11 @@ export function RecorderPanel({
               role="status"
               aria-live="polite"
             >
-              <strong>Windows microphone fallback</strong>
+              <strong>Windows microphone unavailable</strong>
               <p>
                 Recording will continue without microphone narration until
-                Windows exposes a usable DirectShow input.
+                the native Windows audio runtime exposes a usable microphone
+                route.
               </p>
             </div>
           ) : null}

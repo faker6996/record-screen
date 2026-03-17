@@ -202,6 +202,7 @@ let mockMicCheckState: MicCheckSnapshot = {
   active: false,
   level: 0,
   hasSignal: false,
+  supported: true,
   error: null,
 }
 
@@ -224,6 +225,7 @@ function stopMockMicCheck() {
     active: false,
     level: 0,
     hasSignal: false,
+    supported: true,
     error: null,
   }
 }
@@ -301,6 +303,7 @@ async function command<T>(
           active: true,
           level: 0.14,
           hasSignal: true,
+          supported: true,
           error: null,
         }
         return structuredClone(mockMicCheckState) as T
@@ -693,6 +696,7 @@ export const desktopClient = {
           active: true,
           level: nextLevel,
           hasSignal: nextLevel >= 0.1,
+          supported: true,
           error: null,
         }
         listener(structuredClone(mockMicCheckState))

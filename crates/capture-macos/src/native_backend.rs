@@ -12,9 +12,8 @@ use std::{
 
 use capture::{
     CUSTOM_REGION_TARGET_ID, CaptureBackendAvailability, CaptureBackendDescriptor,
-    CaptureBackendFactory, CaptureBackendFamily, CaptureBackendRuntimeReport, CaptureController,
-    CaptureError, CaptureTargetOption, FULL_DESKTOP_TARGET_ID, RecordingOptions,
-    full_desktop_target,
+    CaptureBackendFactory, CaptureBackendRuntimeReport, CaptureController, CaptureError,
+    CaptureTargetOption, FULL_DESKTOP_TARGET_ID, RecordingOptions, full_desktop_target,
 };
 #[cfg(target_os = "macos")]
 use screencapturekit::{
@@ -159,7 +158,6 @@ impl CaptureBackendFactory for ScreenCaptureKitMacosBackend {
         CaptureBackendDescriptor {
             id: "macos-screencapturekit",
             label: "macOS ScreenCaptureKit",
-            family: CaptureBackendFamily::Native,
         }
     }
 
@@ -201,7 +199,7 @@ impl CaptureBackendFactory for ScreenCaptureKitMacosBackend {
                     )
                 } else {
                     format!(
-                        "{} ScreenCaptureKit is available for native capture planning, while older macOS runtimes still rely on the compatibility bridge path.",
+                        "{} ScreenCaptureKit is available for native capture planning, while older macOS runtimes do not expose the direct native recording lane.",
                         report.summary
                     )
                 }),
@@ -727,11 +725,11 @@ fn resolve_native_target<'a>(
         .or_else(|| {
             parsed_monitor_index
                 .checked_sub(1)
-                .and_then(|legacy_index| {
+                .and_then(|translated_index| {
                     probe_report
                         .targets
                         .iter()
-                        .find(|target| target.display_index == legacy_index)
+                        .find(|target| target.display_index == translated_index)
                 })
         })
 }
@@ -750,7 +748,7 @@ fn resolve_native_display_index(
 
     parsed_monitor_index
         .checked_sub(1)
-        .filter(|legacy_index| *legacy_index < display_count)
+        .filter(|translated_index| *translated_index < display_count)
 }
 
 #[cfg(target_os = "macos")]
@@ -807,23 +805,23 @@ fn normalize_native_target_id_from_probe_report(
         return Some(format!("monitor:{parsed_monitor_id}"));
     }
 
-    if let Some(legacy_index) = parsed_monitor_id.checked_sub(1) {
+    if let Some(translated_index) = parsed_monitor_id.checked_sub(1) {
         if probe_report
             .targets
             .iter()
-            .any(|target| target.display_index == legacy_index)
+            .any(|target| target.display_index == translated_index)
         {
-            return Some(format!("monitor:{legacy_index}"));
+            return Some(format!("monitor:{translated_index}"));
         }
     }
 
-    if let Some(legacy_display_index) = parsed_monitor_id.checked_sub(3) {
+    if let Some(translated_display_index) = parsed_monitor_id.checked_sub(3) {
         if probe_report
             .targets
             .iter()
-            .any(|target| target.display_index == legacy_display_index)
+            .any(|target| target.display_index == translated_display_index)
         {
-            return Some(format!("monitor:{legacy_display_index}"));
+            return Some(format!("monitor:{translated_display_index}"));
         }
     }
 
@@ -958,7 +956,7 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_legacy_monitor_ids_to_native_indices() {
+    fn normalizes_migrated_monitor_ids_to_native_indices() {
         let report = ScreenCaptureKitProbeReport {
             summary: String::new(),
             preferred_target_label: None,
@@ -998,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_native_display_indices_for_zero_based_and_legacy_one_based_targets() {
+    fn resolves_native_display_indices_for_zero_based_and_migrated_one_based_targets() {
         assert_eq!(resolve_native_display_index("monitor:0", 3), Some(0));
         assert_eq!(resolve_native_display_index("monitor:1", 3), Some(1));
         assert_eq!(resolve_native_display_index("monitor:3", 3), Some(2));

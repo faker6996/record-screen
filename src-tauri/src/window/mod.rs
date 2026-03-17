@@ -23,7 +23,8 @@ pub const TARGET_PREVIEW_WINDOW_LABEL: &str = "target-preview";
 static TARGET_PREVIEW_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(target_os = "linux")]
-static EXPORTED_PORTAL_PARENT_WINDOW: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+static EXPORTED_PORTAL_PARENT_WINDOW: std::sync::OnceLock<Option<String>> =
+    std::sync::OnceLock::new();
 
 struct RegionSelectorContext {
     origin_x: i32,
@@ -174,12 +175,12 @@ fn export_wayland_parent_window_handle(app: &AppHandle) -> Result<Option<String>
     match result_rx.recv_timeout(Duration::from_secs(3)) {
         Ok(Ok(handle)) => Ok(handle),
         Ok(Err(error)) => Err(error),
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(
-            "timed out while waiting to export the Wayland parent window handle".to_string(),
-        ),
-        Err(mpsc::RecvTimeoutError::Disconnected) => Err(
-            "the main-thread Wayland handle exporter disconnected unexpectedly".to_string(),
-        ),
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            Err("timed out while waiting to export the Wayland parent window handle".to_string())
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err("the main-thread Wayland handle exporter disconnected unexpectedly".to_string())
+        }
     }
 }
 

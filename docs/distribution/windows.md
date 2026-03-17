@@ -13,7 +13,6 @@ Install flow:
 ## Requirements
 
 - Windows desktop session
-- `ffmpeg` on `PATH`
 - WebView2 runtime available
 
 The installer uses Tauri's WebView2 bootstrapper mode by default, so machines without WebView2 may need an internet connection during setup.
@@ -32,13 +31,14 @@ After launch:
 - single-display capture
 - top-level window capture
 - custom-region capture on the desktop path
-- microphone narration through DirectShow
+- microphone narration through WASAPI
+- system-audio capture through WASAPI loopback
 
 Notes:
 
-- when `Default input` is selected, the app prefers a discovered DirectShow microphone
-- if DirectShow discovery fails, the app attempts to fall back to the current Windows default recording device
-- system-audio mixing still depends on Windows exposing a usable loopback source such as `Stereo Mix`
+- when `Default input` is selected, the app resolves the current Windows default capture endpoint through native WASAPI probing
+- supported recording lanes now use the native `Windows.Graphics.Capture + Media Foundation + WASAPI` path
+- full-desktop capture across multiple monitors is now composed natively from multiple monitor sessions
 
 ## Uninstall
 

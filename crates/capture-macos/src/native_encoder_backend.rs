@@ -1,6 +1,6 @@
 use capture::{
     EncoderBackendAvailability, EncoderBackendDescriptor, EncoderBackendFactory,
-    EncoderBackendFamily, EncoderBackendRuntimeReport, RecordingOptions,
+    EncoderBackendRuntimeReport, RecordingOptions,
 };
 use std::process::Command;
 
@@ -33,7 +33,6 @@ impl EncoderBackendFactory for AvAssetWriterMacosEncoderBackend {
         EncoderBackendDescriptor {
             id: "macos-native-recording-output",
             label: "macOS native recording output",
-            family: EncoderBackendFamily::Native,
         }
     }
 
@@ -43,9 +42,9 @@ impl EncoderBackendFactory for AvAssetWriterMacosEncoderBackend {
         } else {
             let reason = match runtime_summary() {
                 Some(summary) => format!(
-                    "{summary} Older macOS runtimes still rely on the compatibility bridge path instead of direct native recording output."
+                    "{summary} Older macOS runtimes do not expose the direct native recording-output lane, so those runtimes fail explicitly instead of using this backend."
                 ),
-                None => "A fully native macOS recording-output path is only active on macOS 15+; older runtimes still rely on the compatibility bridge today.".to_string(),
+                None => "A fully native macOS recording-output path is only active on macOS 15+; older runtimes fail explicitly instead of using this backend.".to_string(),
             };
 
             EncoderBackendAvailability::Unavailable { reason }
@@ -72,7 +71,7 @@ pub fn runtime_summary() -> Option<String> {
         )
     } else {
         format!(
-            "macOS reports version `{version}`; native recording output is only fully active on macOS 15+, so older runtimes still rely on the compatibility bridge."
+            "macOS reports version `{version}`; native recording output is only fully active on macOS 15+, so older runtimes do not expose this lane."
         )
     })
 }

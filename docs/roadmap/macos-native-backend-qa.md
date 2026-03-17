@@ -91,9 +91,9 @@ Current observed note:
   - `custom region`
   - `full desktop + system audio`
 - `full desktop + system audio` now has an automated macOS smoke pass on the current machine.
-- `full desktop + microphone` now starts through the native `SCRecordingOutput` lane instead of the legacy `ffmpeg / AVFoundation` microphone fallback.
+- `full desktop + microphone` now starts through the native `SCRecordingOutput` lane instead of the older microphone-specific fallback path.
 - the current automated smoke failure is now a native-lane start failure in the `cargo test` harness: `SpawnFailed("Failed to start capture: Stream error: The user declined TCCs for application, window, display capture")`.
-- that means the previous `ffmpeg` microphone-stop bug is no longer the active blocker; the remaining gap is TCC/permission verification for the native mic lane on real app/test binaries.
+- that means the previous legacy microphone-stop bug is no longer the active blocker; the remaining gap is TCC/permission verification for the native mic lane on real app/test binaries.
 
 ### Permissions and session changes
 
@@ -119,7 +119,7 @@ Current observed note:
 - [ ] Unsupported pause action is disabled in HUD
 - [ ] Unsupported pause action is disabled in tray
 - [ ] Unsupported pause shortcut returns a clear runtime error instead of a backend crash
-- [ ] Unsupported combination falls back to the legacy path with a clear selection note
+- [ ] Unsupported combination fails explicitly with a clear native-lane selection note
 
 ## Exit Bar For "Production-Hardened"
 

@@ -1,6 +1,8 @@
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use std::process::{Command, Stdio};
 use std::{
     io::{BufRead, BufReader},
-    process::{Child, ChildStderr, Command, Stdio},
+    process::{Child, ChildStderr},
     thread,
 };
 
@@ -17,6 +19,7 @@ pub struct MicCheckSnapshot {
     pub active: bool,
     pub level: f32,
     pub has_signal: bool,
+    pub supported: bool,
     pub error: Option<String>,
 }
 
@@ -26,6 +29,7 @@ impl MicCheckSnapshot {
             active: false,
             level: 0.0,
             has_signal: false,
+            supported: true,
             error: None,
         }
     }
@@ -35,6 +39,7 @@ impl MicCheckSnapshot {
             active: true,
             level: 0.0,
             has_signal: false,
+            supported: true,
             error: None,
         }
     }
@@ -44,6 +49,17 @@ impl MicCheckSnapshot {
             active: false,
             level: 0.0,
             has_signal: false,
+            supported: true,
+            error: Some(message),
+        }
+    }
+
+    fn unsupported(message: String) -> Self {
+        Self {
+            active: false,
+            level: 0.0,
+            has_signal: false,
+            supported: false,
             error: Some(message),
         }
     }
@@ -55,7 +71,18 @@ pub struct MicCheckProcess {
 
 pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
     let _ = stop_mic_check(app);
-    let (child, stderr) = spawn_platform_mic_check(app)?;
+    let (child, stderr) = match spawn_platform_mic_check(app) {
+        Ok(process) => process,
+        Err(error) => {
+            let snapshot = if error.contains("temporarily unavailable on the native") {
+                MicCheckSnapshot::unsupported(error)
+            } else {
+                MicCheckSnapshot::error(error)
+            };
+            emit_mic_check_state(app, &snapshot);
+            return Ok(snapshot);
+        }
+    };
 
     {
         let state = app.state::<AppState>();
@@ -77,6 +104,7 @@ pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
                         active: true,
                         level,
                         has_signal: level >= 0.08,
+                        supported: true,
                         error: None,
                     },
                 );
@@ -169,56 +197,19 @@ fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), Str
 
 #[cfg(target_os = "macos")]
 fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
-    let audio_input = selected_audio_input_id(app)?;
-    let mut command = capture::ffmpeg_command();
-    command
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "info",
-            "-nostdin",
-            "-f",
-            "avfoundation",
-            "-i",
-            &format!(":{audio_input}"),
-            "-af",
-            "astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level",
-            "-f",
-            "null",
-            "-",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-
-    spawn_probe_process(command)
+    let _ = selected_audio_input_id(app)?;
+    Err(
+        "Live microphone level testing is temporarily unavailable on the native macOS runtime."
+            .to_string(),
+    )
 }
 
 #[cfg(target_os = "windows")]
 fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
     let audio_input = selected_audio_input_id(app)?;
-    let mut command = capture::ffmpeg_command();
-    command
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "info",
-            "-nostdin",
-            "-f",
-            "dshow",
-            "-i",
-            &format!("audio={audio_input}"),
-            "-af",
-            "astats=metadata=1:reset=0.15,ametadata=print:key=lavfi.astats.Overall.RMS_level",
-            "-f",
-            "null",
-            "-",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-
-    spawn_probe_process(command)
+    Err(format!(
+        "Live microphone level testing is temporarily unavailable on the native Windows runtime for `{audio_input}`."
+    ))
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
@@ -226,6 +217,7 @@ fn spawn_platform_mic_check(_app: &AppHandle) -> Result<(Child, ChildStderr), St
     Err("Native mic check is currently implemented for macOS, Linux, and Windows.".to_string())
 }
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn spawn_probe_process(mut command: Command) -> Result<(Child, ChildStderr), String> {
     let mut child = command
         .spawn()
@@ -286,8 +278,9 @@ fn detect_probe_error(line: &str) -> Option<String> {
         || lowered.contains("failed to connect")
         || lowered.contains("could not open audio")
     {
-        return Some("The Linux microphone probe could not attach to the selected audio source."
-            .to_string());
+        return Some(
+            "The Linux microphone probe could not attach to the selected audio source.".to_string(),
+        );
     }
 
     if lowered.contains("no such process")
@@ -297,7 +290,6 @@ fn detect_probe_error(line: &str) -> Option<String> {
         || lowered.contains("could not find audio only device")
         || lowered.contains("audio device")
         || lowered.contains("directshow audio")
-        || lowered.contains("avfoundation")
         || lowered.contains("pulse")
     {
         return Some("The selected microphone input is not available right now.".to_string());

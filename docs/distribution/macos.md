@@ -10,16 +10,9 @@ Install flow:
 2. Drag `Record Screen.app` into `Applications`.
 3. Launch the app from `Applications`.
 
-Install `ffmpeg` if it is missing:
-
-```bash
-brew install ffmpeg
-```
-
 ## Requirements
 
 - macOS with Screen Recording permission support
-- `ffmpeg` on `PATH`
 - Screen Recording permission granted
 - Microphone permission granted if narration is enabled
 
@@ -41,7 +34,7 @@ On first launch:
 
 Not available yet:
 
-- system-audio mixing
+- live microphone level testing in the launcher
 
 ## Homebrew status
 

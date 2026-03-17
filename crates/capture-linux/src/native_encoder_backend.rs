@@ -1,6 +1,6 @@
 use capture::{
     EncoderBackendAvailability, EncoderBackendDescriptor, EncoderBackendFactory,
-    EncoderBackendFamily, EncoderBackendRuntimeReport,
+    EncoderBackendRuntimeReport,
 };
 use std::process::Command;
 
@@ -26,7 +26,6 @@ impl EncoderBackendFactory for GstreamerLinuxEncoderBackend {
         EncoderBackendDescriptor {
             id: "linux-gstreamer-encoder",
             label: "Linux GStreamer encoder",
-            family: EncoderBackendFamily::Native,
         }
     }
 

@@ -1,5 +1,5 @@
 use capture::{
-    AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory, AudioBackendFamily,
+    AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory,
     AudioBackendRuntimeReport, AudioInputKind, AudioInputOption,
 };
 use std::process::Command;
@@ -32,7 +32,6 @@ impl AudioBackendFactory for PipewireLinuxAudioBackend {
         AudioBackendDescriptor {
             id: "linux-pipewire-audio",
             label: "Linux PipeWire audio",
-            family: AudioBackendFamily::Native,
         }
     }
 
@@ -373,7 +372,9 @@ pub(crate) fn availability_for(
             }
         }
         LinuxDesktopSession::Headless => AudioBackendAvailability::Unavailable {
-            reason: "A desktop session is required before the Linux native audio lane can be probed.".to_string(),
+            reason:
+                "A desktop session is required before the Linux native audio lane can be probed."
+                    .to_string(),
         },
     }
 }

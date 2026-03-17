@@ -17,6 +17,7 @@ export interface MicCheckSnapshot {
   active: boolean
   level: number
   hasSignal: boolean
+  supported: boolean
   error: string | null
 }
 

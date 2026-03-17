@@ -26,6 +26,7 @@ export function useMicCheck() {
       error: snapshot.error,
       hasSignal: snapshot.hasSignal,
       level: snapshot.level,
+      supported: snapshot.supported,
     }))
   }, [])
 

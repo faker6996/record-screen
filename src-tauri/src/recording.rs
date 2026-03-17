@@ -99,6 +99,89 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         region_source_scale_factor_milli: settings.region_source_scale_factor_milli,
     };
     let start_started_at = Instant::now();
+    #[cfg(target_os = "windows")]
+    let capture_start_plan = capture_windows::capture_start_plan_summary(&recording_options)
+        .unwrap_or_else(|| "n/a".to_string());
+    #[cfg(not(target_os = "windows"))]
+    let capture_start_plan = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let capture_execution_plan =
+        capture_windows::capture_execution_plan_summary(&recording_options)
+            .unwrap_or_else(|| "n/a".to_string());
+    #[cfg(not(target_os = "windows"))]
+    let capture_execution_plan = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let capture_runtime_foundation =
+        capture_windows::capture_runtime_foundation_summary(&recording_options)
+            .unwrap_or_else(|| "n/a".to_string());
+    #[cfg(not(target_os = "windows"))]
+    let capture_runtime_foundation = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let capture_prepared_runtime =
+        capture_windows::capture_prepared_runtime_summary(&recording_options)
+            .unwrap_or_else(|| "n/a".to_string());
+    #[cfg(not(target_os = "windows"))]
+    let capture_prepared_runtime = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let capture_smoke_lifecycle = if std::env::var_os("RECORD_SCREEN_WINDOWS_WGC_SMOKE").is_some() {
+        capture_windows::capture_smoke_lifecycle_summary(&recording_options)
+            .unwrap_or_else(|| "n/a".to_string())
+    } else {
+        "disabled".to_string()
+    };
+    #[cfg(not(target_os = "windows"))]
+    let capture_smoke_lifecycle = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let capture_encoder_bridge_smoke =
+        if std::env::var_os("RECORD_SCREEN_WINDOWS_WGC_MF_SMOKE").is_some() {
+            capture_windows::capture_encoder_bridge_smoke_summary(&recording_options)
+                .unwrap_or_else(|| "n/a".to_string())
+        } else {
+            "disabled".to_string()
+        };
+    #[cfg(not(target_os = "windows"))]
+    let capture_encoder_bridge_smoke = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let audio_start_plan = capture_windows::audio_start_plan_summary(&recording_options)
+        .unwrap_or_else(|| "n/a".to_string());
+    #[cfg(not(target_os = "windows"))]
+    let audio_start_plan = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let audio_runtime_foundation =
+        capture_windows::audio_runtime_foundation_summary(&recording_options)
+            .unwrap_or_else(|| "n/a".to_string());
+    #[cfg(not(target_os = "windows"))]
+    let audio_runtime_foundation = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let audio_smoke_lifecycle = if std::env::var_os("RECORD_SCREEN_WINDOWS_WASAPI_SMOKE").is_some()
+    {
+        capture_windows::audio_smoke_lifecycle_summary(&recording_options)
+            .unwrap_or_else(|| "n/a".to_string())
+    } else {
+        "disabled".to_string()
+    };
+    #[cfg(not(target_os = "windows"))]
+    let audio_smoke_lifecycle = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let encoder_output_plan = capture_windows::encoder_output_plan_summary(&recording_options)
+        .unwrap_or_else(|| "n/a".to_string());
+    #[cfg(not(target_os = "windows"))]
+    let encoder_output_plan = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let encoder_runtime_foundation = if std::env::var_os("RECORD_SCREEN_WINDOWS_MF_SMOKE").is_some()
+    {
+        capture_windows::encoder_runtime_foundation_summary(&recording_options)
+            .unwrap_or_else(|| "n/a".to_string())
+    } else {
+        "disabled".to_string()
+    };
+    #[cfg(not(target_os = "windows"))]
+    let encoder_runtime_foundation = "n/a".to_string();
+    #[cfg(target_os = "windows")]
+    let encoder_sample_bridge = capture_windows::encoder_sample_bridge_summary(&recording_options)
+        .unwrap_or_else(|| "n/a".to_string());
+    #[cfg(not(target_os = "windows"))]
+    let encoder_sample_bridge = "n/a".to_string();
     let controller = create_capture_controller(recording_options)?;
     let controller_ready_after = start_started_at.elapsed();
 
@@ -143,7 +226,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 
     let diagnostics = crate::diagnostics::initial_runtime_diagnostics();
     runtime_log::log_runtime_info(&format!(
-        "recording started | target={} | output={} | encoder={} | capture_backend={} | audio_backend={} | encoder_backend={} | can_pause={} | pause_note={} | capture_note={} | audio_note={} | encoder_note={} | controller_ready_ms={}",
+        "recording started | target={} | output={} | encoder={} | capture_backend={} | audio_backend={} | encoder_backend={} | can_pause={} | pause_note={} | capture_note={} | audio_note={} | encoder_note={} | capture_start_plan={} | capture_execution_plan={} | capture_runtime_foundation={} | capture_prepared_runtime={} | capture_smoke_lifecycle={} | capture_encoder_bridge_smoke={} | audio_start_plan={} | audio_runtime_foundation={} | audio_smoke_lifecycle={} | encoder_output_plan={} | encoder_runtime_foundation={} | encoder_sample_bridge={} | controller_ready_ms={}",
         active_target_label,
         output_path.display(),
         active_encoder_label,
@@ -155,6 +238,18 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         diagnostics.capture_selection_note,
         diagnostics.audio_selection_note,
         diagnostics.encoder_selection_note,
+        capture_start_plan,
+        capture_execution_plan,
+        capture_runtime_foundation,
+        capture_prepared_runtime,
+        capture_smoke_lifecycle,
+        capture_encoder_bridge_smoke,
+        audio_start_plan,
+        audio_runtime_foundation,
+        audio_smoke_lifecycle,
+        encoder_output_plan,
+        encoder_runtime_foundation,
+        encoder_sample_bridge,
         controller_ready_after.as_millis(),
     ));
 

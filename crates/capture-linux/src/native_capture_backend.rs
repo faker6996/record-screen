@@ -12,13 +12,13 @@ use capture::{
     RecordingOptions,
 };
 
+use crate::native_encoder_backend::{self, GstreamerEncoderPlan};
 use crate::{
     LinuxCaptureProcessKind, LinuxDesktopSession, build_recording_artifact,
     current_desktop_session, describe_process_failure, gst_audio_input_device, normalize_display,
     quality_settings, read_stderr_buffer, request_process_stop, resolve_audio_input,
     resolve_system_audio_input, resolve_target, verify_process_started, wayland_portal,
 };
-use crate::native_encoder_backend::{self, GstreamerEncoderPlan};
 
 pub(crate) struct GstreamerWaylandCapture {
     active_recording: ActiveRecording,
@@ -80,15 +80,16 @@ impl GstreamerWaylandCapture {
             | LinuxDesktopSession::WaylandWithX11 {
                 wayland_display, ..
             } => wayland_display.clone(),
-            _ => {
-                return Err(CaptureError::BackendUnavailable(
-                    "The Linux ScreenCast portal / PipeWire backend is only used in Wayland sessions."
-                        .to_string(),
-                ))
-            }
+            _ => return Err(CaptureError::BackendUnavailable(
+                "The Linux ScreenCast portal / PipeWire backend is only used in Wayland sessions."
+                    .to_string(),
+            )),
         };
 
-        if matches!(session, LinuxDesktopSession::X11 { .. } | LinuxDesktopSession::Headless) {
+        if matches!(
+            session,
+            LinuxDesktopSession::X11 { .. } | LinuxDesktopSession::Headless
+        ) {
             return Err(CaptureError::BackendUnavailable(
                 "The Linux ScreenCast portal / PipeWire backend is only used in Wayland sessions."
                     .to_string(),
@@ -166,14 +167,16 @@ impl GstreamerWaylandCapture {
 }
 
 impl GstreamerX11Capture {
-    pub(crate) fn start(options: RecordingOptions) -> Result<Box<dyn CaptureController>, CaptureError> {
+    pub(crate) fn start(
+        options: RecordingOptions,
+    ) -> Result<Box<dyn CaptureController>, CaptureError> {
         match current_desktop_session() {
             LinuxDesktopSession::X11 { .. } | LinuxDesktopSession::WaylandWithX11 { .. } => {}
             _ => {
                 return Err(CaptureError::BackendUnavailable(
                     "The Linux GStreamer X11 lane is only used in X11/XWayland sessions."
                         .to_string(),
-                ))
+                ));
             }
         }
 
@@ -379,7 +382,11 @@ impl CaptureController for GstreamerX11Capture {
             self.resume()?;
         }
 
-        request_process_stop(LinuxCaptureProcessKind::GstreamerWayland, self.child.id(), None)?;
+        request_process_stop(
+            LinuxCaptureProcessKind::GstreamerWayland,
+            self.child.id(),
+            None,
+        )?;
 
         let status = self
             .child
@@ -483,9 +490,8 @@ pub(crate) fn build_x11_runtime_plan(
         LinuxDesktopSession::WaylandWithX11 { x11_display, .. } => normalize_display(x11_display),
         _ => {
             return Err(CaptureError::BackendUnavailable(
-                "The Linux GStreamer X11 lane is only used in X11/XWayland sessions."
-                    .to_string(),
-            ))
+                "The Linux GStreamer X11 lane is only used in X11/XWayland sessions.".to_string(),
+            ));
         }
     };
 
@@ -853,9 +859,9 @@ fn gst_element_available(element: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{X11GstreamerRuntimePlan, build_x11_gstreamer_args};
+    use crate::native_encoder_backend::GstreamerEncoderPlan;
     use capture::{FULL_DESKTOP_TARGET_ID, RecordingOptions};
     use std::path::PathBuf;
-    use crate::native_encoder_backend::GstreamerEncoderPlan;
 
     #[test]
     fn builds_x11_gstreamer_args_with_audio_mix() {

@@ -1,25 +1,20 @@
-pub mod native_audio_backend;
 mod encoding_support;
+pub mod native_audio_backend;
 mod native_capture_backend;
 mod native_encoder_backend;
 mod runtime_support;
 pub mod wayland_portal;
 
-use std::{
-    env, fs,
-    process::Command,
-    time::SystemTime,
-};
+use std::{env, fs, process::Command, time::SystemTime};
 
 use capture::{
     AudioBackendFactory, AudioBackendStatus, AudioInputKind, AudioInputOption,
     CUSTOM_REGION_TARGET_ID, CaptureBackendAvailability, CaptureBackendDescriptor,
-    CaptureBackendFactory, CaptureBackendFamily, CaptureBackendRuntimeReport,
-    CaptureBackendRuntimeSnapshot, CaptureBackendStatus, CaptureController, CaptureError,
-    CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID, EncoderBackendFactory,
-    EncoderBackendRuntimeSnapshot, EncoderBackendStatus, FULL_DESKTOP_TARGET_ID,
-    RecordingArtifact, RecordingOptions, audio_backend_runtime_snapshot,
-    audio_backend_statuses as shared_audio_backend_statuses,
+    CaptureBackendFactory, CaptureBackendRuntimeReport, CaptureBackendRuntimeSnapshot,
+    CaptureBackendStatus, CaptureController, CaptureError, CaptureTargetOption,
+    DEFAULT_AUDIO_INPUT_ID, EncoderBackendFactory, EncoderBackendRuntimeSnapshot,
+    EncoderBackendStatus, FULL_DESKTOP_TARGET_ID, RecordingArtifact, RecordingOptions,
+    audio_backend_runtime_snapshot, audio_backend_statuses as shared_audio_backend_statuses,
     backend_statuses as shared_backend_statuses, capture_backend_runtime_snapshot,
     default_audio_input, encoder_backend_runtime_snapshot,
     encoder_backend_statuses as shared_encoder_backend_statuses, explain_audio_backend_selection,
@@ -49,8 +44,8 @@ pub(crate) use encoding_support::{
     cpu_preset_for_quality, gst_bitrate_for_quality, quality_settings,
 };
 pub(crate) use runtime_support::{
-    LinuxCaptureProcessKind, describe_process_failure, read_stderr_buffer,
-    request_process_stop, verify_process_started,
+    LinuxCaptureProcessKind, describe_process_failure, read_stderr_buffer, request_process_stop,
+    verify_process_started,
 };
 
 pub struct PortalPipewireLinuxBackend;
@@ -127,7 +122,6 @@ impl CaptureBackendFactory for PortalPipewireLinuxBackend {
         CaptureBackendDescriptor {
             id: "linux-portal-pipewire",
             label: "Linux ScreenCast Portal / PipeWire",
-            family: CaptureBackendFamily::Native,
         }
     }
 
@@ -150,7 +144,9 @@ impl CaptureBackendFactory for PortalPipewireLinuxBackend {
     }
 
     fn start(&self, options: RecordingOptions) -> Result<Box<dyn CaptureController>, CaptureError> {
-        Ok(Box::new(native_capture_backend::GstreamerWaylandCapture::start(options)?))
+        Ok(Box::new(
+            native_capture_backend::GstreamerWaylandCapture::start(options)?,
+        ))
     }
 }
 
@@ -159,7 +155,6 @@ impl CaptureBackendFactory for GstreamerX11LinuxBackend {
         CaptureBackendDescriptor {
             id: "linux-gstreamer-x11-capture",
             label: "Linux GStreamer X11 recorder",
-            family: CaptureBackendFamily::Native,
         }
     }
 
@@ -281,7 +276,7 @@ fn portal_backend_availability_for(
         },
         LinuxDesktopSession::X11 { .. } => {
             CaptureBackendAvailability::Unavailable {
-                reason: "The Linux ScreenCast portal / PipeWire backend is reserved for Wayland sessions. This session can use the X11 compatibility backend.".to_string(),
+                reason: "The Linux ScreenCast portal / PipeWire backend is reserved for Wayland sessions. This session can use the native X11 recorder lane.".to_string(),
             }
         }
         LinuxDesktopSession::Headless => CaptureBackendAvailability::Unavailable {
@@ -428,7 +423,7 @@ pub fn custom_region_support_summary() -> (bool, String) {
         ),
         LinuxDesktopSession::WaylandWithX11 { .. } => (
             true,
-            "Custom region capture is available through the XWayland compatibility path."
+            "Custom region capture is available through the XWayland-backed X11 recorder lane."
                 .to_string(),
         ),
         LinuxDesktopSession::WaylandOnly { .. } => (
@@ -606,8 +601,7 @@ fn resolve_audio_input_from_snapshot(
             .or_else(|| Some("default".to_string()))
             .ok_or_else(|| {
                 CaptureError::BackendUnavailable(
-                    "Linux audio discovery could not find any usable microphone source"
-                        .to_string(),
+                    "Linux audio discovery could not find any usable microphone source".to_string(),
                 )
             });
     }
@@ -833,7 +827,6 @@ impl LinuxDesktopSession {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1104,7 +1097,10 @@ mod tests {
             native_capture_backend::X11GstreamerSupport::Available,
         );
 
-        assert!(matches!(availability, capture::CaptureBackendAvailability::Available));
+        assert!(matches!(
+            availability,
+            capture::CaptureBackendAvailability::Available
+        ));
     }
 
     #[test]

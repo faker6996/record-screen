@@ -30,13 +30,13 @@
 <summary><b>Current MVP Backend Implementations</b></summary>
 <br>
 
-- **macOS:** `ffmpeg + AVFoundation`
-- **Linux:** `ffmpeg + x11grab + pulse` on X11/XWayland today, plus a native ScreenCast portal lifecycle client and experimental GStreamer PipeWire path for pure Wayland
-- **Windows:** `ffmpeg + gdigrab + dshow`
+- **macOS:** `ScreenCaptureKit / SCRecordingOutput` on supported runtimes
+- **Linux:** native `GStreamer ximagesrc + pulsesrc` on X11/XWayland today, plus a ScreenCast portal lifecycle client and experimental GStreamer PipeWire path for pure Wayland
+- **Windows:** `Windows.Graphics.Capture + Media Foundation + WASAPI`
 </details>
 
 ## 🗺️ Roadmap (Not Implemented Yet)
-- [ ] Native per-OS recording backend migration beyond the current ffmpeg-centric MVP.
+- [ ] Production hardening and QA signoff for the per-OS native recorder stacks.
 - [ ] Production-grade encoder pipeline beyond MVP.
 - [ ] Full video review and export workflow.
 
@@ -61,7 +61,6 @@ Ensure you have the following installed before proceeding:
 - [Node.js](https://nodejs.org/)
 - [Rust](https://www.rust-lang.org/)
 - **macOS only:** Xcode Command Line Tools
-- **All platforms:** `ffmpeg` is required for the MVP recording paths.
 
 ### Getting Started
 
@@ -130,11 +129,10 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 ## 📝 Platform Notes
 
 ### 🍏 macOS
-- `ffmpeg` must be installed and available on `PATH`.
 - Must grant **Screen Recording** permission.
 - If narration is enabled, must grant **Microphone** permission.
-- `Custom region` now records through the AVFoundation display path with crop filtering.
-- `System audio mixing` is still not wired into the macOS backend yet.
+- `Display`, `custom region`, and supported audio lanes now record through the native ScreenCaptureKit path on supported runtimes.
+- Pause/resume is not available on the direct native file-output lane, so the app disables it explicitly there.
 
 ### 🐧 Linux
 - Supports real recording on `X11` and `Wayland + XWayland`.
@@ -145,13 +143,12 @@ The repository is structured as a monorepo, separating the UI from the Rust core
   - a native DBus lifecycle client for `CreateSession`, `SelectSources`, `Start`, and `OpenPipeWireRemote`
   - PipeWire readiness probing
   - an experimental `GStreamer + pipewiresrc` runtime path
-- `ffmpeg` must be on `PATH`.
+- Native GStreamer / PipeWire runtime packages must be available on the host.
 - Must run inside an X11 desktop session with `DISPLAY` set, or a Wayland session with XWayland compatibility enabled.
 - Microphone narration uses default PulseAudio/PipeWire source.
 - Can discover individual windows from X11.
 - Release packages are distributed as `.deb` files for `apt install ./record-screen_<version>_amd64.deb`.
 - The launcher reports Linux readiness for:
-  - `ffmpeg`
   - X11/XWayland access
   - Wayland ScreenCast portal capability
   - PipeWire readiness hints
@@ -159,14 +156,12 @@ The repository is structured as a monorepo, separating the UI from the Rust core
   - microphone availability
 
 ### 🪟 Windows
-- Uses `gdigrab` (desktop) and `dshow` (microphone).
-- `ffmpeg` must be on `PATH`.
-- **PowerShell** is required to enumerate monitors/windows and control pause/resume.
-- Auto-selects the best available DirectShow microphone when `Default input` is selected.
-- If DirectShow microphone enumeration fails, the app now falls back to the current Windows default recording device when possible.
+- Uses `Windows.Graphics.Capture` for video, `Media Foundation` for output, and `WASAPI` for microphone/system audio.
+- **PowerShell** is still used for some shell integration and compatibility helpers around windowing behavior.
+- Auto-selects the current Windows default microphone when `Default input` is selected.
 - The launcher can target the full desktop, a single monitor, or a single top-level window.
-- `Custom region` is available on the desktop path.
-- `System audio mixing` depends on Windows exposing a usable DirectShow loopback source such as `Stereo Mix`.
+- `Custom region` is available on the native desktop path.
+- `System audio mixing` uses native WASAPI loopback.
 - Release packages are distributed as NSIS setup executables.
 
 ---

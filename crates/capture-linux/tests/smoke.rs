@@ -218,7 +218,11 @@ fn exported_wayland_parent_window() -> Option<WaylandPortalParent> {
         }
     }
 
-    if env::var("WAYLAND_DISPLAY").unwrap_or_default().trim().is_empty() {
+    if env::var("WAYLAND_DISPLAY")
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
         return None;
     }
 

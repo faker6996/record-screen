@@ -575,6 +575,9 @@ mod linux {
 mod windows {
     use std::process::Command;
 
+    use capture::{AudioBackendAvailability, AudioInputKind, CaptureBackendAvailability};
+    use capture_windows::{list_audio_inputs, selected_audio_backend, selected_backend};
+
     use crate::{PermissionCheck, PermissionError, PermissionStatus};
 
     const DESKTOP_CAPTURE: &str = "Desktop capture";
@@ -610,86 +613,58 @@ mod windows {
     }
 
     fn desktop_capture_check() -> PermissionCheck {
-        if ffmpeg_available() {
-            PermissionCheck {
+        match selected_backend().availability() {
+            CaptureBackendAvailability::Available => PermissionCheck {
                 name: DESKTOP_CAPTURE.to_string(),
                 status: PermissionStatus::Granted,
                 guidance:
-                    "ffmpeg is available to the app and the Windows desktop capture backend can start immediately."
+                    "Windows native capture is available through Windows.Graphics.Capture and Media Foundation."
                         .to_string(),
-            }
-        } else {
-            PermissionCheck {
+            },
+            CaptureBackendAvailability::Unavailable { reason } => PermissionCheck {
                 name: DESKTOP_CAPTURE.to_string(),
                 status: PermissionStatus::Pending,
-                guidance: "ffmpeg is not available to the app. Install ffmpeg, or place ffmpeg.exe next to the app, in a bundled bin/resources directory, or in a common Chocolatey / Scoop / WinGet location before recording on Windows.".to_string(),
-            }
+                guidance: format!(
+                    "Windows native desktop capture is not ready in this session. {reason}"
+                ),
+            },
         }
     }
 
     fn microphone_check() -> PermissionCheck {
-        match has_directshow_microphone() {
-            Ok(true) => PermissionCheck {
+        let has_microphone = list_audio_inputs()
+            .into_iter()
+            .any(|input| matches!(input.kind, AudioInputKind::Microphone));
+        let audio_backend_available = matches!(
+            selected_audio_backend().availability(),
+            AudioBackendAvailability::Available
+        );
+
+        if has_microphone && audio_backend_available {
+            PermissionCheck {
                 name: MICROPHONE.to_string(),
                 status: PermissionStatus::Granted,
                 guidance:
-                    "A DirectShow microphone input is available for narration on this machine."
+                    "A native Windows microphone route is available for narration on this machine."
                         .to_string(),
-            },
-            Ok(false) => PermissionCheck {
+            }
+        } else if !has_microphone {
+            PermissionCheck {
                 name: MICROPHONE.to_string(),
                 status: PermissionStatus::Pending,
                 guidance:
-                    "No DirectShow microphone input was detected. You can still record the screen with the mic toggle disabled."
+                    "No Windows microphone input was detected. You can still record the screen with the mic toggle disabled."
                         .to_string(),
-            },
-            Err(_) => PermissionCheck {
+            }
+        } else {
+            PermissionCheck {
                 name: MICROPHONE.to_string(),
                 status: PermissionStatus::Pending,
                 guidance:
-                    "Could not inspect DirectShow microphone devices. Open Windows microphone privacy settings if narration does not work."
+                    "Windows audio routing is not ready in this session. Open Windows microphone privacy settings if narration does not work."
                         .to_string(),
-            },
-        }
-    }
-
-    fn ffmpeg_available() -> bool {
-        capture::ffmpeg_command()
-            .args(["-hide_banner", "-version"])
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-    }
-
-    fn has_directshow_microphone() -> Result<bool, PermissionError> {
-        let output = capture::ffmpeg_command()
-            .args(["-list_devices", "true", "-f", "dshow", "-i", "dummy"])
-            .output()
-            .map_err(|error| {
-                PermissionError::RequestFailed(capture::ffmpeg_launch_error_message(
-                    &error, "Windows",
-                ))
-            })?;
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let mut in_audio_section = false;
-
-        for line in stderr.lines() {
-            if line.contains("DirectShow audio devices") {
-                in_audio_section = true;
-                continue;
-            }
-
-            if in_audio_section && line.contains("DirectShow video devices") {
-                in_audio_section = false;
-            }
-
-            if in_audio_section && line.contains('"') {
-                return Ok(true);
             }
         }
-
-        Ok(false)
     }
 
     fn open_uri(uri: &str) -> Result<(), PermissionError> {

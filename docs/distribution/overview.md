@@ -51,7 +51,7 @@ Runtime dependencies are now platform-specific:
 
 - Linux: native GStreamer / PipeWire runtime packages
 - macOS: no Linux-style external runtime dependency
-- Windows: `ffmpeg` still remains part of the current runtime path
+- Windows: native `Windows.Graphics.Capture + Media Foundation + WASAPI` runtime on the main recorder path
 
 Current capability highlights:
 

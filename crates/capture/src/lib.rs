@@ -1,7 +1,6 @@
 use std::{
-    env, io,
-    path::{Path, PathBuf},
-    process::Command,
+    env,
+    path::PathBuf,
     time::{Duration, SystemTime},
 };
 
@@ -67,16 +66,9 @@ pub struct ActiveRecording {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AudioBackendFamily {
-    Native,
-    FallbackFfmpeg,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AudioBackendDescriptor {
     pub id: &'static str,
     pub label: &'static str,
-    pub family: AudioBackendFamily,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,16 +93,9 @@ pub struct AudioBackendRuntimeReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EncoderBackendFamily {
-    Native,
-    FallbackFfmpeg,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncoderBackendDescriptor {
     pub id: &'static str,
     pub label: &'static str,
-    pub family: EncoderBackendFamily,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,16 +117,9 @@ pub struct EncoderBackendRuntimeReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CaptureBackendFamily {
-    Native,
-    FallbackFfmpeg,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptureBackendDescriptor {
     pub id: &'static str,
     pub label: &'static str,
-    pub family: CaptureBackendFamily,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -400,30 +378,9 @@ pub fn explain_capture_backend_selection(
         }
     }
 
-    let statuses = backend_statuses(candidates);
-    let native_reasons = statuses
-        .iter()
-        .filter(|status| matches!(status.descriptor.family, CaptureBackendFamily::Native))
-        .filter_map(|status| match &status.availability {
-            CaptureBackendAvailability::Unavailable { reason } => {
-                Some(format!("{}: {reason}", status.descriptor.label))
-            }
-            CaptureBackendAvailability::Available => None,
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-
     let note = match availability {
         CaptureBackendAvailability::Available => {
-            if matches!(descriptor.family, CaptureBackendFamily::FallbackFfmpeg)
-                && !native_reasons.is_empty()
-            {
-                format!(
-                    "Capture selected fallback runtime because native candidates are not active yet. {native_reasons}"
-                )
-            } else {
-                "Capture selected the first available backend in the registry.".to_string()
-            }
+            "Capture selected the first available backend in the registry.".to_string()
         }
         CaptureBackendAvailability::Unavailable { reason } => format!(
             "Capture registry had no available backend, so it fell back to `{}`. {reason}",
@@ -481,30 +438,9 @@ pub fn explain_audio_backend_selection(
         }
     }
 
-    let statuses = audio_backend_statuses(candidates);
-    let native_reasons = statuses
-        .iter()
-        .filter(|status| matches!(status.descriptor.family, AudioBackendFamily::Native))
-        .filter_map(|status| match &status.availability {
-            AudioBackendAvailability::Unavailable { reason } => {
-                Some(format!("{}: {reason}", status.descriptor.label))
-            }
-            AudioBackendAvailability::Available => None,
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-
     let note = match availability {
         AudioBackendAvailability::Available => {
-            if matches!(descriptor.family, AudioBackendFamily::FallbackFfmpeg)
-                && !native_reasons.is_empty()
-            {
-                format!(
-                    "Audio selected fallback runtime because native candidates are not active yet. {native_reasons}"
-                )
-            } else {
-                "Audio selected the first available backend in the registry.".to_string()
-            }
+            "Audio selected the first available backend in the registry.".to_string()
         }
         AudioBackendAvailability::Unavailable { reason } => format!(
             "Audio registry had no available backend, so it fell back to `{}`. {reason}",
@@ -565,30 +501,9 @@ pub fn explain_encoder_backend_selection(
         }
     }
 
-    let statuses = encoder_backend_statuses(candidates);
-    let native_reasons = statuses
-        .iter()
-        .filter(|status| matches!(status.descriptor.family, EncoderBackendFamily::Native))
-        .filter_map(|status| match &status.availability {
-            EncoderBackendAvailability::Unavailable { reason } => {
-                Some(format!("{}: {reason}", status.descriptor.label))
-            }
-            EncoderBackendAvailability::Available => None,
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-
     let note = match availability {
         EncoderBackendAvailability::Available => {
-            if matches!(descriptor.family, EncoderBackendFamily::FallbackFfmpeg)
-                && !native_reasons.is_empty()
-            {
-                format!(
-                    "Encoder selected fallback runtime because native candidates are not active yet. {native_reasons}"
-                )
-            } else {
-                "Encoder selected the first available backend in the registry.".to_string()
-            }
+            "Encoder selected the first available backend in the registry.".to_string()
         }
         EncoderBackendAvailability::Unavailable { reason } => format!(
             "Encoder registry had no available backend, so it fell back to `{}`. {reason}",
@@ -624,7 +539,6 @@ pub fn encoder_backend_runtime_snapshot(
 fn join_capture_native_unavailable_notes(statuses: &[CaptureBackendStatus]) -> Option<String> {
     let note = statuses
         .iter()
-        .filter(|status| matches!(status.descriptor.family, CaptureBackendFamily::Native))
         .filter_map(|status| match &status.availability {
             CaptureBackendAvailability::Unavailable { reason } => Some(format!(
                 "{} is not active yet: {reason}",
@@ -641,7 +555,6 @@ fn join_capture_native_unavailable_notes(statuses: &[CaptureBackendStatus]) -> O
 fn join_audio_native_unavailable_notes(statuses: &[AudioBackendStatus]) -> Option<String> {
     let note = statuses
         .iter()
-        .filter(|status| matches!(status.descriptor.family, AudioBackendFamily::Native))
         .filter_map(|status| match &status.availability {
             AudioBackendAvailability::Unavailable { reason } => Some(format!(
                 "{} is not active yet: {reason}",
@@ -658,7 +571,6 @@ fn join_audio_native_unavailable_notes(statuses: &[AudioBackendStatus]) -> Optio
 fn join_encoder_native_unavailable_notes(statuses: &[EncoderBackendStatus]) -> Option<String> {
     let note = statuses
         .iter()
-        .filter(|status| matches!(status.descriptor.family, EncoderBackendFamily::Native))
         .filter_map(|status| match &status.availability {
             EncoderBackendAvailability::Unavailable { reason } => Some(format!(
                 "{} is not active yet: {reason}",
@@ -670,116 +582,6 @@ fn join_encoder_native_unavailable_notes(statuses: &[EncoderBackendStatus]) -> O
         .join(" ");
 
     (!note.is_empty()).then_some(note)
-}
-
-pub fn ffmpeg_command() -> Command {
-    Command::new(ffmpeg_program())
-}
-
-pub fn ffmpeg_program() -> PathBuf {
-    resolve_ffmpeg_program().unwrap_or_else(default_ffmpeg_program)
-}
-
-pub fn ffmpeg_launch_error_message(error: &io::Error, platform_label: &str) -> String {
-    if error.kind() == io::ErrorKind::NotFound {
-        return format!(
-            "ffmpeg is not available for the {platform_label} backend. Install ffmpeg, or place {} next to the app, in a bundled bin/resources directory, or in a common Chocolatey / Scoop / WinGet location.",
-            ffmpeg_file_name()
-        );
-    }
-
-    error.to_string()
-}
-
-fn resolve_ffmpeg_program() -> Option<PathBuf> {
-    if let Some(explicit) = env::var_os("RECORD_SCREEN_FFMPEG") {
-        let path = PathBuf::from(explicit);
-        if path_exists(&path) {
-            return Some(path);
-        }
-    }
-
-    if let Some(app_local) = current_exe_candidates()
-        .into_iter()
-        .find(|path| path_exists(path))
-    {
-        return Some(app_local);
-    }
-
-    #[cfg(target_os = "windows")]
-    if let Some(common_install) = windows_ffmpeg_candidates()
-        .into_iter()
-        .find(|path| path_exists(path))
-    {
-        return Some(common_install);
-    }
-
-    None
-}
-
-fn path_exists(path: &Path) -> bool {
-    path.is_file()
-}
-
-fn default_ffmpeg_program() -> PathBuf {
-    #[cfg(target_os = "windows")]
-    {
-        return PathBuf::from("ffmpeg.exe");
-    }
-
-    #[allow(unreachable_code)]
-    PathBuf::from("ffmpeg")
-}
-
-fn current_exe_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    let Ok(current_exe) = env::current_exe() else {
-        return candidates;
-    };
-
-    if let Some(exe_dir) = current_exe.parent() {
-        candidates.push(exe_dir.join(ffmpeg_file_name()));
-        candidates.push(exe_dir.join("bin").join(ffmpeg_file_name()));
-        candidates.push(exe_dir.join("resources").join(ffmpeg_file_name()));
-        if let Some(parent_dir) = exe_dir.parent() {
-            candidates.push(parent_dir.join("bin").join(ffmpeg_file_name()));
-            candidates.push(parent_dir.join("resources").join(ffmpeg_file_name()));
-        }
-    }
-
-    candidates
-}
-
-fn ffmpeg_file_name() -> &'static str {
-    #[cfg(target_os = "windows")]
-    {
-        return "ffmpeg.exe";
-    }
-
-    #[allow(unreachable_code)]
-    "ffmpeg"
-}
-
-#[cfg(target_os = "windows")]
-fn windows_ffmpeg_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-
-    if let Some(choco) = env::var_os("ChocolateyInstall") {
-        candidates.push(PathBuf::from(choco).join("bin/ffmpeg.exe"));
-    }
-    candidates.push(PathBuf::from(r"C:\ProgramData\chocolatey\bin\ffmpeg.exe"));
-
-    if let Some(user_profile) = env::var_os("USERPROFILE") {
-        let user_profile = PathBuf::from(user_profile);
-        candidates.push(user_profile.join("scoop/shims/ffmpeg.exe"));
-        candidates.push(user_profile.join("AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe"));
-    }
-
-    if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
-        candidates.push(PathBuf::from(local_app_data).join("Microsoft/WinGet/Links/ffmpeg.exe"));
-    }
-
-    candidates
 }
 
 pub fn full_desktop_target() -> CaptureTargetOption {

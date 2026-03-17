@@ -1,5 +1,5 @@
 use capture::{
-    AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory, AudioBackendFamily,
+    AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory,
     AudioBackendRuntimeReport, AudioInputKind, AudioInputOption, DEFAULT_AUDIO_INPUT_ID,
     resolve_audio_input_id,
 };
@@ -55,7 +55,6 @@ impl AudioBackendFactory for CoreAudioMacosBackend {
         AudioBackendDescriptor {
             id: "macos-core-audio",
             label: "macOS Core Audio",
-            family: AudioBackendFamily::Native,
         }
     }
 
@@ -81,12 +80,12 @@ impl AudioBackendFactory for CoreAudioMacosBackend {
                     "{summary} Native microphone routing is active through the ScreenCaptureKit recording-output lane on supported macOS runtimes."
                 ),
                 Some(summary) => format!(
-                    "{summary} Older macOS runtimes still rely on compatibility behavior for some audio paths."
+                    "{summary} Older macOS runtimes only expose partial native-audio support, so unsupported paths fail explicitly there."
                 ),
                 None if native_recording_output_runtime_is_supported() =>
                     "Native microphone routing is active through the ScreenCaptureKit recording-output lane on supported macOS runtimes."
                         .to_string(),
-                None => "Native microphone routing is only partially active on this macOS runtime; older runtimes still need compatibility behavior for some paths."
+                None => "Native microphone routing is only partially active on this macOS runtime; older runtimes do not expose every native audio path."
                     .to_string(),
             }),
             preferred_input_id: preferred_input_device_name(),

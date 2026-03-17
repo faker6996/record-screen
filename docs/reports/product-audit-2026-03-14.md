@@ -50,8 +50,8 @@ Ly do: kien truc hien tai phu hop hon voi app quay va xu ly cuc bo chat luong ca
 
 | Platform | Trang thai hien tai | Danh gia |
 | --- | --- | --- |
-| macOS | `AVFoundation + ffmpeg`, permission flow that, mic select/test, encoder uu tien `h264_videotoolbox`, custom region crop da co | Tot nhat hien tai |
-| Windows | `gdigrab + dshow + ffmpeg`, mic diagnostics, multi-encoder selection, window/monitor targeting | Dung duoc, can hardening them |
+| macOS | `ScreenCaptureKit / SCRecordingOutput`, permission flow that, mic select/test, encoder uu tien `h264_videotoolbox`, custom region crop da co | Tot nhat hien tai |
+| Windows | `Windows.Graphics.Capture + Media Foundation + WASAPI`, mic diagnostics, multi-encoder selection, window/monitor targeting | Dung duoc, can hardening them |
 | Linux X11 | `GStreamer ximagesrc + pulsesrc`, mic test, window discovery | Dung duoc |
 | Linux XWayland | co duong quay that qua native X11 GStreamer path | Dung duoc |
 | Linux Wayland-only | da co ScreenCast portal lifecycle client va PipeWire/GStreamer readiness path, nhung chua dat muc on dinh nhu X11 | Chua hoan tat |
@@ -139,7 +139,7 @@ Da co:
 
 - UI audio input khong con goi tat ca la "microphone"
 - Linux hien system/loopback monitor sources ro rang
-- Windows phan loai `Stereo Mix` / `loopback` / `output` thanh system audio neu ffmpeg expose duoc
+- Windows phan loai `loopback` / `output` thanh system audio tu native WASAPI endpoint probing
 - user co the bat `Include system audio`
 - Windows va Linux X11/XWayland co the mix `microphone + system audio`
 - launcher da guard theo support matrix hien tai
@@ -158,7 +158,7 @@ Da co:
 - custom region settings trong launcher
 - drag-to-select overlay tren man hinh
 - custom region target trong recorder khi backend/session hien tai support
-- macOS custom region crop qua `AVFoundation + ffmpeg`
+- macOS custom region crop qua native `ScreenCaptureKit / SCRecordingOutput`
 - Windows desktop path crop theo `offset_x / offset_y / video_size`
 - Linux X11/XWayland crop theo native X11 capture region + output sizing plan
 

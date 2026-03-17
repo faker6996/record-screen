@@ -3,9 +3,9 @@
 use std::{
     collections::HashMap,
     process::Command,
-    sync::{Mutex, OnceLock},
-    sync::mpsc,
     sync::atomic::{AtomicU64, Ordering},
+    sync::mpsc,
+    sync::{Mutex, OnceLock},
     thread,
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
@@ -174,7 +174,11 @@ pub fn negotiate_runtime_session(
     eprintln!(
         "[wayland-portal] negotiating ScreenCast session with parent_window={} restore_token={}",
         parent_window.unwrap_or("<none>"),
-        if restore_token.is_some() { "<provided>" } else { "<none>" }
+        if restore_token.is_some() {
+            "<provided>"
+        } else {
+            "<none>"
+        }
     );
     let connection = Connection::session().map_err(|error| {
         CaptureError::BackendUnavailable(format!(
@@ -277,7 +281,11 @@ pub fn negotiate_runtime_session(
     let start_request_handle: OwnedObjectPath = screen_cast_proxy
         .call(
             "Start",
-            &(path_from_string(&session_handle)?, parent_window, start_options),
+            &(
+                path_from_string(&session_handle)?,
+                parent_window,
+                start_options,
+            ),
         )
         .map_err(|error| portal_stage_failed("Start", error))?;
     let start_request_handle = start_request_handle.to_string();
@@ -397,7 +405,8 @@ fn build_select_sources_gdbus_args(
     session_handle: &str,
     restore_token: Option<&str>,
 ) -> Vec<String> {
-    let options = if let Some(restore_token) = restore_token.filter(|token| !token.trim().is_empty())
+    let options = if let Some(restore_token) =
+        restore_token.filter(|token| !token.trim().is_empty())
     {
         format!(
             "{{'multiple': <false>, 'types': <uint32 1>, 'cursor_mode': <uint32 2>, 'persist_mode': <uint32 2>, 'restore_token': <'{restore_token}'>}}"
@@ -559,12 +568,12 @@ impl ResponseWaiter {
                     stage = self.stage
                 )))
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => Err(CaptureError::BackendUnavailable(
-                format!(
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err(CaptureError::BackendUnavailable(format!(
                     "ScreenCast portal {stage} response listener disconnected before returning a result.",
                     stage = self.stage
-                ),
-            )),
+                )))
+            }
         }
     }
 }
@@ -609,7 +618,10 @@ fn spawn_response_waiter(
 
     match ready_rx.recv_timeout(PORTAL_LISTENER_READY_TIMEOUT) {
         Ok(Ok(())) => {
-            eprintln!("[wayland-portal] listening for {stage} response", stage = stage);
+            eprintln!(
+                "[wayland-portal] listening for {stage} response",
+                stage = stage
+            );
             Ok(ResponseWaiter { stage, response_rx })
         }
         Ok(Err(error)) => Err(CaptureError::BackendUnavailable(format!(
@@ -621,12 +633,12 @@ fn spawn_response_waiter(
             PORTAL_LISTENER_READY_TIMEOUT.as_secs(),
             stage = stage
         ))),
-        Err(mpsc::RecvTimeoutError::Disconnected) => Err(CaptureError::BackendUnavailable(
-            format!(
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(CaptureError::BackendUnavailable(format!(
                 "the ScreenCast portal {stage} response listener disconnected before subscribing.",
                 stage = stage
-            ),
-        )),
+            )))
+        }
     }
 }
 

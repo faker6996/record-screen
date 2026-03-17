@@ -38,7 +38,7 @@ pub fn initial_runtime_diagnostics() -> RuntimeDiagnostics {
     }
 
     schedule_background_refresh();
-    fallback_runtime_diagnostics()
+    default_runtime_diagnostics()
 }
 
 pub fn refreshed_runtime_diagnostics() -> RuntimeDiagnostics {
@@ -87,7 +87,7 @@ fn schedule_background_refresh() {
     });
 }
 
-fn fallback_runtime_diagnostics() -> RuntimeDiagnostics {
+fn default_runtime_diagnostics() -> RuntimeDiagnostics {
     #[cfg(target_os = "macos")]
     {
         let capabilities = crate::capture_capabilities::current_capture_capabilities();
@@ -239,7 +239,7 @@ fn runtime_diagnostics_now() -> RuntimeDiagnostics {
             audio_backend_path: audio_runtime.path.clone(),
             encoder_backend_path: encoder_runtime.path.clone(),
             readiness: build_readiness(
-                "Desktop capture depends on ffmpeg availability, PowerShell window discovery, and DirectShow microphone readiness.",
+                "Desktop capture now combines Windows.Graphics.Capture, Media Foundation, PowerShell target discovery, and native WASAPI endpoint reporting through the native Windows recorder path.",
                 &capture_runtime,
                 Some(capture_windows::audio_input_support_summary),
                 &audio_runtime,
@@ -261,7 +261,7 @@ fn runtime_diagnostics_now() -> RuntimeDiagnostics {
     }
 
     #[allow(unreachable_code)]
-    fallback_runtime_diagnostics()
+    default_runtime_diagnostics()
 }
 
 #[cfg(target_os = "linux")]
@@ -291,7 +291,7 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
             audio_backend_path: audio_runtime.path.clone(),
             encoder_backend_path: encoder_runtime.path.clone(),
             readiness: build_readiness(
-                "Recording can use the X11 compatibility path today. Pure Wayland sessions now route through the ScreenCast portal / PipeWire backend instead of the X11 lane.",
+                "Recording can use the XWayland-backed native X11 lane today. Pure Wayland sessions now route through the ScreenCast portal / PipeWire backend instead of the X11 lane.",
                 &capture_runtime,
                 Some(capture_linux::audio_input_support_summary),
                 &audio_runtime,
@@ -424,14 +424,14 @@ fn linux_runtime_diagnostics() -> RuntimeDiagnostics {
 fn build_readiness(
     prefix: &str,
     capture_runtime: &CaptureBackendRuntimeSnapshot,
-    fallback_audio_summary: Option<fn() -> String>,
+    optional_audio_summary: Option<fn() -> String>,
     audio_runtime: &AudioBackendRuntimeSnapshot,
     encoder_runtime: &EncoderBackendRuntimeSnapshot,
 ) -> String {
     let audio_summary = audio_runtime
         .summary
         .clone()
-        .or_else(|| fallback_audio_summary.map(|summary| summary()));
+        .or_else(|| optional_audio_summary.map(|summary| summary()));
     extend_with_native_notes(
         join_parts([
             Some(prefix.to_string()),

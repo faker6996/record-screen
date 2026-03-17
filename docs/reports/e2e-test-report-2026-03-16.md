@@ -86,11 +86,11 @@ Observed passing results:
 Observed failing candidate:
 
 - `full desktop + microphone`
-- this scenario now reaches the native `SCRecordingOutput` lane instead of any legacy microphone fallback
+- this scenario now reaches the native `SCRecordingOutput` lane instead of any older microphone-specific fallback
 - the smoke asserts that audio-enabled runs must use the native recording-output lane, and that assertion holds
 - the current failing start error is:
   - `SpawnFailed("Failed to start capture: Stream error: The user declined TCCs for application, window, display capture")`
-- that means the remaining blocker is now macOS permission/TCC handling for the test binary rather than the older `ffmpeg` microphone stop bug
+- that means the remaining blocker is now macOS permission/TCC handling for the test binary rather than the older legacy microphone stop bug
 
 ## Interpretation
 

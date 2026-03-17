@@ -1,9 +1,33 @@
 use capture::{
-    AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory, AudioBackendFamily,
-    AudioBackendRuntimeReport, AudioInputOption, DEFAULT_AUDIO_INPUT_ID,
+    AudioBackendAvailability, AudioBackendDescriptor, AudioBackendFactory,
+    AudioBackendRuntimeReport, AudioInputKind, AudioInputOption, DEFAULT_AUDIO_INPUT_ID,
     preferred_system_audio_input, resolve_microphone_input_id,
 };
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::{
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver, Sender},
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
+};
+#[cfg(target_os = "windows")]
+use windows::{
+    Win32::{
+        Media::Audio::{
+            AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK,
+            EDataFlow, IAudioCaptureClient, IAudioClient, IMMDevice, IMMDeviceEnumerator,
+            MMDeviceEnumerator, eCapture, eConsole, eRender,
+        },
+        System::Com::{
+            CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+            CoUninitialize,
+        },
+    },
+    core::PWSTR,
+};
 
 pub struct WasapiWindowsAudioBackend;
 
@@ -56,6 +80,56 @@ pub struct WindowsAudioStartPlan {
     pub summary: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsWasapiClientFoundation {
+    pub endpoint_role: String,
+    pub endpoint_id: String,
+    pub loopback: bool,
+    pub channels: u16,
+    pub sample_rate_hz: u32,
+    pub bits_per_sample: u16,
+    pub buffer_frames: u32,
+    pub default_device_period_100ns: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsWasapiRuntimeFoundation {
+    pub microphone: Option<WindowsWasapiClientFoundation>,
+    pub loopback: Option<WindowsWasapiClientFoundation>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsWasapiSmokeLifecycle {
+    pub microphone_started: bool,
+    pub microphone_next_packet_frames: Option<u32>,
+    pub microphone_packets_observed: Option<u32>,
+    pub microphone_frames_observed: Option<u32>,
+    pub microphone_silent_packets: Option<u32>,
+    pub loopback_started: bool,
+    pub loopback_next_packet_frames: Option<u32>,
+    pub loopback_packets_observed: Option<u32>,
+    pub loopback_frames_observed: Option<u32>,
+    pub loopback_silent_packets: Option<u32>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WindowsWasapiPacketStats {
+    pub next_packet_frames: u32,
+    pub packets_observed: u32,
+    pub frames_observed: u32,
+    pub silent_packets: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsWasapiAudioPacket {
+    pub sample_time_100ns: i64,
+    pub duration_100ns: i64,
+    pub frames: u32,
+    pub bytes: Vec<u8>,
+}
+
 pub fn backend() -> &'static dyn AudioBackendFactory {
     &WASAPI_WINDOWS_AUDIO_BACKEND
 }
@@ -65,29 +139,15 @@ impl AudioBackendFactory for WasapiWindowsAudioBackend {
         AudioBackendDescriptor {
             id: "windows-wasapi",
             label: "Windows WASAPI",
-            family: AudioBackendFamily::Native,
         }
     }
 
     fn availability(&self) -> AudioBackendAvailability {
         match runtime_plan() {
-            Some(plan) => {
-                let default_input = plan
-                    .default_input_name
-                    .clone()
-                    .unwrap_or_else(|| "not detected".to_string());
-                AudioBackendAvailability::Unavailable {
-                    reason: format!(
-                        "Windows reports default input `{default_input}`, {} capture endpoint{}, and {} render endpoint{}. The recorder still uses the DirectShow / ffmpeg audio path instead of WASAPI.",
-                        plan.capture_endpoint_count,
-                        if plan.capture_endpoint_count == 1 { "" } else { "s" },
-                        plan.render_endpoint_count,
-                        if plan.render_endpoint_count == 1 { "" } else { "s" },
-                    ),
-                }
-            }
+            Some(_) => AudioBackendAvailability::Available,
             None => AudioBackendAvailability::Unavailable {
-                reason: "A WASAPI-based default-input and loopback runtime is planned for Phase 2, but the app could not inspect Windows audio endpoints from this session.".to_string(),
+                reason: "Windows could not inspect WASAPI audio endpoints from this session."
+                    .to_string(),
             },
         }
     }
@@ -162,9 +222,70 @@ pub fn runtime_summary() -> Option<String> {
     }
 }
 
+pub fn runtime_foundation_summary(
+    microphone_enabled: bool,
+    system_audio_enabled: bool,
+) -> Option<String> {
+    wasapi_runtime_foundation(microphone_enabled, system_audio_enabled)
+        .ok()
+        .map(|foundation| foundation.summary)
+}
+
+pub fn smoke_lifecycle_summary(
+    microphone_enabled: bool,
+    system_audio_enabled: bool,
+) -> Option<String> {
+    wasapi_smoke_lifecycle(microphone_enabled, system_audio_enabled)
+        .ok()
+        .map(|smoke| smoke.summary)
+}
+
+#[cfg(target_os = "windows")]
+pub fn start_default_microphone_worker() -> Result<WindowsWasapiCaptureWorker, String> {
+    WindowsWasapiCaptureWorker::start(eCapture, false, "microphone".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn start_default_microphone_worker() -> Result<(), String> {
+    Err("WASAPI microphone worker is only available on Windows.".to_string())
+}
+
+#[cfg(target_os = "windows")]
+pub fn start_default_loopback_worker() -> Result<WindowsWasapiCaptureWorker, String> {
+    WindowsWasapiCaptureWorker::start(eRender, true, "loopback".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn start_default_loopback_worker() -> Result<(), String> {
+    Err("WASAPI loopback worker is only available on Windows.".to_string())
+}
+
 pub fn runtime_plan() -> Option<WindowsAudioRuntimePlan> {
     let report = endpoint_report()?;
     Some(build_runtime_plan(&report))
+}
+
+pub fn selectable_audio_inputs() -> Vec<AudioInputOption> {
+    let mut inputs = Vec::new();
+    if let Some(plan) = runtime_plan() {
+        if let Some(endpoint) = plan.preferred_capture_endpoint.clone() {
+            inputs.push(AudioInputOption {
+                id: endpoint.instance_id.clone(),
+                label: endpoint.label.clone(),
+                description: "Preferred Windows capture endpoint".to_string(),
+                kind: AudioInputKind::Microphone,
+            });
+        }
+        if let Some(endpoint) = plan.preferred_render_endpoint.clone() {
+            inputs.push(AudioInputOption {
+                id: endpoint.instance_id.clone(),
+                label: endpoint.label.clone(),
+                description: "Preferred Windows render endpoint".to_string(),
+                kind: AudioInputKind::System,
+            });
+        }
+    }
+    inputs
 }
 
 pub fn route_plan() -> Option<WindowsAudioRoutePlan> {
@@ -217,7 +338,7 @@ pub fn start_plan(
 
     let summary = match runtime_intent {
         Some(intent) => format!(
-            "{} DirectShow microphone route: {}. DirectShow system-audio route: {}.",
+            "{} Windows microphone route: {}. Windows system-audio route: {}.",
             intent.summary,
             microphone_device_name
                 .clone()
@@ -255,6 +376,485 @@ pub fn endpoint_report() -> Option<WindowsAudioEndpointReport> {
     }
 
     parse_endpoint_report(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(target_os = "windows")]
+struct ComScope;
+
+#[cfg(target_os = "windows")]
+impl ComScope {
+    fn init() -> Result<Self, String> {
+        unsafe {
+            CoInitializeEx(None, COINIT_MULTITHREADED)
+                .ok()
+                .map_err(|error| error.message().to_string())?;
+        }
+        Ok(Self)
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for ComScope {
+    fn drop(&mut self) {
+        unsafe {
+            CoUninitialize();
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsWasapiCaptureWorker {
+    fn start(dataflow: EDataFlow, loopback: bool, endpoint_role: String) -> Result<Self, String> {
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let (packet_tx, packet_rx) = mpsc::channel();
+        let latest_stats = Arc::new(Mutex::new(WindowsWasapiPacketStats::default()));
+        let latest_stats_for_thread = Arc::clone(&latest_stats);
+        let foundation = build_wasapi_client_foundation(dataflow, loopback, endpoint_role.clone())?;
+        let foundation_for_thread = foundation.clone();
+
+        let worker_handle = thread::spawn(move || {
+            let result = run_wasapi_worker_thread(
+                dataflow,
+                loopback,
+                endpoint_role,
+                stop_rx,
+                packet_tx,
+                latest_stats_for_thread,
+                foundation_for_thread,
+            );
+            let _ = finished_tx.send(result);
+        });
+
+        Ok(Self {
+            stop_tx: Some(stop_tx),
+            finished_rx,
+            packet_rx,
+            worker_handle: Some(worker_handle),
+            latest_stats,
+            foundation,
+        })
+    }
+
+    pub fn snapshot(&self) -> WindowsWasapiPacketStats {
+        self.latest_stats
+            .lock()
+            .map(|stats| stats.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn foundation(&self) -> &WindowsWasapiClientFoundation {
+        &self.foundation
+    }
+
+    pub fn try_recv_packet(&mut self) -> Option<WindowsWasapiAudioPacket> {
+        self.packet_rx.try_recv().ok()
+    }
+
+    pub fn stop(mut self) -> Result<WindowsWasapiPacketStats, String> {
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+        let result = self.finished_rx.recv().map_err(|error| error.to_string())?;
+        if let Some(worker_handle) = self.worker_handle.take() {
+            let _ = worker_handle.join();
+        }
+        result
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsWasapiCaptureWorker {
+    fn drop(&mut self) {
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+        if let Some(worker_handle) = self.worker_handle.take() {
+            let _ = worker_handle.join();
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WasapiClientObjects {
+    #[allow(dead_code)]
+    com_scope: ComScope,
+    audio_client: IAudioClient,
+    capture_client: IAudioCaptureClient,
+    foundation: WindowsWasapiClientFoundation,
+}
+
+#[cfg(target_os = "windows")]
+pub struct WindowsWasapiCaptureWorker {
+    stop_tx: Option<Sender<()>>,
+    finished_rx: Receiver<Result<WindowsWasapiPacketStats, String>>,
+    packet_rx: Receiver<WindowsWasapiAudioPacket>,
+    worker_handle: Option<JoinHandle<()>>,
+    latest_stats: Arc<Mutex<WindowsWasapiPacketStats>>,
+    foundation: WindowsWasapiClientFoundation,
+}
+
+#[cfg(target_os = "windows")]
+fn wasapi_runtime_foundation(
+    microphone_enabled: bool,
+    system_audio_enabled: bool,
+) -> Result<WindowsWasapiRuntimeFoundation, String> {
+    let microphone = if microphone_enabled {
+        Some(build_wasapi_client_foundation(
+            eCapture,
+            false,
+            "microphone".to_string(),
+        )?)
+    } else {
+        None
+    };
+
+    let loopback = if system_audio_enabled {
+        Some(build_wasapi_client_foundation(
+            eRender,
+            true,
+            "loopback".to_string(),
+        )?)
+    } else {
+        None
+    };
+
+    let mut parts = Vec::new();
+    if let Some(microphone) = microphone.as_ref() {
+        parts.push(format!(
+            "microphone endpoint `{}` at {} Hz / {} channel(s) / {} bits",
+            microphone.endpoint_id,
+            microphone.sample_rate_hz,
+            microphone.channels,
+            microphone.bits_per_sample
+        ));
+    }
+    if let Some(loopback) = loopback.as_ref() {
+        parts.push(format!(
+            "loopback endpoint `{}` at {} Hz / {} channel(s) / {} bits",
+            loopback.endpoint_id,
+            loopback.sample_rate_hz,
+            loopback.channels,
+            loopback.bits_per_sample
+        ));
+    }
+
+    let summary = if parts.is_empty() {
+        "Windows WASAPI runtime foundation did not request microphone or loopback.".to_string()
+    } else {
+        format!(
+            "Windows WASAPI runtime foundation initialized {}.",
+            parts.join(", ")
+        )
+    };
+
+    Ok(WindowsWasapiRuntimeFoundation {
+        microphone,
+        loopback,
+        summary,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wasapi_runtime_foundation(
+    _microphone_enabled: bool,
+    _system_audio_enabled: bool,
+) -> Result<WindowsWasapiRuntimeFoundation, String> {
+    Err("WASAPI runtime foundation is only available on Windows.".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn wasapi_smoke_lifecycle(
+    microphone_enabled: bool,
+    system_audio_enabled: bool,
+) -> Result<WindowsWasapiSmokeLifecycle, String> {
+    let microphone = if microphone_enabled {
+        Some(run_wasapi_smoke(eCapture, false, "microphone".to_string())?)
+    } else {
+        None
+    };
+    let loopback = if system_audio_enabled {
+        Some(run_wasapi_smoke(eRender, true, "loopback".to_string())?)
+    } else {
+        None
+    };
+
+    let summary = format!(
+        "Windows WASAPI smoke lifecycle microphone_started={} microphone_next_packet_frames={} microphone_packets={} microphone_frames={} microphone_silent_packets={} loopback_started={} loopback_next_packet_frames={} loopback_packets={} loopback_frames={} loopback_silent_packets={}.",
+        microphone.is_some(),
+        microphone
+            .as_ref()
+            .map(|(_, stats)| stats.next_packet_frames.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+        microphone
+            .as_ref()
+            .map(|(_, stats)| stats.packets_observed.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+        microphone
+            .as_ref()
+            .map(|(_, stats)| stats.frames_observed.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+        microphone
+            .as_ref()
+            .map(|(_, stats)| stats.silent_packets.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+        loopback.is_some(),
+        loopback
+            .as_ref()
+            .map(|(_, stats)| stats.next_packet_frames.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+        loopback
+            .as_ref()
+            .map(|(_, stats)| stats.packets_observed.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+        loopback
+            .as_ref()
+            .map(|(_, stats)| stats.frames_observed.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+        loopback
+            .as_ref()
+            .map(|(_, stats)| stats.silent_packets.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+    );
+
+    Ok(WindowsWasapiSmokeLifecycle {
+        microphone_started: microphone.is_some(),
+        microphone_next_packet_frames: microphone
+            .as_ref()
+            .map(|(_, stats)| stats.next_packet_frames),
+        microphone_packets_observed: microphone.as_ref().map(|(_, stats)| stats.packets_observed),
+        microphone_frames_observed: microphone.as_ref().map(|(_, stats)| stats.frames_observed),
+        microphone_silent_packets: microphone.as_ref().map(|(_, stats)| stats.silent_packets),
+        loopback_started: loopback.is_some(),
+        loopback_next_packet_frames: loopback.as_ref().map(|(_, stats)| stats.next_packet_frames),
+        loopback_packets_observed: loopback.as_ref().map(|(_, stats)| stats.packets_observed),
+        loopback_frames_observed: loopback.as_ref().map(|(_, stats)| stats.frames_observed),
+        loopback_silent_packets: loopback.as_ref().map(|(_, stats)| stats.silent_packets),
+        summary,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wasapi_smoke_lifecycle(
+    _microphone_enabled: bool,
+    _system_audio_enabled: bool,
+) -> Result<WindowsWasapiSmokeLifecycle, String> {
+    Err("WASAPI smoke lifecycle is only available on Windows.".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn run_wasapi_smoke(
+    dataflow: EDataFlow,
+    loopback: bool,
+    endpoint_role: String,
+) -> Result<(WindowsWasapiClientFoundation, WindowsWasapiPacketStats), String> {
+    let foundation = build_wasapi_client_foundation(dataflow, loopback, endpoint_role.clone())?;
+    let worker = WindowsWasapiCaptureWorker::start(dataflow, loopback, endpoint_role)?;
+    thread::sleep(Duration::from_millis(180));
+    let mut packet_stats = worker.snapshot();
+    let final_stats = worker.stop()?;
+    packet_stats.next_packet_frames = final_stats.next_packet_frames;
+    packet_stats.packets_observed = final_stats.packets_observed;
+    packet_stats.frames_observed = final_stats.frames_observed;
+    packet_stats.silent_packets = final_stats.silent_packets;
+    Ok((foundation, packet_stats))
+}
+
+#[cfg(target_os = "windows")]
+fn run_wasapi_worker_thread(
+    dataflow: EDataFlow,
+    loopback: bool,
+    endpoint_role: String,
+    stop_rx: Receiver<()>,
+    packet_tx: Sender<WindowsWasapiAudioPacket>,
+    latest_stats: Arc<Mutex<WindowsWasapiPacketStats>>,
+    foundation: WindowsWasapiClientFoundation,
+) -> Result<WindowsWasapiPacketStats, String> {
+    let client = build_wasapi_client_objects(dataflow, loopback, endpoint_role)?;
+    unsafe {
+        client
+            .audio_client
+            .Start()
+            .map_err(|error| error.message().to_string())?;
+    }
+
+    let mut stats = WindowsWasapiPacketStats::default();
+    let mut result = Ok(());
+    let bytes_per_frame = u32::from(foundation.channels)
+        .saturating_mul(u32::from(foundation.bits_per_sample.max(8)) / 8)
+        .max(1);
+    let mut elapsed_frames = 0u64;
+
+    loop {
+        match stop_rx.try_recv() {
+            Ok(_) | Err(mpsc::TryRecvError::Disconnected) => break,
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+
+        let packet_frames = match unsafe { client.capture_client.GetNextPacketSize() } {
+            Ok(packet_frames) => packet_frames,
+            Err(error) => {
+                result = Err(error.message().to_string());
+                break;
+            }
+        };
+        stats.next_packet_frames = packet_frames;
+
+        if packet_frames == 0 {
+            if let Ok(mut latest) = latest_stats.lock() {
+                *latest = stats.clone();
+            }
+            thread::sleep(Duration::from_millis(20));
+            continue;
+        }
+
+        let mut data = std::ptr::null_mut();
+        let mut frames_to_read = 0;
+        let mut flags = 0u32;
+        if let Err(error) = unsafe {
+            client
+                .capture_client
+                .GetBuffer(&mut data, &mut frames_to_read, &mut flags, None, None)
+        } {
+            result = Err(error.message().to_string());
+            break;
+        }
+
+        stats.packets_observed += 1;
+        stats.frames_observed = stats.frames_observed.saturating_add(frames_to_read);
+        if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
+            stats.silent_packets += 1;
+        }
+
+        let packet_duration_100ns =
+            ((frames_to_read as u64) * 10_000_000 / foundation.sample_rate_hz.max(1) as u64) as i64;
+        let packet_sample_time_100ns =
+            (elapsed_frames * 10_000_000 / foundation.sample_rate_hz.max(1) as u64) as i64;
+        let byte_len = frames_to_read.saturating_mul(bytes_per_frame) as usize;
+        let packet_bytes = if data.is_null()
+            || byte_len == 0
+            || flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0
+        {
+            vec![0u8; byte_len]
+        } else {
+            unsafe { std::slice::from_raw_parts(data as *const u8, byte_len) }.to_vec()
+        };
+        elapsed_frames = elapsed_frames.saturating_add(frames_to_read as u64);
+
+        if let Err(error) = unsafe { client.capture_client.ReleaseBuffer(frames_to_read) } {
+            result = Err(error.message().to_string());
+            break;
+        }
+
+        let _ = packet_tx.send(WindowsWasapiAudioPacket {
+            sample_time_100ns: packet_sample_time_100ns,
+            duration_100ns: packet_duration_100ns,
+            frames: frames_to_read,
+            bytes: packet_bytes,
+        });
+
+        if let Ok(mut latest) = latest_stats.lock() {
+            *latest = stats.clone();
+        }
+    }
+
+    unsafe {
+        let _ = client.audio_client.Stop();
+        let _ = client.audio_client.Reset();
+    }
+
+    result.map(|_| stats)
+}
+
+#[cfg(target_os = "windows")]
+fn build_wasapi_client_foundation(
+    dataflow: EDataFlow,
+    loopback: bool,
+    endpoint_role: String,
+) -> Result<WindowsWasapiClientFoundation, String> {
+    let client = build_wasapi_client_objects(dataflow, loopback, endpoint_role)?;
+    Ok(client.foundation)
+}
+
+#[cfg(target_os = "windows")]
+fn build_wasapi_client_objects(
+    dataflow: EDataFlow,
+    loopback: bool,
+    endpoint_role: String,
+) -> Result<WasapiClientObjects, String> {
+    let com_scope = ComScope::init()?;
+    let enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
+            .map_err(|error| error.message().to_string())?;
+    let device = unsafe { enumerator.GetDefaultAudioEndpoint(dataflow, eConsole) }
+        .map_err(|error| error.message().to_string())?;
+    let endpoint_id = device_id_string(&device)?;
+    let audio_client: IAudioClient = unsafe { device.Activate(CLSCTX_ALL, None) }
+        .map_err(|error| error.message().to_string())?;
+    let mix_format =
+        unsafe { audio_client.GetMixFormat() }.map_err(|error| error.message().to_string())?;
+    let mix = unsafe { *mix_format };
+    let mut default_device_period_100ns = 0;
+    let mut minimum_device_period_100ns = 0;
+    unsafe {
+        audio_client
+            .GetDevicePeriod(
+                Some(&mut default_device_period_100ns),
+                Some(&mut minimum_device_period_100ns),
+            )
+            .map_err(|error| error.message().to_string())?;
+    }
+    let _ = minimum_device_period_100ns;
+    let stream_flags = if loopback {
+        AUDCLNT_STREAMFLAGS_LOOPBACK
+    } else {
+        0
+    };
+    unsafe {
+        audio_client
+            .Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                stream_flags,
+                default_device_period_100ns,
+                0,
+                mix_format,
+                None,
+            )
+            .map_err(|error| error.message().to_string())?;
+    }
+    let buffer_frames =
+        unsafe { audio_client.GetBufferSize() }.map_err(|error| error.message().to_string())?;
+    let capture_client: IAudioCaptureClient =
+        unsafe { audio_client.GetService() }.map_err(|error| error.message().to_string())?;
+    unsafe {
+        CoTaskMemFree(Some(mix_format.cast()));
+    }
+
+    Ok(WasapiClientObjects {
+        com_scope,
+        audio_client,
+        capture_client,
+        foundation: WindowsWasapiClientFoundation {
+            endpoint_role,
+            endpoint_id,
+            loopback,
+            channels: mix.nChannels,
+            sample_rate_hz: mix.nSamplesPerSec,
+            bits_per_sample: mix.wBitsPerSample,
+            buffer_frames,
+            default_device_period_100ns,
+        },
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn device_id_string(device: &IMMDevice) -> Result<String, String> {
+    let raw_id: PWSTR = unsafe { device.GetId() }.map_err(|error| error.message().to_string())?;
+    let result = unsafe { raw_id.to_string() }.map_err(|error| error.to_string());
+    unsafe {
+        CoTaskMemFree(Some(raw_id.0.cast()));
+    }
+    result
 }
 
 fn endpoint_probe_script() -> &'static str {
@@ -655,13 +1255,13 @@ RENDER	REALTEK-SPK	Speakers (Realtek Audio)
             AudioInputOption {
                 id: "USB Microphone".to_string(),
                 label: "USB Microphone".to_string(),
-                description: "DirectShow input: USB Microphone".to_string(),
+                description: "Windows capture input: USB Microphone".to_string(),
                 kind: AudioInputKind::Microphone,
             },
             AudioInputOption {
                 id: "Stereo Mix".to_string(),
                 label: "System audio · Stereo Mix".to_string(),
-                description: "DirectShow input: Stereo Mix".to_string(),
+                description: "Windows system-audio input: Stereo Mix".to_string(),
                 kind: AudioInputKind::System,
             },
         ];
@@ -680,6 +1280,6 @@ RENDER	REALTEK-SPK	Speakers (Realtek Audio)
                 .default_input_note
                 .contains("preferred Windows capture candidate")
         );
-        assert!(start_plan.summary.contains("DirectShow microphone route"));
+        assert!(start_plan.summary.contains("microphone route"));
     }
 }

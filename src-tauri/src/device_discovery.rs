@@ -41,7 +41,7 @@ pub fn initial_snapshot() -> DeviceDiscoverySnapshot {
     }
 
     schedule_background_refresh();
-    fallback_snapshot()
+    default_snapshot()
 }
 
 pub fn current_snapshot() -> DeviceDiscoverySnapshot {
@@ -95,7 +95,7 @@ fn schedule_background_refresh() {
     });
 }
 
-fn fallback_snapshot() -> DeviceDiscoverySnapshot {
+fn default_snapshot() -> DeviceDiscoverySnapshot {
     DeviceDiscoverySnapshot {
         capture_targets: vec![capture::full_desktop_target()],
         audio_inputs: vec![capture::default_audio_input()],
@@ -129,5 +129,5 @@ fn discover_devices() -> DeviceDiscoverySnapshot {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn discover_devices() -> DeviceDiscoverySnapshot {
-    fallback_snapshot()
+    default_snapshot()
 }

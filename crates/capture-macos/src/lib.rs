@@ -21,10 +21,8 @@ use capture::{
     default_audio_input, encoder_backend_runtime_snapshot,
     encoder_backend_statuses as shared_encoder_backend_statuses, explain_audio_backend_selection,
     explain_capture_backend_selection, explain_encoder_backend_selection, full_desktop_target,
-    resolve_audio_input_id, select_audio_backend, select_backend, select_encoder_backend,
+    select_audio_backend, select_backend, select_encoder_backend,
 };
-#[cfg(target_os = "macos")]
-use capture::ffmpeg_command;
 #[cfg(target_os = "macos")]
 use core_graphics::display::CGDisplay;
 #[cfg(target_os = "macos")]

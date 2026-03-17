@@ -393,21 +393,21 @@ Backend Linux la mot trong nhung phan an tuong nhat cua repo hien nay vi:
 - co target discovery that
 - co test parser
 - co smoke test backend
-- co mapping loi ffmpeg kha ro
+- co mapping loi recorder runtime kha ro
 
 ## 12. Backend macOS
 
 `crates/capture-macos/src/lib.rs` dung:
 
-- `ffmpeg` + `avfoundation`
+- native `ScreenCaptureKit / SCRecordingOutput`
 
 ### 12.1. Kha nang hien tai
 
-- probe device index bang `ffmpeg -list_devices true`
+- probe native target va microphone routing tu he dieu hanh
 - quay display + microphone
 - pause/resume qua signal
 - stop bang stdin `q`
-- mapping loi permission/missing ffmpeg kha ro
+- mapping loi permission/runtime kha ro
 
 ### 12.2. Han che
 
@@ -423,8 +423,8 @@ Noi cach khac: macOS backend da quay that duoc, nhung ve capture target thi chua
 
 ### 13.1. Cong nghe
 
-- Video: `ffmpeg` + `gdigrab`
-- Audio mic: `ffmpeg` + `dshow`
+- Video: `Windows.Graphics.Capture + Media Foundation`
+- Audio mic: `WASAPI`
 - Pause/Resume: goi PowerShell `Suspend-Process` / `Resume-Process`
 - Stop: stdin `q`
 
