@@ -26,7 +26,7 @@ use windows::{
             CoUninitialize,
         },
     },
-    core::PWSTR,
+    core::{HSTRING, PWSTR},
 };
 
 pub struct WasapiWindowsAudioBackend;
@@ -242,7 +242,12 @@ pub fn smoke_lifecycle_summary(
 
 #[cfg(target_os = "windows")]
 pub fn start_default_microphone_worker() -> Result<WindowsWasapiCaptureWorker, String> {
-    WindowsWasapiCaptureWorker::start(eCapture, false, "microphone".to_string())
+    WindowsWasapiCaptureWorker::start(
+        eCapture,
+        false,
+        "microphone".to_string(),
+        preferred_capture_endpoint_id(),
+    )
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -252,7 +257,12 @@ pub fn start_default_microphone_worker() -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 pub fn start_default_loopback_worker() -> Result<WindowsWasapiCaptureWorker, String> {
-    WindowsWasapiCaptureWorker::start(eRender, true, "loopback".to_string())
+    WindowsWasapiCaptureWorker::start(
+        eRender,
+        true,
+        "loopback".to_string(),
+        preferred_render_endpoint_id(),
+    )
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -404,13 +414,23 @@ impl Drop for ComScope {
 
 #[cfg(target_os = "windows")]
 impl WindowsWasapiCaptureWorker {
-    fn start(dataflow: EDataFlow, loopback: bool, endpoint_role: String) -> Result<Self, String> {
+    fn start(
+        dataflow: EDataFlow,
+        loopback: bool,
+        endpoint_role: String,
+        endpoint_id_override: Option<String>,
+    ) -> Result<Self, String> {
         let (stop_tx, stop_rx) = mpsc::channel();
         let (finished_tx, finished_rx) = mpsc::channel();
         let (packet_tx, packet_rx) = mpsc::channel();
         let latest_stats = Arc::new(Mutex::new(WindowsWasapiPacketStats::default()));
         let latest_stats_for_thread = Arc::clone(&latest_stats);
-        let foundation = build_wasapi_client_foundation(dataflow, loopback, endpoint_role.clone())?;
+        let foundation = build_wasapi_client_foundation(
+            dataflow,
+            loopback,
+            endpoint_role.clone(),
+            endpoint_id_override.clone(),
+        )?;
         let foundation_for_thread = foundation.clone();
 
         let worker_handle = thread::spawn(move || {
@@ -418,6 +438,7 @@ impl WindowsWasapiCaptureWorker {
                 dataflow,
                 loopback,
                 endpoint_role,
+                endpoint_id_override,
                 stop_rx,
                 packet_tx,
                 latest_stats_for_thread,
@@ -504,6 +525,7 @@ fn wasapi_runtime_foundation(
             eCapture,
             false,
             "microphone".to_string(),
+            None,
         )?)
     } else {
         None
@@ -514,6 +536,7 @@ fn wasapi_runtime_foundation(
             eRender,
             true,
             "loopback".to_string(),
+            None,
         )?)
     } else {
         None
@@ -648,8 +671,9 @@ fn run_wasapi_smoke(
     loopback: bool,
     endpoint_role: String,
 ) -> Result<(WindowsWasapiClientFoundation, WindowsWasapiPacketStats), String> {
-    let foundation = build_wasapi_client_foundation(dataflow, loopback, endpoint_role.clone())?;
-    let worker = WindowsWasapiCaptureWorker::start(dataflow, loopback, endpoint_role)?;
+    let foundation =
+        build_wasapi_client_foundation(dataflow, loopback, endpoint_role.clone(), None)?;
+    let worker = WindowsWasapiCaptureWorker::start(dataflow, loopback, endpoint_role, None)?;
     thread::sleep(Duration::from_millis(180));
     let mut packet_stats = worker.snapshot();
     let final_stats = worker.stop()?;
@@ -665,12 +689,14 @@ fn run_wasapi_worker_thread(
     dataflow: EDataFlow,
     loopback: bool,
     endpoint_role: String,
+    endpoint_id_override: Option<String>,
     stop_rx: Receiver<()>,
     packet_tx: Sender<WindowsWasapiAudioPacket>,
     latest_stats: Arc<Mutex<WindowsWasapiPacketStats>>,
     foundation: WindowsWasapiClientFoundation,
 ) -> Result<WindowsWasapiPacketStats, String> {
-    let client = build_wasapi_client_objects(dataflow, loopback, endpoint_role)?;
+    let client =
+        build_wasapi_client_objects(dataflow, loopback, endpoint_role, endpoint_id_override)?;
     unsafe {
         client
             .audio_client
@@ -771,8 +797,10 @@ fn build_wasapi_client_foundation(
     dataflow: EDataFlow,
     loopback: bool,
     endpoint_role: String,
+    endpoint_id_override: Option<String>,
 ) -> Result<WindowsWasapiClientFoundation, String> {
-    let client = build_wasapi_client_objects(dataflow, loopback, endpoint_role)?;
+    let client =
+        build_wasapi_client_objects(dataflow, loopback, endpoint_role, endpoint_id_override)?;
     Ok(client.foundation)
 }
 
@@ -781,13 +809,19 @@ fn build_wasapi_client_objects(
     dataflow: EDataFlow,
     loopback: bool,
     endpoint_role: String,
+    endpoint_id_override: Option<String>,
 ) -> Result<WasapiClientObjects, String> {
     let com_scope = ComScope::init()?;
     let enumerator: IMMDeviceEnumerator =
         unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
             .map_err(|error| error.message().to_string())?;
-    let device = unsafe { enumerator.GetDefaultAudioEndpoint(dataflow, eConsole) }
-        .map_err(|error| error.message().to_string())?;
+    let device = if let Some(endpoint_id) = endpoint_id_override {
+        unsafe { enumerator.GetDevice(&HSTRING::from(endpoint_id)) }
+            .map_err(|error| error.message().to_string())?
+    } else {
+        unsafe { enumerator.GetDefaultAudioEndpoint(dataflow, eConsole) }
+            .map_err(|error| error.message().to_string())?
+    };
     let endpoint_id = device_id_string(&device)?;
     let audio_client: IAudioClient = unsafe { device.Activate(CLSCTX_ALL, None) }
         .map_err(|error| error.message().to_string())?;
@@ -1282,4 +1316,21 @@ RENDER	REALTEK-SPK	Speakers (Realtek Audio)
         );
         assert!(start_plan.summary.contains("microphone route"));
     }
+}
+#[cfg(target_os = "windows")]
+pub fn start_microphone_worker_for_input(
+    selected_audio_input_id: &str,
+    discovered_inputs: &[AudioInputOption],
+) -> Result<WindowsWasapiCaptureWorker, String> {
+    let endpoint_id = resolve_microphone_input_id(selected_audio_input_id, discovered_inputs)
+        .ok_or_else(|| "Windows could not resolve a usable microphone endpoint.".to_string())?;
+    WindowsWasapiCaptureWorker::start(eCapture, false, "microphone".to_string(), Some(endpoint_id))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn start_microphone_worker_for_input(
+    _selected_audio_input_id: &str,
+    _discovered_inputs: &[AudioInputOption],
+) -> Result<(), String> {
+    Err("WASAPI microphone worker is only available on Windows.".to_string())
 }

@@ -1,5 +1,9 @@
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
+#[cfg(target_os = "windows")]
+use std::sync::mpsc::{self, Sender};
+#[cfg(target_os = "windows")]
+use std::time::Duration;
 use std::{
     io::{BufRead, BufReader},
     process::{Child, ChildStderr},
@@ -66,12 +70,33 @@ impl MicCheckSnapshot {
 }
 
 pub struct MicCheckProcess {
-    child: Child,
+    runtime: MicCheckRuntime,
+}
+
+enum MicCheckRuntime {
+    Process {
+        child: Child,
+    },
+    #[cfg(target_os = "windows")]
+    NativeWindows {
+        stop_tx: Sender<()>,
+        worker_handle: thread::JoinHandle<()>,
+    },
+}
+
+enum MicCheckStart {
+    #[allow(dead_code)]
+    Process { child: Child, stderr: ChildStderr },
+    #[cfg(target_os = "windows")]
+    NativeWindows {
+        stop_tx: Sender<()>,
+        worker_handle: thread::JoinHandle<()>,
+    },
 }
 
 pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
     let _ = stop_mic_check(app);
-    let (child, stderr) = match spawn_platform_mic_check(app) {
+    let runtime = match spawn_platform_mic_check(app) {
         Ok(process) => process,
         Err(error) => {
             let snapshot = if error.contains("temporarily unavailable on the native") {
@@ -90,34 +115,50 @@ pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
             .mic_check
             .lock()
             .map_err(|_| "failed to lock mic check runtime".to_string())?;
-        *mic_check = Some(MicCheckProcess { child });
+        *mic_check = Some(match runtime {
+            MicCheckStart::Process { child, stderr } => {
+                let app_handle = app.clone();
+                thread::spawn(move || {
+                    let reader = BufReader::new(stderr);
+                    for line in reader.lines().map_while(Result::ok) {
+                        if let Some(level) = parse_rms_level(&line) {
+                            emit_mic_check_state(
+                                &app_handle,
+                                &MicCheckSnapshot {
+                                    active: true,
+                                    level,
+                                    has_signal: level >= 0.08,
+                                    supported: true,
+                                    error: None,
+                                },
+                            );
+                            continue;
+                        }
+
+                        if let Some(message) = detect_probe_error(&line) {
+                            emit_mic_check_state(&app_handle, &MicCheckSnapshot::error(message));
+                        }
+                    }
+
+                    let _ = stop_mic_check(&app_handle);
+                });
+
+                MicCheckProcess {
+                    runtime: MicCheckRuntime::Process { child },
+                }
+            }
+            #[cfg(target_os = "windows")]
+            MicCheckStart::NativeWindows {
+                stop_tx,
+                worker_handle,
+            } => MicCheckProcess {
+                runtime: MicCheckRuntime::NativeWindows {
+                    stop_tx,
+                    worker_handle,
+                },
+            },
+        });
     }
-
-    let app_handle = app.clone();
-    thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines().map_while(Result::ok) {
-            if let Some(level) = parse_rms_level(&line) {
-                emit_mic_check_state(
-                    &app_handle,
-                    &MicCheckSnapshot {
-                        active: true,
-                        level,
-                        has_signal: level >= 0.08,
-                        supported: true,
-                        error: None,
-                    },
-                );
-                continue;
-            }
-
-            if let Some(message) = detect_probe_error(&line) {
-                emit_mic_check_state(&app_handle, &MicCheckSnapshot::error(message));
-            }
-        }
-
-        let _ = stop_mic_check(&app_handle);
-    });
 
     let snapshot = MicCheckSnapshot::listening();
     emit_mic_check_state(app, &snapshot);
@@ -131,9 +172,21 @@ pub fn stop_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
         .lock()
         .map_err(|_| "failed to lock mic check runtime".to_string())?;
 
-    if let Some(mut process) = mic_check.take() {
-        let _ = process.child.kill();
-        let _ = process.child.wait();
+    if let Some(process) = mic_check.take() {
+        match process.runtime {
+            MicCheckRuntime::Process { mut child } => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            #[cfg(target_os = "windows")]
+            MicCheckRuntime::NativeWindows {
+                stop_tx,
+                worker_handle,
+            } => {
+                let _ = stop_tx.send(());
+                let _ = worker_handle.join();
+            }
+        }
     }
 
     let snapshot = MicCheckSnapshot::inactive();
@@ -168,7 +221,7 @@ fn selected_audio_input_id(app: &AppHandle) -> Result<String, String> {
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
+fn spawn_platform_mic_check(app: &AppHandle) -> Result<MicCheckStart, String> {
     let audio_input = selected_audio_input_id(app)?;
     let mut command = Command::new("gst-launch-1.0");
     command
@@ -196,7 +249,7 @@ fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), Str
 }
 
 #[cfg(target_os = "macos")]
-fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
+fn spawn_platform_mic_check(app: &AppHandle) -> Result<MicCheckStart, String> {
     let _ = selected_audio_input_id(app)?;
     Err(
         "Live microphone level testing is temporarily unavailable on the native macOS runtime."
@@ -205,20 +258,57 @@ fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), Str
 }
 
 #[cfg(target_os = "windows")]
-fn spawn_platform_mic_check(app: &AppHandle) -> Result<(Child, ChildStderr), String> {
-    let audio_input = selected_audio_input_id(app)?;
-    Err(format!(
-        "Live microphone level testing is temporarily unavailable on the native Windows runtime for `{audio_input}`."
-    ))
+fn spawn_platform_mic_check(app: &AppHandle) -> Result<MicCheckStart, String> {
+    let selected_audio_input = selected_audio_input_id(app)?;
+    let available_audio_inputs = audio_inputs::available_audio_inputs();
+    let mut worker = capture_windows::native_audio_backend::start_microphone_worker_for_input(
+        &selected_audio_input,
+        &available_audio_inputs,
+    )?;
+    let bits_per_sample = worker.foundation().bits_per_sample;
+    let (stop_tx, stop_rx) = mpsc::channel();
+    let app_handle = app.clone();
+    let worker_handle = thread::spawn(move || {
+        loop {
+            match stop_rx.try_recv() {
+                Ok(_) | Err(mpsc::TryRecvError::Disconnected) => break,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+
+            if let Some(packet) = worker.try_recv_packet() {
+                let level = estimate_windows_packet_level(&packet.bytes, bits_per_sample);
+                emit_mic_check_state(
+                    &app_handle,
+                    &MicCheckSnapshot {
+                        active: true,
+                        level,
+                        has_signal: level >= 0.05,
+                        supported: true,
+                        error: None,
+                    },
+                );
+                continue;
+            }
+
+            thread::sleep(Duration::from_millis(24));
+        }
+
+        let _ = worker.stop();
+    });
+
+    Ok(MicCheckStart::NativeWindows {
+        stop_tx,
+        worker_handle,
+    })
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn spawn_platform_mic_check(_app: &AppHandle) -> Result<(Child, ChildStderr), String> {
+fn spawn_platform_mic_check(_app: &AppHandle) -> Result<MicCheckStart, String> {
     Err("Native mic check is currently implemented for macOS, Linux, and Windows.".to_string())
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-fn spawn_probe_process(mut command: Command) -> Result<(Child, ChildStderr), String> {
+#[cfg(target_os = "linux")]
+fn spawn_probe_process(mut command: Command) -> Result<MicCheckStart, String> {
     let mut child = command
         .spawn()
         .map_err(|error| format!("failed to start microphone check: {error}"))?;
@@ -227,7 +317,66 @@ fn spawn_probe_process(mut command: Command) -> Result<(Child, ChildStderr), Str
         .take()
         .ok_or_else(|| "failed to read microphone monitor output".to_string())?;
 
-    Ok((child, stderr))
+    Ok(MicCheckStart::Process { child, stderr })
+}
+
+#[cfg(target_os = "windows")]
+fn estimate_windows_packet_level(bytes: &[u8], bits_per_sample: u16) -> f32 {
+    match bits_per_sample {
+        16 => {
+            let mut sum = 0.0f32;
+            let mut count = 0u32;
+            for chunk in bytes.chunks_exact(2) {
+                let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / i16::MAX as f32;
+                sum += sample * sample;
+                count += 1;
+            }
+            if count == 0 {
+                0.0
+            } else {
+                (sum / count as f32).sqrt().clamp(0.0, 1.0)
+            }
+        }
+        32 => {
+            let mut float_sum = 0.0f32;
+            let mut float_count = 0u32;
+            for chunk in bytes.chunks_exact(4) {
+                let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                if sample.is_finite() && sample.abs() <= 8.0 {
+                    float_sum += sample * sample;
+                    float_count += 1;
+                }
+            }
+            if float_count > 0 {
+                return (float_sum / float_count as f32).sqrt().clamp(0.0, 1.0);
+            }
+
+            let mut pcm_sum = 0.0f32;
+            let mut pcm_count = 0u32;
+            for chunk in bytes.chunks_exact(4) {
+                let sample = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f32
+                    / i32::MAX as f32;
+                pcm_sum += sample * sample;
+                pcm_count += 1;
+            }
+            if pcm_count == 0 {
+                0.0
+            } else {
+                (pcm_sum / pcm_count as f32).sqrt().clamp(0.0, 1.0)
+            }
+        }
+        _ => {
+            let average = bytes
+                .iter()
+                .map(|value| (*value as f32 - 128.0).abs() / 128.0)
+                .sum::<f32>();
+            if bytes.is_empty() {
+                0.0
+            } else {
+                (average / bytes.len() as f32).clamp(0.0, 1.0)
+            }
+        }
+    }
 }
 
 fn parse_rms_level(line: &str) -> Option<f32> {

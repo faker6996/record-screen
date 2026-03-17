@@ -29,7 +29,7 @@ use windows::{
         },
     },
     Win32::{
-        Foundation::{HMODULE, HWND, POINT},
+        Foundation::{HMODULE, HWND, LPARAM, POINT, RECT},
         Graphics::{
             Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0},
             Direct3D11::{
@@ -38,14 +38,17 @@ use windows::{
                 ID3D11Resource, ID3D11Texture2D,
             },
             Dxgi::{IDXGIDevice, IDXGISurface},
-            Gdi::{HMONITOR, MONITOR_DEFAULTTONEAREST, MonitorFromPoint},
+            Gdi::{
+                EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST,
+                MONITORINFOEXW, MonitorFromPoint,
+            },
         },
         System::WinRT::{
             Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess},
             Graphics::Capture::IGraphicsCaptureItemInterop,
         },
     },
-    core::{IInspectable, Interface, factory},
+    core::{BOOL, IInspectable, Interface, factory},
 };
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
@@ -155,6 +158,7 @@ struct MonitorDescriptor {
     height: u32,
     x: i32,
     y: i32,
+    primary: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2100,10 +2104,105 @@ fn resolve_full_desktop_target(monitors: &[MonitorDescriptor]) -> ResolvedTarget
     }
 }
 
+#[cfg(target_os = "windows")]
 fn query_monitors() -> Result<Vec<MonitorDescriptor>, CaptureError> {
-    parse_json_command(
-        r#"Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { [PSCustomObject]@{ deviceName = $_.DeviceName; label = if ($_.Primary) { "Display (Primary) · $($_.DeviceName)" } else { "Display · $($_.DeviceName)" }; width = $_.Bounds.Width; height = $_.Bounds.Height; x = $_.Bounds.X; y = $_.Bounds.Y; primary = $_.Primary } } | ConvertTo-Json -Compress"#,
-    )
+    const PRIMARY_MONITOR_FLAG: u32 = 1;
+
+    unsafe extern "system" fn enum_monitor_proc(
+        monitor: HMONITOR,
+        _hdc: HDC,
+        _rect: *mut RECT,
+        lparam: LPARAM,
+    ) -> BOOL {
+        let monitors = unsafe { &mut *(lparam.0 as *mut Vec<MonitorDescriptor>) };
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+
+        if !unsafe { GetMonitorInfoW(monitor, &mut info as *mut _ as *mut _) }.as_bool() {
+            return true.into();
+        }
+
+        let rect = info.monitorInfo.rcMonitor;
+        let device_name = utf16_device_name(&info.szDevice);
+        let primary = info.monitorInfo.dwFlags & PRIMARY_MONITOR_FLAG != 0;
+
+        monitors.push(MonitorDescriptor {
+            device_name,
+            label: String::new(),
+            width: (rect.right - rect.left).max(0) as u32,
+            height: (rect.bottom - rect.top).max(0) as u32,
+            x: rect.left,
+            y: rect.top,
+            primary,
+        });
+
+        true.into()
+    }
+
+    let mut monitors: Vec<MonitorDescriptor> = Vec::new();
+    let ok = unsafe {
+        EnumDisplayMonitors(
+            None,
+            None,
+            Some(enum_monitor_proc),
+            LPARAM((&mut monitors as *mut Vec<MonitorDescriptor>) as isize),
+        )
+    };
+
+    if !ok.as_bool() {
+        return Err(CaptureError::BackendUnavailable(
+            "Windows native capture controller could not enumerate any monitors.".to_string(),
+        ));
+    }
+
+    monitors.sort_by_key(|monitor| {
+        (
+            !monitor.primary,
+            display_ordinal(&monitor.device_name).unwrap_or(usize::MAX),
+            monitor.y,
+            monitor.x,
+        )
+    });
+
+    for (index, monitor) in monitors.iter_mut().enumerate() {
+        monitor.label = if monitor.primary {
+            format!("Display {index} (Primary)")
+        } else {
+            format!("Display {index}")
+        };
+    }
+
+    Ok(monitors)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn query_monitors() -> Result<Vec<MonitorDescriptor>, CaptureError> {
+    Err(CaptureError::BackendUnavailable(
+        "Windows monitor enumeration is only available on Windows.".to_string(),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn utf16_device_name(raw: &[u16]) -> String {
+    let len = raw
+        .iter()
+        .position(|value| *value == 0)
+        .unwrap_or(raw.len());
+    String::from_utf16_lossy(&raw[..len])
+}
+
+fn display_ordinal(device_name: &str) -> Option<usize> {
+    let digits = device_name
+        .chars()
+        .rev()
+        .take_while(|character| character.is_ascii_digit())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+
+    let number = digits.parse::<usize>().ok()?;
+    number.checked_sub(1)
 }
 
 fn query_windows() -> Result<Vec<WindowDescriptor>, CaptureError> {
