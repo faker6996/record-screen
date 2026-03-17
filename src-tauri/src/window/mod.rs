@@ -1,9 +1,11 @@
 use std::{
-    sync::mpsc,
     sync::atomic::{AtomicU64, Ordering},
     thread,
     time::Duration,
 };
+
+#[cfg(target_os = "linux")]
+use std::sync::mpsc;
 
 use app_core::{RecorderSnapshot, RecorderStatus};
 use tauri::{

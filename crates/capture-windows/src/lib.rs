@@ -1243,8 +1243,9 @@ Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
 #[cfg(target_os = "windows")]
 pub use platform::{
     FfmpegWindowsCapture, audio_backend_statuses, audio_input_support_summary,
-    audio_start_plan_summary, backend_statuses, custom_region_support_summary,
-    encoder_backend_statuses, list_audio_inputs, list_capture_targets, preview_target_bounds,
+    audio_runtime_snapshot, audio_start_plan_summary, backend_statuses,
+    capture_runtime_snapshot, custom_region_support_summary, encoder_backend_statuses,
+    encoder_runtime_snapshot, list_audio_inputs, list_capture_targets, preview_target_bounds,
     selected_audio_backend, selected_backend, selected_encoder_backend,
     system_audio_support_summary,
 };
