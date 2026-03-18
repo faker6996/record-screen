@@ -174,19 +174,19 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.tag-version.outputs.tag != ''
     steps:
       - name: Download macOS artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: record-screen-macos-dmg
           path: release-assets/macos
 
       - name: Download Windows artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: record-screen-windows-setup
           path: release-assets/windows
 
       - name: Download Linux artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: record-screen-linux-deb
           path: release-assets/linux
@@ -265,7 +265,7 @@ jobs:
 
       - name: Download macOS artifact
         if: steps.preflight.outputs.ready == 'true'
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: record-screen-macos-dmg
           path: release-assets/macos
@@ -326,7 +326,7 @@ jobs:
 
       - name: Download Linux artifact
         if: steps.preflight.outputs.ready == 'true'
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: record-screen-linux-deb
           path: release-assets/linux
