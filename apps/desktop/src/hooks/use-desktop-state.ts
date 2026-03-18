@@ -121,9 +121,38 @@ export function useDesktopState() {
   useEffect(() => {
     let isDisposed = false
     let deferredLoadTimer: number | null = null
+    let recorderRefreshTimer: number | null = null
     let unlistenRecorder: () => void = () => undefined
     let unlistenRuntimeError: () => void = () => undefined
     let unlistenRecentSessionsRefresh: () => void = () => undefined
+
+    async function refreshRecorderSnapshot(options?: { reportError?: boolean }) {
+      try {
+        const recorder = await desktopClient.getRecorderSnapshot()
+        if (isDisposed) {
+          return
+        }
+
+        startTransition(() => {
+          setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+          if (options?.reportError) {
+            setActionError(null)
+          }
+        })
+      } catch (actionLoadError) {
+        if (isDisposed || !options?.reportError) {
+          return
+        }
+
+        startTransition(() => {
+          setActionError(
+            actionLoadError instanceof Error
+              ? actionLoadError.message
+              : 'Unable to refresh recorder state.',
+          )
+        })
+      }
+    }
 
     async function refreshRecentSessions(options?: { reportError?: boolean }) {
       try {
@@ -328,6 +357,10 @@ export function useDesktopState() {
 
     void loadSnapshot()
 
+    recorderRefreshTimer = window.setInterval(() => {
+      void refreshRecorderSnapshot()
+    }, 1000)
+
     void desktopClient
       .subscribeRecorderState((recorder) => {
         if (!isDisposed) {
@@ -380,6 +413,9 @@ export function useDesktopState() {
       isDisposed = true
       if (deferredLoadTimer !== null) {
         window.clearTimeout(deferredLoadTimer)
+      }
+      if (recorderRefreshTimer !== null) {
+        window.clearInterval(recorderRefreshTimer)
       }
       unlistenRecorder()
       unlistenRuntimeError()
