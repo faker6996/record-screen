@@ -39,7 +39,7 @@ if (process.platform !== "win32") {
   const command = [
     `call "${vsDevCmd}" -arch=x64 -host_arch=x64 >nul`,
     `set "PATH=${cargoBinDirectory};%PATH%"`,
-    `npm exec tauri -- ${toCmdArgsString(tauriArgs)} --config src-tauri/tauri.conf.json`,
+    windowsNpmExecCommand(`exec tauri -- ${toCmdArgsString(tauriArgs)} --config src-tauri/tauri.conf.json`),
   ].join(" && ");
 
   const child = spawn("cmd.exe", ["/d", "/c", command], {
@@ -60,7 +60,8 @@ if (process.platform !== "win32") {
 }
 
 function runNpmExecTauri(env) {
-  const child = spawn(npmCommand(), ["exec", "tauri", "--", ...tauriArgs, "--config", "src-tauri/tauri.conf.json"], {
+  const invocation = npmExecInvocation();
+  const child = spawn(invocation.command, [...invocation.args, "exec", "tauri", "--", ...tauriArgs, "--config", "src-tauri/tauri.conf.json"], {
     cwd: repoRoot,
     env,
     stdio: "inherit",
@@ -79,6 +80,21 @@ function runNpmExecTauri(env) {
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+function npmExecInvocation() {
+  const npmExecPath = process.env.npm_execpath;
+  if (npmExecPath && /\.c?js$/i.test(npmExecPath)) {
+    return {
+      command: process.execPath,
+      args: [npmExecPath],
+    };
+  }
+
+  return {
+    command: npmCommand(),
+    args: [],
+  };
 }
 
 function prependPathEntry(currentPath, entry) {
@@ -138,4 +154,13 @@ function quoteForCmd(value) {
   }
 
   return `"${value.replace(/"/g, '""')}"`;
+}
+
+function windowsNpmExecCommand(trailingArgs) {
+  const npmExecPath = process.env.npm_execpath;
+  if (npmExecPath && /\.c?js$/i.test(npmExecPath)) {
+    return `${quoteForCmd(process.execPath)} ${quoteForCmd(npmExecPath)} ${trailingArgs}`;
+  }
+
+  return `npm ${trailingArgs}`;
 }
