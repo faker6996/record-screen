@@ -16,6 +16,7 @@ use std::{
 #[cfg(target_os = "windows")]
 use windows::{
     Win32::{
+        Foundation::RPC_E_CHANGED_MODE,
         Media::Audio::{
             AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK,
             EDataFlow, IAudioCaptureClient, IAudioClient, IMMDevice, IMMDeviceEnumerator,
@@ -280,8 +281,9 @@ pub fn start_default_loopback_worker() -> Result<(), String> {
 }
 
 pub fn runtime_plan() -> Option<WindowsAudioRuntimePlan> {
-    let report = endpoint_report()?;
-    Some(build_runtime_plan(&report))
+    endpoint_report()
+        .map(|report| build_runtime_plan(&report))
+        .or_else(default_runtime_plan_from_wasapi)
 }
 
 pub fn selectable_audio_inputs() -> Vec<AudioInputOption> {
@@ -310,6 +312,31 @@ pub fn selectable_audio_inputs() -> Vec<AudioInputOption> {
 pub fn route_plan() -> Option<WindowsAudioRoutePlan> {
     let plan = runtime_plan()?;
     Some(build_route_plan(&plan))
+}
+
+#[cfg(target_os = "windows")]
+fn default_runtime_plan_from_wasapi() -> Option<WindowsAudioRuntimePlan> {
+    let preferred_capture_endpoint = default_endpoint_from_wasapi(eCapture, "Default microphone");
+    let preferred_render_endpoint = default_endpoint_from_wasapi(eRender, "Default speakers");
+
+    if preferred_capture_endpoint.is_none() && preferred_render_endpoint.is_none() {
+        return None;
+    }
+
+    Some(WindowsAudioRuntimePlan {
+        default_input_name: preferred_capture_endpoint
+            .as_ref()
+            .map(|endpoint| endpoint.label.clone()),
+        capture_endpoint_count: usize::from(preferred_capture_endpoint.is_some()),
+        render_endpoint_count: usize::from(preferred_render_endpoint.is_some()),
+        preferred_capture_endpoint,
+        preferred_render_endpoint,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn default_runtime_plan_from_wasapi() -> Option<WindowsAudioRuntimePlan> {
+    None
 }
 
 pub fn runtime_intent(
@@ -398,25 +425,37 @@ pub fn endpoint_report() -> Option<WindowsAudioEndpointReport> {
 }
 
 #[cfg(target_os = "windows")]
-struct ComScope;
+struct ComScope {
+    should_uninitialize: bool,
+}
 
 #[cfg(target_os = "windows")]
 impl ComScope {
     fn init() -> Result<Self, String> {
         unsafe {
-            CoInitializeEx(None, COINIT_MULTITHREADED)
-                .ok()
-                .map_err(|error| error.message().to_string())?;
+            let result = CoInitializeEx(None, COINIT_MULTITHREADED);
+            if result.is_ok() {
+                Ok(Self {
+                    should_uninitialize: true,
+                })
+            } else if result == RPC_E_CHANGED_MODE {
+                Ok(Self {
+                    should_uninitialize: false,
+                })
+            } else {
+                Err(result.message().to_string())
+            }
         }
-        Ok(Self)
     }
 }
 
 #[cfg(target_os = "windows")]
 impl Drop for ComScope {
     fn drop(&mut self) {
-        unsafe {
-            CoUninitialize();
+        if self.should_uninitialize {
+            unsafe {
+                CoUninitialize();
+            }
         }
     }
 }
@@ -958,6 +997,24 @@ fn build_wasapi_client_objects(
             buffer_frames,
             default_device_period_100ns,
         },
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn default_endpoint_from_wasapi(
+    dataflow: EDataFlow,
+    fallback_label: &str,
+) -> Option<WindowsAudioEndpoint> {
+    let com_scope = ComScope::init().ok()?;
+    let enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }.ok()?;
+    let device = unsafe { enumerator.GetDefaultAudioEndpoint(dataflow, eConsole) }.ok()?;
+    let endpoint_id = device_id_string(&device).ok()?;
+    drop(com_scope);
+
+    Some(WindowsAudioEndpoint {
+        instance_id: endpoint_id,
+        label: fallback_label.to_string(),
     })
 }
 
