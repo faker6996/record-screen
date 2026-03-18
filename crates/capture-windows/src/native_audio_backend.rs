@@ -81,13 +81,22 @@ pub struct WindowsAudioStartPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowsWasapiSampleFormat {
+    Pcm,
+    Float,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsWasapiClientFoundation {
     pub endpoint_role: String,
     pub endpoint_id: String,
     pub loopback: bool,
     pub channels: u16,
     pub sample_rate_hz: u32,
+    pub source_bits_per_sample: u16,
+    pub source_sample_format: WindowsWasapiSampleFormat,
     pub bits_per_sample: u16,
+    pub sample_format: WindowsWasapiSampleFormat,
     pub buffer_frames: u32,
     pub default_device_period_100ns: i64,
 }
@@ -706,7 +715,10 @@ fn run_wasapi_worker_thread(
 
     let mut stats = WindowsWasapiPacketStats::default();
     let mut result = Ok(());
-    let bytes_per_frame = u32::from(foundation.channels)
+    let source_bytes_per_frame = u32::from(foundation.channels)
+        .saturating_mul(u32::from(foundation.source_bits_per_sample.max(8)) / 8)
+        .max(1);
+    let output_bytes_per_frame = u32::from(foundation.channels)
         .saturating_mul(u32::from(foundation.bits_per_sample.max(8)) / 8)
         .max(1);
     let mut elapsed_frames = 0u64;
@@ -756,14 +768,16 @@ fn run_wasapi_worker_thread(
             ((frames_to_read as u64) * 10_000_000 / foundation.sample_rate_hz.max(1) as u64) as i64;
         let packet_sample_time_100ns =
             (elapsed_frames * 10_000_000 / foundation.sample_rate_hz.max(1) as u64) as i64;
-        let byte_len = frames_to_read.saturating_mul(bytes_per_frame) as usize;
+        let source_byte_len = frames_to_read.saturating_mul(source_bytes_per_frame) as usize;
+        let output_byte_len = frames_to_read.saturating_mul(output_bytes_per_frame) as usize;
         let packet_bytes = if data.is_null()
-            || byte_len == 0
+            || source_byte_len == 0
             || flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0
         {
-            vec![0u8; byte_len]
+            vec![0u8; output_byte_len]
         } else {
-            unsafe { std::slice::from_raw_parts(data as *const u8, byte_len) }.to_vec()
+            let raw_bytes = unsafe { std::slice::from_raw_parts(data as *const u8, source_byte_len) };
+            normalize_packet_bytes(raw_bytes, &foundation)
         };
         elapsed_frames = elapsed_frames.saturating_add(frames_to_read as u64);
 
@@ -793,6 +807,62 @@ fn run_wasapi_worker_thread(
 }
 
 #[cfg(target_os = "windows")]
+fn normalize_packet_bytes(
+    bytes: &[u8],
+    foundation: &WindowsWasapiClientFoundation,
+) -> Vec<u8> {
+    match (
+        foundation.source_sample_format.clone(),
+        foundation.source_bits_per_sample.max(8),
+    ) {
+        (WindowsWasapiSampleFormat::Pcm, 16) => bytes.to_vec(),
+        (WindowsWasapiSampleFormat::Float, 32) => bytes
+            .chunks_exact(4)
+            .flat_map(|chunk| {
+                let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                let normalized = if sample.is_finite() {
+                    sample.clamp(-1.0, 1.0)
+                } else {
+                    0.0
+                };
+                let pcm = (normalized * i16::MAX as f32)
+                    .round()
+                    .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+                pcm.to_le_bytes()
+            })
+            .collect(),
+        (WindowsWasapiSampleFormat::Pcm, 24) => bytes
+            .chunks_exact(3)
+            .flat_map(|chunk| {
+                let sample = i32::from_le_bytes([
+                    chunk[0],
+                    chunk[1],
+                    chunk[2],
+                    if chunk[2] & 0x80 != 0 { 0xFF } else { 0x00 },
+                ]);
+                let pcm = (sample >> 8).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                pcm.to_le_bytes()
+            })
+            .collect(),
+        (WindowsWasapiSampleFormat::Pcm, 32) => bytes
+            .chunks_exact(4)
+            .flat_map(|chunk| {
+                let sample = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                let pcm = (sample >> 16).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                pcm.to_le_bytes()
+            })
+            .collect(),
+        _ => bytes
+            .iter()
+            .flat_map(|value| {
+                let centered = ((*value as i16) - 128) << 8;
+                centered.to_le_bytes()
+            })
+            .collect(),
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn build_wasapi_client_foundation(
     dataflow: EDataFlow,
     loopback: bool,
@@ -816,8 +886,11 @@ fn build_wasapi_client_objects(
         unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
             .map_err(|error| error.message().to_string())?;
     let device = if let Some(endpoint_id) = endpoint_id_override {
-        unsafe { enumerator.GetDevice(&HSTRING::from(endpoint_id)) }
-            .map_err(|error| error.message().to_string())?
+        match unsafe { enumerator.GetDevice(&HSTRING::from(endpoint_id)) } {
+            Ok(device) => device,
+            Err(_) => unsafe { enumerator.GetDefaultAudioEndpoint(dataflow, eConsole) }
+                .map_err(|error| error.message().to_string())?,
+        }
     } else {
         unsafe { enumerator.GetDefaultAudioEndpoint(dataflow, eConsole) }
             .map_err(|error| error.message().to_string())?
@@ -828,6 +901,10 @@ fn build_wasapi_client_objects(
     let mix_format =
         unsafe { audio_client.GetMixFormat() }.map_err(|error| error.message().to_string())?;
     let mix = unsafe { *mix_format };
+    let source_sample_format = detect_sample_format(mix.wBitsPerSample);
+    let source_bits_per_sample = mix.wBitsPerSample.max(8);
+    let bits_per_sample = normalized_bits_per_sample(&source_sample_format, source_bits_per_sample);
+    let sample_format = WindowsWasapiSampleFormat::Pcm;
     let mut default_device_period_100ns = 0;
     let mut minimum_device_period_100ns = 0;
     unsafe {
@@ -874,11 +951,34 @@ fn build_wasapi_client_objects(
             loopback,
             channels: mix.nChannels,
             sample_rate_hz: mix.nSamplesPerSec,
-            bits_per_sample: mix.wBitsPerSample,
+            source_bits_per_sample,
+            source_sample_format,
+            bits_per_sample,
+            sample_format,
             buffer_frames,
             default_device_period_100ns,
         },
     })
+}
+
+#[cfg(target_os = "windows")]
+fn detect_sample_format(bits_per_sample: u16) -> WindowsWasapiSampleFormat {
+    if bits_per_sample >= 32 {
+        WindowsWasapiSampleFormat::Float
+    } else {
+        WindowsWasapiSampleFormat::Pcm
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn normalized_bits_per_sample(
+    sample_format: &WindowsWasapiSampleFormat,
+    source_bits_per_sample: u16,
+) -> u16 {
+    match (sample_format, source_bits_per_sample.max(8)) {
+        (WindowsWasapiSampleFormat::Pcm, bits) if bits <= 16 => bits,
+        _ => 16,
+    }
 }
 
 #[cfg(target_os = "windows")]

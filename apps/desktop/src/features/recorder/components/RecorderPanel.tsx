@@ -206,6 +206,7 @@ export function RecorderPanel({
                 className={`recorder-panel__pause-button ${
                   isPaused ? 'recorder-panel__pause-button--paused' : ''
                 }`}
+                data-testid="recorder-pause-button"
                 disabled={pauseDisabled}
                 onClick={() => void onPauseResume()}
                 title={pauseDisabled ? recorder.pauseNote ?? 'Pause is unavailable' : undefined}
@@ -243,6 +244,7 @@ export function RecorderPanel({
             ariaLabel="Capture target"
             className="recorder-panel__target-combobox"
             disabled={!isIdle || isStartPending}
+            triggerTestId="recorder-capture-target-trigger"
             onChange={(nextCaptureTargetId) => {
               if (nextCaptureTargetId === 'region:custom') {
                 void onOpenRegionSelector()
@@ -288,6 +290,7 @@ export function RecorderPanel({
               className={`recorder-panel__switch ${
                 recorder.micEnabled ? 'recorder-panel__switch--active' : ''
               }`}
+              data-testid="recorder-audio-toggle-button"
               disabled={isStartPending}
               onClick={() => void onToggleMicrophone()}
               type="button"
@@ -300,6 +303,7 @@ export function RecorderPanel({
             ariaLabel="Audio input"
             className="recorder-panel__target-combobox"
             disabled={!recorder.micEnabled || !isIdle || isStartPending}
+            triggerTestId="recorder-audio-input-trigger"
             onChange={(nextAudioInputId) => {
               void onUpdateAudioInput(nextAudioInputId)
             }}
@@ -355,6 +359,7 @@ export function RecorderPanel({
               <span className="subtle-copy">{micCheckLabel}</span>
               <button
                 className="button button--secondary recorder-panel__mic-check-button"
+                data-testid="recorder-mic-check-button"
                 disabled={micCheckDisabled}
                 onClick={() => void toggleMicCheck()}
                 type="button"
@@ -368,7 +373,7 @@ export function RecorderPanel({
       </div>
 
       {recorder.activeOutputPath ? (
-        <div className="recorder-panel__active-file">
+        <div className="recorder-panel__active-file" data-testid="recorder-active-file">
           <span className="metric-label">Active file</span>
           <strong>{recorder.activeOutputPath}</strong>
         </div>

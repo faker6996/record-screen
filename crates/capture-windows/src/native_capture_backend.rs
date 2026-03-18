@@ -914,8 +914,18 @@ fn run_native_recording_thread(
 
     let capture_target = capture_item_target(&options)?;
     let foundation = build_runtime_foundation_objects(&capture_target)?;
+    let item_size = foundation.capture_item.Size().map_err(map_windows_error)?;
+    let encoder_video_size = encoder_video_size_from_source(
+        &options,
+        item_size.Width.max(1) as u32,
+        item_size.Height.max(1) as u32,
+    );
+    let available_audio_inputs = crate::list_audio_inputs();
     let mut microphone_worker = if options.mic_enabled {
-        match super::native_audio_backend::start_default_microphone_worker() {
+        match super::native_audio_backend::start_microphone_worker_for_input(
+            &options.audio_input_id,
+            &available_audio_inputs,
+        ) {
             Ok(worker) => Some(worker),
             Err(error) => {
                 shutdown_runtime_foundation(foundation);
@@ -953,10 +963,12 @@ fn run_native_recording_thread(
         (None, Some(loopback)) => Some(loopback),
         (None, None) => None,
     };
+    let selected_audio_foundation = selected_audio_foundation.cloned();
 
     let writer_foundation = match super::native_encoder_backend::start_sink_writer_recording(
         &options,
-        selected_audio_foundation,
+        selected_audio_foundation.as_ref(),
+        encoder_video_size,
     ) {
         Ok(foundation_writer) => foundation_writer,
         Err(error) => {
@@ -969,6 +981,8 @@ fn run_native_recording_thread(
     let mut first_sample_time_100ns = None;
     let mut microphone_queue = VecDeque::new();
     let mut loopback_queue = VecDeque::new();
+    let mut audio_samples_written = false;
+    let mut video_samples_written = false;
 
     let recording_result = foundation
         .session
@@ -991,55 +1005,35 @@ fn run_native_recording_thread(
                     );
                     let _ = frame.Close();
                     frame_result?;
+                    video_samples_written = true;
                 }
 
-                if let Some(worker) = microphone_worker.as_mut() {
-                    while let Some(packet) = worker.try_recv_packet() {
-                        microphone_queue.push_back(packet);
-                    }
-                }
-
-                if let Some(worker) = loopback_worker.as_mut() {
-                    while let Some(packet) = worker.try_recv_packet() {
-                        loopback_queue.push_back(packet);
-                    }
-                }
-
-                match (options.mic_enabled, options.system_audio_enabled) {
-                    (true, true) => {
-                        while let Some(packet) =
-                            try_mix_audio_packets(&mut microphone_queue, &mut loopback_queue)?
-                        {
-                            super::native_encoder_backend::write_audio_sample(
-                                &writer_foundation,
-                                &packet,
-                            )?;
-                        }
-                    }
-                    (true, false) => {
-                        while let Some(packet) = microphone_queue.pop_front() {
-                            super::native_encoder_backend::write_audio_sample(
-                                &writer_foundation,
-                                &packet,
-                            )?;
-                        }
-                    }
-                    (false, true) => {
-                        while let Some(packet) = loopback_queue.pop_front() {
-                            super::native_encoder_backend::write_audio_sample(
-                                &writer_foundation,
-                                &packet,
-                            )?;
-                        }
-                    }
-                    (false, false) => {}
-                }
+                flush_pending_audio_packets(
+                    &options,
+                    &writer_foundation,
+                    microphone_worker.as_mut(),
+                    loopback_worker.as_mut(),
+                    &mut microphone_queue,
+                    &mut loopback_queue,
+                    &mut audio_samples_written,
+                )?;
 
                 thread::sleep(Duration::from_millis(16));
             }
 
             Ok(())
         });
+
+    flush_pending_audio_packets(
+        &options,
+        &writer_foundation,
+        microphone_worker.as_mut(),
+        loopback_worker.as_mut(),
+        &mut microphone_queue,
+        &mut loopback_queue,
+        &mut audio_samples_written,
+    )?;
+    write_fallback_video_sample_if_needed(&writer_foundation, video_samples_written)?;
 
     let microphone_stop_result = match microphone_worker.take() {
         Some(worker) => worker
@@ -1054,6 +1048,11 @@ fn run_native_recording_thread(
         None => Ok(super::native_audio_backend::WindowsWasapiPacketStats::default()),
     };
 
+    write_silent_audio_sample_if_needed(
+        &writer_foundation,
+        selected_audio_foundation.as_ref(),
+        audio_samples_written,
+    )?;
     shutdown_runtime_foundation(foundation);
     let finalize_result =
         super::native_encoder_backend::finalize_sink_writer_recording(writer_foundation);
@@ -1081,8 +1080,17 @@ fn run_multi_monitor_native_recording_thread(
     monitors: Vec<MonitorDescriptor>,
 ) -> Result<RecordingArtifact, CaptureError> {
     let mut foundation = build_desktop_runtime_foundation_objects(&monitors)?;
+    let encoder_video_size = encoder_video_size_from_source(
+        &options,
+        foundation.composite_width,
+        foundation.composite_height,
+    );
+    let available_audio_inputs = crate::list_audio_inputs();
     let mut microphone_worker = if options.mic_enabled {
-        match super::native_audio_backend::start_default_microphone_worker() {
+        match super::native_audio_backend::start_microphone_worker_for_input(
+            &options.audio_input_id,
+            &available_audio_inputs,
+        ) {
             Ok(worker) => Some(worker),
             Err(error) => {
                 shutdown_desktop_runtime_foundation(foundation);
@@ -1120,10 +1128,12 @@ fn run_multi_monitor_native_recording_thread(
         (None, Some(loopback)) => Some(loopback),
         (None, None) => None,
     };
+    let selected_audio_foundation = selected_audio_foundation.cloned();
 
     let writer_foundation = match super::native_encoder_backend::start_sink_writer_recording(
         &options,
-        selected_audio_foundation,
+        selected_audio_foundation.as_ref(),
+        encoder_video_size,
     ) {
         Ok(foundation_writer) => foundation_writer,
         Err(error) => {
@@ -1136,6 +1146,8 @@ fn run_multi_monitor_native_recording_thread(
     let mut first_sample_time_100ns = None;
     let mut microphone_queue = VecDeque::new();
     let mut loopback_queue = VecDeque::new();
+    let mut audio_samples_written = false;
+    let mut video_samples_written = false;
 
     let recording_result = start_desktop_sessions(&foundation).and_then(|_| {
         loop {
@@ -1151,55 +1163,35 @@ fn run_multi_monitor_native_recording_thread(
                 &mut first_sample_time_100ns,
             )? {
                 let _ = relative_time;
+                video_samples_written = true;
             }
 
-            if let Some(worker) = microphone_worker.as_mut() {
-                while let Some(packet) = worker.try_recv_packet() {
-                    microphone_queue.push_back(packet);
-                }
-            }
-
-            if let Some(worker) = loopback_worker.as_mut() {
-                while let Some(packet) = worker.try_recv_packet() {
-                    loopback_queue.push_back(packet);
-                }
-            }
-
-            match (options.mic_enabled, options.system_audio_enabled) {
-                (true, true) => {
-                    while let Some(packet) =
-                        try_mix_audio_packets(&mut microphone_queue, &mut loopback_queue)?
-                    {
-                        super::native_encoder_backend::write_audio_sample(
-                            &writer_foundation,
-                            &packet,
-                        )?;
-                    }
-                }
-                (true, false) => {
-                    while let Some(packet) = microphone_queue.pop_front() {
-                        super::native_encoder_backend::write_audio_sample(
-                            &writer_foundation,
-                            &packet,
-                        )?;
-                    }
-                }
-                (false, true) => {
-                    while let Some(packet) = loopback_queue.pop_front() {
-                        super::native_encoder_backend::write_audio_sample(
-                            &writer_foundation,
-                            &packet,
-                        )?;
-                    }
-                }
-                (false, false) => {}
-            }
+            flush_pending_audio_packets(
+                &options,
+                &writer_foundation,
+                microphone_worker.as_mut(),
+                loopback_worker.as_mut(),
+                &mut microphone_queue,
+                &mut loopback_queue,
+                &mut audio_samples_written,
+            )?;
 
             thread::sleep(Duration::from_millis(16));
         }
 
         Ok(())
     });
+
+    flush_pending_audio_packets(
+        &options,
+        &writer_foundation,
+        microphone_worker.as_mut(),
+        loopback_worker.as_mut(),
+        &mut microphone_queue,
+        &mut loopback_queue,
+        &mut audio_samples_written,
+    )?;
+    write_fallback_video_sample_if_needed(&writer_foundation, video_samples_written)?;
 
     let microphone_stop_result = match microphone_worker.take() {
         Some(worker) => worker
@@ -1214,6 +1206,11 @@ fn run_multi_monitor_native_recording_thread(
         None => Ok(super::native_audio_backend::WindowsWasapiPacketStats::default()),
     };
 
+    write_silent_audio_sample_if_needed(
+        &writer_foundation,
+        selected_audio_foundation.as_ref(),
+        audio_samples_written,
+    )?;
     shutdown_desktop_runtime_foundation(foundation);
     let finalize_result =
         super::native_encoder_backend::finalize_sink_writer_recording(writer_foundation);
@@ -1248,7 +1245,7 @@ fn process_recording_frame(
     let first_time = first_sample_time_100ns.get_or_insert(relative_time);
     let normalized_sample_time_100ns = relative_time.saturating_sub(*first_time);
 
-    if let Some(crop_rect) = build_native_crop_rect_from_dimensions(
+    if let Some(crop_rect) = encoder_crop_rect_from_source(
         options,
         content_size.Width.max(1) as u32,
         content_size.Height.max(1) as u32,
@@ -1400,7 +1397,7 @@ fn poll_and_write_desktop_composite_frame(
     let relative_time = latest_relative_time.unwrap_or(0);
     let first_time = first_sample_time_100ns.get_or_insert(relative_time);
     let normalized_sample_time_100ns = relative_time.saturating_sub(*first_time);
-    let crop_rect = build_native_crop_rect_from_dimensions(
+    let crop_rect = encoder_crop_rect_from_source(
         options,
         foundation.composite_width,
         foundation.composite_height,
@@ -1593,6 +1590,71 @@ fn clone_texture_shape(
     })
 }
 
+fn encoder_video_size_from_source(
+    options: &RecordingOptions,
+    source_width: u32,
+    source_height: u32,
+) -> (u32, u32) {
+    match encoder_crop_rect_from_source(options, source_width, source_height) {
+        Some(crop_rect) => (crop_rect.width, crop_rect.height),
+        None => (
+            normalize_encoder_dimension(source_width, source_width),
+            normalize_encoder_dimension(source_height, source_height),
+        ),
+    }
+}
+
+fn encoder_crop_rect_from_source(
+    options: &RecordingOptions,
+    source_width: u32,
+    source_height: u32,
+) -> Option<CropRect> {
+    let base_crop = build_native_crop_rect_from_dimensions(options, source_width, source_height);
+    let normalized_crop = normalize_encoder_crop_rect(
+        base_crop.unwrap_or(CropRect {
+            x: 0,
+            y: 0,
+            width: source_width.max(1),
+            height: source_height.max(1),
+        }),
+        source_width,
+        source_height,
+    );
+
+    let needs_texture_copy = base_crop.is_some()
+        || normalized_crop.x != 0
+        || normalized_crop.y != 0
+        || normalized_crop.width != source_width.max(1)
+        || normalized_crop.height != source_height.max(1);
+
+    needs_texture_copy.then_some(normalized_crop)
+}
+
+fn normalize_encoder_crop_rect(
+    crop_rect: CropRect,
+    source_width: u32,
+    source_height: u32,
+) -> CropRect {
+    let max_width = source_width.saturating_sub(crop_rect.x).max(1);
+    let max_height = source_height.saturating_sub(crop_rect.y).max(1);
+
+    CropRect {
+        x: crop_rect.x.min(source_width.saturating_sub(1)),
+        y: crop_rect.y.min(source_height.saturating_sub(1)),
+        width: normalize_encoder_dimension(crop_rect.width.min(max_width), max_width),
+        height: normalize_encoder_dimension(crop_rect.height.min(max_height), max_height),
+    }
+}
+
+fn normalize_encoder_dimension(value: u32, max_value: u32) -> u32 {
+    let capped = value.min(max_value).max(1);
+    if capped > 2 && capped % 2 != 0 {
+        capped - 1
+    } else {
+        capped
+    }
+}
+
 fn build_native_crop_rect_from_dimensions(
     options: &RecordingOptions,
     source_width: u32,
@@ -1721,6 +1783,96 @@ fn build_recording_artifact(
         duration: finished_at.duration_since(started_at).unwrap_or_default(),
         bytes_written: metadata.len(),
     })
+}
+
+#[cfg(target_os = "windows")]
+fn flush_pending_audio_packets(
+    options: &RecordingOptions,
+    writer_foundation: &super::native_encoder_backend::NativeSinkWriterFoundation,
+    microphone_worker: Option<&mut super::native_audio_backend::WindowsWasapiCaptureWorker>,
+    loopback_worker: Option<&mut super::native_audio_backend::WindowsWasapiCaptureWorker>,
+    microphone_queue: &mut VecDeque<super::native_audio_backend::WindowsWasapiAudioPacket>,
+    loopback_queue: &mut VecDeque<super::native_audio_backend::WindowsWasapiAudioPacket>,
+    audio_samples_written: &mut bool,
+) -> Result<(), CaptureError> {
+    if let Some(worker) = microphone_worker {
+        while let Some(packet) = worker.try_recv_packet() {
+            microphone_queue.push_back(packet);
+        }
+    }
+
+    if let Some(worker) = loopback_worker {
+        while let Some(packet) = worker.try_recv_packet() {
+            loopback_queue.push_back(packet);
+        }
+    }
+
+    match (options.mic_enabled, options.system_audio_enabled) {
+        (true, true) => {
+            while let Some(packet) = try_mix_audio_packets(microphone_queue, loopback_queue)? {
+                super::native_encoder_backend::write_audio_sample(writer_foundation, &packet)?;
+                *audio_samples_written = true;
+            }
+        }
+        (true, false) => {
+            while let Some(packet) = microphone_queue.pop_front() {
+                super::native_encoder_backend::write_audio_sample(writer_foundation, &packet)?;
+                *audio_samples_written = true;
+            }
+        }
+        (false, true) => {
+            while let Some(packet) = loopback_queue.pop_front() {
+                super::native_encoder_backend::write_audio_sample(writer_foundation, &packet)?;
+                *audio_samples_written = true;
+            }
+        }
+        (false, false) => {}
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn write_silent_audio_sample_if_needed(
+    writer_foundation: &super::native_encoder_backend::NativeSinkWriterFoundation,
+    audio_foundation: Option<&super::native_audio_backend::WindowsWasapiClientFoundation>,
+    audio_samples_written: bool,
+) -> Result<(), CaptureError> {
+    let Some(audio_foundation) = audio_foundation else {
+        return Ok(());
+    };
+    if audio_samples_written {
+        return Ok(());
+    }
+
+    let frames = audio_foundation
+        .buffer_frames
+        .max(audio_foundation.sample_rate_hz / 20)
+        .max(1);
+    let bytes_per_frame = u32::from(audio_foundation.channels)
+        .saturating_mul(u32::from(audio_foundation.bits_per_sample.max(8)) / 8)
+        .max(1);
+    let packet = super::native_audio_backend::WindowsWasapiAudioPacket {
+        sample_time_100ns: 0,
+        duration_100ns: ((frames as u64) * 10_000_000
+            / audio_foundation.sample_rate_hz.max(1) as u64) as i64,
+        frames,
+        bytes: vec![0u8; frames.saturating_mul(bytes_per_frame) as usize],
+    };
+    super::native_encoder_backend::write_audio_sample(writer_foundation, &packet)?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn write_fallback_video_sample_if_needed(
+    writer_foundation: &super::native_encoder_backend::NativeSinkWriterFoundation,
+    video_samples_written: bool,
+) -> Result<(), CaptureError> {
+    if video_samples_written {
+        return Ok(());
+    }
+
+    super::native_encoder_backend::write_black_video_sample(writer_foundation, 0)
 }
 
 #[cfg(target_os = "windows")]

@@ -11,6 +11,7 @@ interface ComboboxProps {
   ariaLabel: string
   className?: string
   disabled?: boolean
+  triggerTestId?: string
   onChange: (value: string) => void
   options: ComboboxOption[]
   value: string
@@ -20,6 +21,7 @@ export function Combobox({
   ariaLabel,
   className,
   disabled = false,
+  triggerTestId,
   onChange,
   options,
   value,
@@ -161,6 +163,7 @@ export function Combobox({
         aria-haspopup="listbox"
         aria-label={ariaLabel}
         className="combobox__trigger"
+        data-testid={triggerTestId}
         disabled={disabled}
         onClick={() => {
           if (isOpen) {

@@ -1,5 +1,7 @@
 #[cfg(target_os = "windows")]
-use crate::native_audio_backend::{WindowsWasapiAudioPacket, WindowsWasapiClientFoundation};
+use crate::native_audio_backend::{
+    WindowsWasapiAudioPacket, WindowsWasapiClientFoundation, WindowsWasapiSampleFormat,
+};
 use capture::{
     EncoderBackendAvailability, EncoderBackendDescriptor, EncoderBackendFactory,
     EncoderBackendRuntimeReport, RecordingOptions,
@@ -9,15 +11,22 @@ use std::{env, fs, os::windows::ffi::OsStrExt, path::Path};
 #[cfg(target_os = "windows")]
 use windows::{
     Graphics::DirectX::Direct3D11::IDirect3DSurface,
-    Win32::Graphics::{Direct3D11::ID3D11Texture2D, Dxgi::IDXGISurface},
+    Win32::Graphics::{
+        Direct3D11::{
+            D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
+            D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, ID3D11Resource, ID3D11Texture2D,
+        },
+        Dxgi::IDXGISurface,
+    },
     Win32::Media::MediaFoundation::{
         IMFAttributes, IMFByteStream, IMFMediaBuffer, IMFMediaType, IMFSample, IMFSinkWriter,
         MF_MT_ALL_SAMPLES_INDEPENDENT, MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
         MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT, MF_MT_AUDIO_NUM_CHANNELS,
-        MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
-        MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_VERSION, MFAudioFormat_AAC,
-        MFAudioFormat_PCM, MFCreateDXGISurfaceBuffer, MFCreateMediaType, MFCreateMemoryBuffer,
-        MFCreateSample, MFCreateSinkWriterFromURL, MFCreateVideoSampleFromSurface,
+        MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE,
+        MF_MT_FIXED_SIZE_SAMPLES, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE,
+        MF_MT_MAJOR_TYPE, MF_MT_SAMPLE_SIZE, MF_MT_SUBTYPE, MF_VERSION, MFAudioFormat_AAC,
+        MFAudioFormat_Float, MFAudioFormat_PCM, MFCreateDXGISurfaceBuffer, MFCreateMediaType,
+        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFCreateVideoSampleFromSurface,
         MFMediaType_Audio, MFMediaType_Video, MFSTARTUP_NOSOCKET, MFShutdown, MFStartup,
         MFVideoFormat_ARGB32, MFVideoFormat_H264, MFVideoInterlace_Progressive,
     },
@@ -66,6 +75,8 @@ pub(crate) struct NativeSinkWriterFoundation {
     video_stream_index: u32,
     audio_stream_index: Option<u32>,
     video_sample_duration_100ns: i64,
+    video_width: u32,
+    video_height: u32,
 }
 
 pub fn backend() -> &'static dyn EncoderBackendFactory {
@@ -104,7 +115,15 @@ pub fn preferred_encoder_label() -> Option<String> {
 }
 
 pub fn output_plan(options: &RecordingOptions) -> MediaFoundationOutputPlan {
+    build_output_plan(options, None)
+}
+
+fn build_output_plan(
+    options: &RecordingOptions,
+    video_size: Option<(u32, u32)>,
+) -> MediaFoundationOutputPlan {
     let (width, height, fps, bitrate) = quality_settings(&options.quality_preset);
+    let (width, height) = video_size.unwrap_or((width, height));
     MediaFoundationOutputPlan {
         output_path: options.output_path.display().to_string(),
         container_label: "MP4".to_string(),
@@ -334,6 +353,8 @@ fn build_sink_writer_foundation(
         video_stream_index,
         audio_stream_index,
         video_sample_duration_100ns: frame_duration_100ns(plan.fps),
+        video_width: plan.width,
+        video_height: plan.height,
     })
 }
 
@@ -341,8 +362,9 @@ fn build_sink_writer_foundation(
 pub(crate) fn start_sink_writer_recording(
     options: &RecordingOptions,
     audio_foundation: Option<&WindowsWasapiClientFoundation>,
+    video_size: (u32, u32),
 ) -> Result<NativeSinkWriterFoundation, capture::CaptureError> {
-    let plan = output_plan(options);
+    let plan = build_output_plan(options, Some(video_size));
     unsafe {
         MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(map_windows_error)?;
     }
@@ -511,6 +533,8 @@ fn build_input_media_type(
     plan: &MediaFoundationOutputPlan,
 ) -> Result<IMFMediaType, capture::CaptureError> {
     let media_type = unsafe { MFCreateMediaType() }.map_err(map_windows_error)?;
+    let stride = plan.width.saturating_mul(4);
+    let sample_size = stride.saturating_mul(plan.height);
     unsafe {
         media_type
             .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
@@ -527,8 +551,62 @@ fn build_input_media_type(
         media_type
             .SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)
             .map_err(map_windows_error)?;
+        media_type
+            .SetUINT32(&MF_MT_DEFAULT_STRIDE, stride)
+            .map_err(map_windows_error)?;
+        media_type
+            .SetUINT32(&MF_MT_FIXED_SIZE_SAMPLES, 1)
+            .map_err(map_windows_error)?;
+        media_type
+            .SetUINT32(&MF_MT_SAMPLE_SIZE, sample_size)
+            .map_err(map_windows_error)?;
     }
     Ok(media_type)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn write_black_video_sample(
+    foundation: &NativeSinkWriterFoundation,
+    sample_time_100ns: i64,
+) -> Result<(), capture::CaptureError> {
+    let frame_len = foundation
+        .video_width
+        .saturating_mul(foundation.video_height)
+        .saturating_mul(4) as usize;
+    let buffer = unsafe { MFCreateMemoryBuffer(frame_len as u32) }.map_err(map_windows_error)?;
+    let mut raw_buffer = std::ptr::null_mut();
+    unsafe {
+        buffer
+            .Lock(&mut raw_buffer, None, None)
+            .map_err(map_windows_error)?;
+    }
+    if !raw_buffer.is_null() && frame_len > 0 {
+        unsafe {
+            std::ptr::write_bytes(raw_buffer, 0, frame_len);
+        }
+    }
+    unsafe {
+        buffer.Unlock().map_err(map_windows_error)?;
+        buffer
+            .SetCurrentLength(frame_len as u32)
+            .map_err(map_windows_error)?;
+    }
+
+    let sample = unsafe { MFCreateSample() }.map_err(map_windows_error)?;
+    unsafe {
+        sample.AddBuffer(&buffer).map_err(map_windows_error)?;
+        sample
+            .SetSampleTime(sample_time_100ns)
+            .map_err(map_windows_error)?;
+        sample
+            .SetSampleDuration(foundation.video_sample_duration_100ns)
+            .map_err(map_windows_error)?;
+        foundation
+            .sink_writer
+            .WriteSample(foundation.video_stream_index, &sample)
+            .map_err(map_windows_error)?;
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -536,9 +614,11 @@ fn build_output_audio_media_type(
     foundation: &WindowsWasapiClientFoundation,
 ) -> Result<IMFMediaType, capture::CaptureError> {
     let media_type = unsafe { MFCreateMediaType() }.map_err(map_windows_error)?;
-    let avg_bytes_per_second = u32::from(foundation.channels)
-        .saturating_mul(foundation.sample_rate_hz)
-        .saturating_mul(24);
+    let avg_bytes_per_second = match foundation.channels {
+        0 | 1 => 16_000,
+        2 => 24_000,
+        _ => 32_000,
+    };
     let block_alignment = u32::from(foundation.channels).saturating_mul(2).max(1);
     unsafe {
         media_type
@@ -579,12 +659,16 @@ fn build_input_audio_media_type(
         .saturating_mul(bytes_per_sample)
         .max(1);
     let avg_bytes_per_second = foundation.sample_rate_hz.saturating_mul(block_alignment);
+    let subtype = match foundation.sample_format {
+        WindowsWasapiSampleFormat::Pcm => MFAudioFormat_PCM,
+        WindowsWasapiSampleFormat::Float => MFAudioFormat_Float,
+    };
     unsafe {
         media_type
             .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
             .map_err(map_windows_error)?;
         media_type
-            .SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_PCM)
+            .SetGUID(&MF_MT_SUBTYPE, &subtype)
             .map_err(map_windows_error)?;
         media_type
             .SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, u32::from(foundation.channels))
@@ -618,10 +702,28 @@ fn create_sample_from_d3d11_texture(
     sample_time_100ns: i64,
     sample_duration_100ns: i64,
 ) -> Result<IMFSample, capture::CaptureError> {
-    let surface_unknown = texture.cast::<IUnknown>().map_err(map_windows_error)?;
-    let sample =
-        unsafe { MFCreateVideoSampleFromSurface(&surface_unknown) }.map_err(map_windows_error)?;
+    let bytes = copy_texture_bytes(texture)?;
+    let buffer = unsafe { MFCreateMemoryBuffer(bytes.len() as u32) }.map_err(map_windows_error)?;
+    let mut raw_buffer = std::ptr::null_mut();
     unsafe {
+        buffer
+            .Lock(&mut raw_buffer, None, None)
+            .map_err(map_windows_error)?;
+    }
+    if !raw_buffer.is_null() && !bytes.is_empty() {
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), raw_buffer, bytes.len());
+        }
+    }
+    unsafe {
+        buffer.Unlock().map_err(map_windows_error)?;
+        buffer
+            .SetCurrentLength(bytes.len() as u32)
+            .map_err(map_windows_error)?;
+    }
+    let sample = unsafe { MFCreateSample() }.map_err(map_windows_error)?;
+    unsafe {
+        sample.AddBuffer(&buffer).map_err(map_windows_error)?;
         sample
             .SetSampleTime(sample_time_100ns)
             .map_err(map_windows_error)?;
@@ -630,6 +732,69 @@ fn create_sample_from_d3d11_texture(
             .map_err(map_windows_error)?;
     }
     Ok(sample)
+}
+
+#[cfg(target_os = "windows")]
+fn copy_texture_bytes(texture: &ID3D11Texture2D) -> Result<Vec<u8>, capture::CaptureError> {
+    let d3d11_device = unsafe { texture.GetDevice() }.map_err(map_windows_error)?;
+    let mut desc = D3D11_TEXTURE2D_DESC::default();
+    unsafe {
+        texture.GetDesc(&mut desc as *mut _);
+    }
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+    desc.MiscFlags = 0;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+
+    let mut staging_texture = None;
+    unsafe {
+        d3d11_device
+            .CreateTexture2D(&desc as *const _, None, Some(&mut staging_texture))
+            .map_err(map_windows_error)?;
+    }
+    let staging_texture = staging_texture.ok_or_else(|| {
+        capture::CaptureError::BackendUnavailable(
+            "Windows Media Foundation sample bridge could not allocate a staging texture."
+                .to_string(),
+        )
+    })?;
+
+    let source_resource: ID3D11Resource = texture.cast().map_err(map_windows_error)?;
+    let staging_resource: ID3D11Resource = staging_texture.cast().map_err(map_windows_error)?;
+    let device_context = unsafe { d3d11_device.GetImmediateContext() }.map_err(map_windows_error)?;
+    unsafe {
+        device_context.CopyResource(&staging_resource, &source_resource);
+    }
+
+    let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+    unsafe {
+        device_context
+            .Map(&staging_resource, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+            .map_err(map_windows_error)?;
+    }
+
+    let width = desc.Width.max(1) as usize;
+    let height = desc.Height.max(1) as usize;
+    let bytes_per_row = width.saturating_mul(4);
+    let row_pitch = mapped.RowPitch as usize;
+    let mut bytes = vec![0u8; bytes_per_row.saturating_mul(height)];
+    for row in 0..height {
+        let src_offset = row.saturating_mul(row_pitch);
+        let dst_offset = row.saturating_mul(bytes_per_row);
+        unsafe {
+            let src = (mapped.pData as *const u8).add(src_offset);
+            let dst = bytes.as_mut_ptr().add(dst_offset);
+            std::ptr::copy_nonoverlapping(src, dst, bytes_per_row);
+        }
+    }
+
+    unsafe {
+        device_context.Unmap(&staging_resource, 0);
+    }
+
+    Ok(bytes)
 }
 
 #[cfg(target_os = "windows")]
