@@ -399,6 +399,7 @@ export function useDesktopState() {
   const {
     countdownValue: recordingStartCountdown,
     isCountingDown: isRecordingCountdownActive,
+    isStartupDelayed,
     isStartingRecording,
     toggleRecording,
   } = useRecordingCountdown({
@@ -831,6 +832,7 @@ export function useDesktopState() {
     error,
     isLoading,
     isRecordingCountdownActive,
+    isStartupDelayed,
     isStartingRecording,
     focusLauncher: desktopClient.focusLauncher,
     hideHud: desktopClient.hideHud,

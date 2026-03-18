@@ -1,5 +1,9 @@
 use std::{
     path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -13,6 +17,8 @@ use crate::{
     AppState, audio_inputs, emit_recent_sessions_refresh_request, emit_recorder_state,
     emit_runtime_error, persist_settings, runtime_log, window, with_core,
 };
+
+const RECORDING_STARTUP_WATCHDOG_MS: u64 = 15_000;
 
 fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
     let show_hud_during_recording =
@@ -182,7 +188,51 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         .unwrap_or_else(|| "n/a".to_string());
     #[cfg(not(target_os = "windows"))]
     let encoder_sample_bridge = "n/a".to_string();
-    let controller = create_capture_controller(recording_options)?;
+    let requested_capture_target_id = recording_options.capture_target_id.clone();
+    let requested_audio_input_id = recording_options.audio_input_id.clone();
+    runtime_log::log_runtime_info(&format!(
+        "recording startup requested | target_id={} | audio_input_id={} | output={} | quality={} | mic_enabled={} | system_audio_enabled={} | capture_start_plan={} | capture_execution_plan={} | audio_start_plan={} | encoder_output_plan={}",
+        requested_capture_target_id,
+        requested_audio_input_id,
+        output_path.display(),
+        recording_options.quality_preset,
+        recording_options.mic_enabled,
+        recording_options.system_audio_enabled,
+        capture_start_plan,
+        capture_execution_plan,
+        audio_start_plan,
+        encoder_output_plan,
+    ));
+    let startup_pending = Arc::new(AtomicBool::new(true));
+    let startup_pending_for_watchdog = Arc::clone(&startup_pending);
+    let startup_watch_target = requested_capture_target_id.clone();
+    let startup_watch_output = output_path.display().to_string();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(RECORDING_STARTUP_WATCHDOG_MS));
+        if startup_pending_for_watchdog.load(Ordering::SeqCst) {
+            runtime_log::log_runtime_error(&format!(
+                "recording startup still pending after {} ms | target_id={} | output={}",
+                RECORDING_STARTUP_WATCHDOG_MS, startup_watch_target, startup_watch_output
+            ));
+        }
+    });
+    let controller = match create_capture_controller(recording_options) {
+        Ok(controller) => {
+            startup_pending.store(false, Ordering::SeqCst);
+            controller
+        }
+        Err(error) => {
+            startup_pending.store(false, Ordering::SeqCst);
+            runtime_log::log_runtime_error(&format!(
+                "recording startup failed after {} ms | target_id={} | output={} | error={}",
+                start_started_at.elapsed().as_millis(),
+                requested_capture_target_id,
+                output_path.display(),
+                error
+            ));
+            return Err(error);
+        }
+    };
     let controller_ready_after = start_started_at.elapsed();
 
     #[cfg(target_os = "linux")]

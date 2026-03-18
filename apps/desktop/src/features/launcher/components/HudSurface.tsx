@@ -9,6 +9,7 @@ import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
   countdownValue: number | null
+  isStartupDelayed: boolean
   isStartingRecording: boolean
   onPauseResume: () => Promise<void>
   onToggleMicrophone: () => Promise<void>
@@ -78,6 +79,7 @@ function HudElapsed({
 
 export function HudSurface({
   countdownValue,
+  isStartupDelayed,
   isStartingRecording,
   onPauseResume,
   onToggleMicrophone,
@@ -170,7 +172,9 @@ export function HudSurface({
               isCountingDown
                 ? 'Cancel countdown'
                 : isStartingRecording
-                  ? 'Starting capture'
+                  ? isStartupDelayed
+                    ? 'Recorder startup is taking longer than expected'
+                    : 'Starting capture'
                   : isFinalizing
                     ? 'Finalizing recording'
                   : isIdle

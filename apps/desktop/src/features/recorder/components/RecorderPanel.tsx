@@ -13,6 +13,7 @@ interface RecorderPanelProps {
   audioInputs: AudioInputOption[]
   captureTargets: CaptureTargetOption[]
   countdownValue: number | null
+  isStartupDelayed: boolean
   isStartingRecording: boolean
   recorder: RecorderSnapshot
   diagnostics: RuntimeDiagnostics
@@ -32,6 +33,7 @@ export function RecorderPanel({
   audioInputs,
   captureTargets,
   countdownValue,
+  isStartupDelayed,
   isStartingRecording,
   recorder,
   diagnostics,
@@ -113,7 +115,9 @@ export function RecorderPanel({
     ? isCountingDown
       ? `Recording starts in ${countdownValue}. Click again to cancel.`
       : isStartingRecording
-        ? 'Starting capture. Hold still for a moment.'
+        ? isStartupDelayed
+          ? 'Recorder startup is taking longer than expected. Check the runtime log if this screen does not advance.'
+          : 'Starting capture. Hold still for a moment.'
         : 'Select your target and start capturing.'
     : isPaused
       ? 'Capture is paused. Resume when you are ready.'
@@ -188,12 +192,16 @@ export function RecorderPanel({
             <strong>
               {isCountingDown
                 ? `Starting in ${countdownValue}`
-                : 'Starting capture...'}
+                : isStartupDelayed
+                  ? 'Startup is taking longer than expected'
+                  : 'Starting capture...'}
             </strong>
             <span>
               {isCountingDown
                 ? 'Click the button again if you want to cancel.'
-                : 'Preparing the recorder right now.'}
+                : isStartupDelayed
+                  ? 'The native recorder has not finished starting yet. If this persists, inspect the runtime log for the startup watchdog message.'
+                  : 'Preparing the recorder right now.'}
             </span>
           </div>
         ) : null}

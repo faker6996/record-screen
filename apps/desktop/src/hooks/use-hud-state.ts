@@ -19,6 +19,7 @@ export function useHudState() {
   const {
     countdownValue: recordingStartCountdown,
     isCountingDown: isRecordingCountdownActive,
+    isStartupDelayed,
     isStartingRecording,
     toggleRecording,
   } = useRecordingCountdown({
@@ -151,6 +152,7 @@ export function useHudState() {
     error,
     isLoading,
     isRecordingCountdownActive,
+    isStartupDelayed,
     isStartingRecording,
     recorder,
     recordingStartCountdown,

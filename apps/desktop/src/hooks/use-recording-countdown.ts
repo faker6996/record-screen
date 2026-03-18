@@ -5,6 +5,7 @@ interface UseRecordingCountdownOptions {
   onClearError?: () => void
   onError: (message: string) => void
   seconds?: number
+  startupTimeoutMs?: number
   status: RecorderSnapshot['status']
   toggleRecordingNow: () => Promise<void>
 }
@@ -13,12 +14,15 @@ export function useRecordingCountdown({
   onClearError,
   onError,
   seconds = 3,
+  startupTimeoutMs = 15000,
   status,
   toggleRecordingNow,
 }: UseRecordingCountdownOptions) {
   const [countdownValue, setCountdownValue] = useState<number | null>(null)
   const [isStartingRecording, setIsStartingRecording] = useState(false)
+  const [isStartupDelayed, setIsStartupDelayed] = useState(false)
   const timerRef = useRef<number | null>(null)
+  const startTimeoutRef = useRef<number | null>(null)
 
   const clearCountdownTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -27,11 +31,20 @@ export function useRecordingCountdown({
     }
   }, [])
 
+  const clearStartTimeout = useCallback(() => {
+    if (startTimeoutRef.current !== null) {
+      window.clearTimeout(startTimeoutRef.current)
+      startTimeoutRef.current = null
+    }
+  }, [])
+
   const resetCountdownState = useCallback(() => {
     clearCountdownTimer()
+    clearStartTimeout()
     setCountdownValue(null)
     setIsStartingRecording(false)
-  }, [clearCountdownTimer])
+    setIsStartupDelayed(false)
+  }, [clearCountdownTimer, clearStartTimeout])
 
   useEffect(() => {
     if (status !== 'idle') {
@@ -42,11 +55,20 @@ export function useRecordingCountdown({
   useEffect(() => {
     return () => {
       clearCountdownTimer()
+      clearStartTimeout()
     }
-  }, [clearCountdownTimer])
+  }, [clearCountdownTimer, clearStartTimeout])
 
   const commitRecordingStart = useCallback(async () => {
     setIsStartingRecording(true)
+    setIsStartupDelayed(false)
+    clearStartTimeout()
+    startTimeoutRef.current = window.setTimeout(() => {
+      setIsStartupDelayed(true)
+      onError(
+        'Recorder startup is taking longer than expected. The native capture backend may be stuck while preparing the session.',
+      )
+    }, startupTimeoutMs)
 
     try {
       await toggleRecordingNow()
@@ -58,9 +80,10 @@ export function useRecordingCountdown({
           : 'Unable to start or stop the recorder.',
       )
     } finally {
+      clearStartTimeout()
       setIsStartingRecording(false)
     }
-  }, [onClearError, onError, toggleRecordingNow])
+  }, [clearStartTimeout, onClearError, onError, startupTimeoutMs, toggleRecordingNow])
 
   useEffect(() => {
     if (countdownValue === null) {
@@ -118,6 +141,7 @@ export function useRecordingCountdown({
   return {
     countdownValue,
     isCountingDown: countdownValue !== null,
+    isStartupDelayed,
     isStartingRecording,
     toggleRecording,
   }
