@@ -82,8 +82,8 @@ pub enum StorageError {
 
 pub fn expand_home_path(input: &str) -> PathBuf {
     if let Some(stripped) = input.strip_prefix("~/") {
-        if let Ok(home) = env::var("HOME") {
-            return Path::new(&home).join(stripped);
+        if let Some(home) = user_home_directory() {
+            return home.join(stripped);
         }
     }
 
@@ -97,15 +97,83 @@ pub fn ensure_output_directory(input: &str) -> Result<PathBuf, StorageError> {
 }
 
 pub fn app_config_directory() -> PathBuf {
-    if let Ok(config_home) = env::var("XDG_CONFIG_HOME") {
-        return PathBuf::from(config_home).join("record-screen");
+    if let Some(config_home) = env_var_path("XDG_CONFIG_HOME") {
+        return config_home.join("record-screen");
     }
 
-    if let Ok(home) = env::var("HOME") {
-        return Path::new(&home).join(".config/record-screen");
+    if let Some(app_data) = env_var_path("APPDATA") {
+        return app_data.join("record-screen");
+    }
+
+    if let Some(home) = user_home_directory() {
+        return home.join(".config/record-screen");
     }
 
     PathBuf::from(".record-screen")
+}
+
+fn env_var_string(key: &str) -> Option<String> {
+    env_var_string_with(&|candidate| env::var(candidate).ok(), key)
+}
+
+fn env_var_string_with(get_env: &impl Fn(&str) -> Option<String>, key: &str) -> Option<String> {
+    get_env(key)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn env_var_path(key: &str) -> Option<PathBuf> {
+    env_var_string(key).map(PathBuf::from)
+}
+
+fn user_home_directory() -> Option<PathBuf> {
+    user_home_directory_with(&|candidate| env::var(candidate).ok())
+}
+
+fn user_home_directory_with(get_env: &impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    if let Some(home) = env_var_string_with(get_env, "HOME") {
+        return Some(PathBuf::from(home));
+    }
+
+    if let Some(user_profile) = env_var_string_with(get_env, "USERPROFILE") {
+        return Some(PathBuf::from(user_profile));
+    }
+
+    let home_drive = env_var_string_with(get_env, "HOMEDRIVE");
+    let home_path = env_var_string_with(get_env, "HOMEPATH");
+
+    match (home_drive, home_path) {
+        (Some(home_drive), Some(home_path)) => Some(PathBuf::from(format!("{home_drive}{home_path}"))),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+fn app_config_directory_with(get_env: &impl Fn(&str) -> Option<String>) -> PathBuf {
+    if let Some(config_home) = env_var_string_with(get_env, "XDG_CONFIG_HOME") {
+        return PathBuf::from(config_home).join("record-screen");
+    }
+
+    if let Some(app_data) = env_var_string_with(get_env, "APPDATA") {
+        return PathBuf::from(app_data).join("record-screen");
+    }
+
+    if let Some(home) = user_home_directory_with(get_env) {
+        return home.join(".config/record-screen");
+    }
+
+    PathBuf::from(".record-screen")
+}
+
+#[cfg(test)]
+fn expand_home_path_with(input: &str, get_env: &impl Fn(&str) -> Option<String>) -> PathBuf {
+    if let Some(stripped) = input.strip_prefix("~/") {
+        if let Some(home) = user_home_directory_with(get_env) {
+            return home.join(stripped);
+        }
+    }
+
+    PathBuf::from(input)
 }
 
 pub fn app_settings_path() -> PathBuf {
@@ -234,7 +302,11 @@ fn merge_json(defaults: serde_json::Value, persisted: serde_json::Value) -> serd
 
 #[cfg(test)]
 mod tests {
-    use super::{AppSettings, app_settings_path, shortcuts_path};
+    use super::{
+        AppSettings, app_config_directory_with, app_settings_path, expand_home_path_with,
+        shortcuts_path,
+    };
+    use std::{collections::HashMap, path::PathBuf};
 
     #[test]
     fn default_launch_on_login_is_disabled() {
@@ -249,5 +321,27 @@ mod tests {
     #[test]
     fn shortcuts_path_ends_with_shortcuts_json() {
         assert!(shortcuts_path().ends_with("shortcuts.json"));
+    }
+
+    #[test]
+    fn expand_home_path_uses_userprofile_when_home_is_missing() {
+        let env = HashMap::from([("USERPROFILE", r"C:\Users\Tester".to_string())]);
+        let expanded = expand_home_path_with("~/Movies/Record Screen", &|key| env.get(key).cloned());
+
+        assert_eq!(
+            expanded,
+            PathBuf::from(r"C:\Users\Tester").join("Movies/Record Screen")
+        );
+    }
+
+    #[test]
+    fn app_config_directory_uses_appdata_when_available() {
+        let env = HashMap::from([("APPDATA", r"C:\Users\Tester\AppData\Roaming".to_string())]);
+        let config_directory = app_config_directory_with(&|key| env.get(key).cloned());
+
+        assert_eq!(
+            config_directory,
+            PathBuf::from(r"C:\Users\Tester\AppData\Roaming").join("record-screen")
+        );
     }
 }
