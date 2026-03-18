@@ -5,7 +5,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use app_core::{CompletedRecording, RecorderSnapshot, RecorderStatus};
@@ -19,6 +19,9 @@ use crate::{
 };
 
 const RECORDING_STARTUP_WATCHDOG_MS: u64 = 15_000;
+const RECORDING_TOGGLE_GUARD_MS: u64 = 900;
+static LAST_TOGGLE_REQUEST_AT_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
     let show_hud_during_recording =
@@ -28,6 +31,22 @@ fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
 
 pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     let status = with_core(app, |core| core.recorder_status())?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let previous_toggle_at = LAST_TOGGLE_REQUEST_AT_MS.swap(now_ms, Ordering::SeqCst);
+
+    if previous_toggle_at != 0
+        && now_ms.saturating_sub(previous_toggle_at) < RECORDING_TOGGLE_GUARD_MS
+    {
+        runtime_log::log_runtime_info(&format!(
+            "recording toggle ignored | status={:?} | delta_ms={}",
+            status,
+            now_ms.saturating_sub(previous_toggle_at)
+        ));
+        return with_core(app, |core| core.snapshot());
+    }
 
     match status {
         RecorderStatus::Idle => start_recording(app),
@@ -310,6 +329,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 }
 
 pub fn stop_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
+    runtime_log::log_runtime_info("recording stop requested | reason=toggle");
     let controller = take_controller(app)?;
     let snapshot = with_core(app, |core| core.begin_finalizing())?
         .ok_or_else(|| "no active recorder process".to_string())?;
@@ -317,6 +337,114 @@ pub fn stop_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     sync_hud_for_current_settings(app, &snapshot);
     spawn_stop_finalizer(app.clone(), controller);
     Ok(snapshot)
+}
+
+pub fn finalize_active_recording_before_exit(app: &AppHandle) {
+    let recorder_status = match with_core(app, |core| core.recorder_status()) {
+        Ok(status) => status,
+        Err(error) => {
+            runtime_log::log_runtime_error(&format!(
+                "unable to inspect recorder state during app exit: {}",
+                error
+            ));
+            return;
+        }
+    };
+
+    if !matches!(
+        recorder_status,
+        RecorderStatus::Recording | RecorderStatus::Paused | RecorderStatus::Finalizing
+    ) {
+        return;
+    }
+
+    runtime_log::log_runtime_info(&format!(
+        "recording exit cleanup requested | recorder_status={:?}",
+        recorder_status
+    ));
+
+    let controller = {
+        let state = app.state::<AppState>();
+        let mut recorder = match state.recorder.lock() {
+            Ok(recorder) => recorder,
+            Err(_) => {
+                runtime_log::log_runtime_error(
+                    "failed to lock recording runtime during app-exit cleanup",
+                );
+                return;
+            }
+        };
+
+        recorder.take()
+    };
+
+    let Some(mut controller) = controller else {
+        runtime_log::log_runtime_info(
+            "recording exit cleanup skipped because no active controller was present",
+        );
+        return;
+    };
+
+    if matches!(
+        recorder_status,
+        RecorderStatus::Recording | RecorderStatus::Paused
+    ) {
+        match with_core(app, |core| core.begin_finalizing()) {
+            Ok(Some(snapshot)) => {
+                emit_recorder_state(app, &snapshot);
+                sync_hud_for_current_settings(app, &snapshot);
+            }
+            Ok(None) => {
+                runtime_log::log_runtime_info(
+                    "recording exit cleanup found no active recorder after entering finalizing",
+                );
+            }
+            Err(error) => runtime_log::log_runtime_error(&format!(
+                "recording exit cleanup could not transition recorder to finalizing: {}",
+                error
+            )),
+        }
+    }
+
+    let finalize_started_at = Instant::now();
+    match controller.stop() {
+        Ok(completed) => {
+            runtime_log::log_runtime_info(&format!(
+                "recording finalized during app exit | output={} | bytes={} | duration_secs={} | finalize_ms={}",
+                completed.output_path.display(),
+                completed.bytes_written,
+                completed.duration.as_secs(),
+                finalize_started_at.elapsed().as_millis(),
+            ));
+            let summary = CompletedRecording {
+                title: file_stem(&completed.output_path),
+                started_at_label: format_started_at(completed.started_at),
+                duration: completed.duration,
+                location: completed.output_path.display().to_string(),
+                size_bytes: completed.bytes_written,
+            };
+
+            let _ = with_core(app, |core| {
+                core.push_completed_recording(summary);
+            });
+            if let Ok(snapshot) = with_core(app, |core| core.finish_recording(None)) {
+                emit_recorder_state(app, &snapshot);
+                sync_hud_for_current_settings(app, &snapshot);
+            }
+            emit_recent_sessions_refresh_request(app);
+        }
+        Err(error) => {
+            runtime_log::log_runtime_error(&format!(
+                "recording finalize failed during app exit after {} ms: {}",
+                finalize_started_at.elapsed().as_millis(),
+                error
+            ));
+            if let Ok(snapshot) = with_core(app, |core| core.finish_recording(None)) {
+                emit_recorder_state(app, &snapshot);
+                sync_hud_for_current_settings(app, &snapshot);
+            }
+        }
+    }
 }
 
 pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String> {

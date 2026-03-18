@@ -23,6 +23,23 @@ export function useRecordingCountdown({
   const [isStartupDelayed, setIsStartupDelayed] = useState(false)
   const timerRef = useRef<number | null>(null)
   const startTimeoutRef = useRef<number | null>(null)
+  const toggleInFlightRef = useRef(false)
+  const lastToggleAtRef = useRef(0)
+
+  const beginToggleAttempt = useCallback(() => {
+    const now = Date.now()
+    if (toggleInFlightRef.current || now - lastToggleAtRef.current < 800) {
+      return false
+    }
+
+    toggleInFlightRef.current = true
+    lastToggleAtRef.current = now
+    return true
+  }, [])
+
+  const finishToggleAttempt = useCallback(() => {
+    toggleInFlightRef.current = false
+  }, [])
 
   const clearCountdownTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -60,6 +77,10 @@ export function useRecordingCountdown({
   }, [clearCountdownTimer, clearStartTimeout])
 
   const commitRecordingStart = useCallback(async () => {
+    if (!beginToggleAttempt()) {
+      return
+    }
+
     setIsStartingRecording(true)
     setIsStartupDelayed(false)
     clearStartTimeout()
@@ -80,10 +101,19 @@ export function useRecordingCountdown({
           : 'Unable to start or stop the recorder.',
       )
     } finally {
+      finishToggleAttempt()
       clearStartTimeout()
       setIsStartingRecording(false)
     }
-  }, [clearStartTimeout, onClearError, onError, startupTimeoutMs, toggleRecordingNow])
+  }, [
+    beginToggleAttempt,
+    clearStartTimeout,
+    finishToggleAttempt,
+    onClearError,
+    onError,
+    startupTimeoutMs,
+    toggleRecordingNow,
+  ])
 
   useEffect(() => {
     if (countdownValue === null) {
@@ -111,8 +141,16 @@ export function useRecordingCountdown({
     }
 
     if (status !== 'idle') {
+      if (!beginToggleAttempt()) {
+        return
+      }
+
       resetCountdownState()
-      await toggleRecordingNow()
+      try {
+        await toggleRecordingNow()
+      } finally {
+        finishToggleAttempt()
+      }
       return
     }
 
@@ -129,7 +167,9 @@ export function useRecordingCountdown({
     onClearError?.()
     setCountdownValue(seconds)
   }, [
+    beginToggleAttempt,
     countdownValue,
+    finishToggleAttempt,
     isStartingRecording,
     onClearError,
     resetCountdownState,

@@ -31,6 +31,46 @@ function updateRecorderSnapshot(
   }
 }
 
+function optimisticRecorderStart(
+  snapshot: BootstrapSnapshot | null,
+): RecorderSnapshot | null {
+  if (!snapshot) {
+    return null
+  }
+
+  const activeTarget =
+    snapshot.captureTargets.find(
+      (target) => target.id === snapshot.settings.captureTargetId,
+    )?.label ?? snapshot.recorder.activeTarget
+
+  return {
+    ...snapshot.recorder,
+    status: 'recording',
+    elapsedLabel: '00:00:00',
+    activeTarget,
+    canPause: false,
+    pauseNote: 'Recorder is still preparing the native capture session.',
+    micEnabled: snapshot.settings.micEnabled,
+    qualityPreset: snapshot.settings.qualityPreset,
+    outputDirectory: snapshot.settings.outputDirectory,
+  }
+}
+
+function optimisticRecorderFinalizing(
+  snapshot: BootstrapSnapshot | null,
+): RecorderSnapshot | null {
+  if (!snapshot) {
+    return null
+  }
+
+  return {
+    ...snapshot.recorder,
+    status: 'finalizing',
+    canPause: false,
+    pauseNote: 'Recording is finalizing the output file. Pause is unavailable right now.',
+  }
+}
+
 function updateSettingsSnapshot(
   snapshot: BootstrapSnapshot | null,
   settings: AppSettings,
@@ -424,6 +464,22 @@ export function useDesktopState() {
   }, [])
 
   async function toggleRecordingNow() {
+    const currentSnapshot = snapshotRef.current
+    const optimisticRecorder =
+      currentSnapshot?.recorder.status === 'idle'
+        ? optimisticRecorderStart(currentSnapshot)
+        : currentSnapshot?.recorder.status === 'recording' ||
+            currentSnapshot?.recorder.status === 'paused'
+          ? optimisticRecorderFinalizing(currentSnapshot)
+          : null
+
+    if (optimisticRecorder) {
+      startTransition(() => {
+        setSnapshot((current) => updateRecorderSnapshot(current, optimisticRecorder))
+        setActionError(null)
+      })
+    }
+
     const recorder = await desktopClient.toggleRecording()
 
     startTransition(() => {

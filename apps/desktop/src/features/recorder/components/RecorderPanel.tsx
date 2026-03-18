@@ -1,5 +1,5 @@
 import { AudioLines, Mic, Monitor, Pause, Play } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Combobox } from '../../../components/Combobox'
 import { useMicCheck } from '../../../hooks/use-mic-check'
 import type {
@@ -125,6 +125,79 @@ export function RecorderPanel({
         ? 'Writing the recording file. Wait a moment before starting another capture.'
       : 'Recording is in progress. Stop when your session is complete.'
   const customRegionSelected = selectedCaptureTargetId === 'region:custom'
+
+  function parseElapsedSeconds(label: string, status: RecorderSnapshot['status']) {
+    if (status === 'idle') {
+      return 0
+    }
+
+    const normalized = label.replace(/^(Paused at|Finalizing)\s+/i, '').trim()
+    const parts = normalized
+      .split(':')
+      .map((part) => Number.parseInt(part, 10))
+      .filter((part) => Number.isFinite(part))
+
+    if (parts.length === 3) {
+      return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    }
+
+    if (parts.length === 2) {
+      return parts[0] * 60 + parts[1]
+    }
+
+    return 0
+  }
+
+  function formatElapsed(totalSeconds: number) {
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+
+    return [hours, minutes, seconds]
+      .map((value) => value.toString().padStart(2, '0'))
+      .join(':')
+  }
+
+  function RecorderElapsed({
+    label,
+    status,
+  }: {
+    label: string
+    status: RecorderSnapshot['status']
+  }) {
+    const [displayElapsedSeconds, setDisplayElapsedSeconds] = useState(
+      parseElapsedSeconds(label, status),
+    )
+
+    useEffect(() => {
+      setDisplayElapsedSeconds(parseElapsedSeconds(label, status))
+    }, [label, status])
+
+    useEffect(() => {
+      if (status !== 'recording') {
+        return undefined
+      }
+
+      const timer = window.setInterval(() => {
+        setDisplayElapsedSeconds((current) => current + 1)
+      }, 1000)
+
+      return () => {
+        window.clearInterval(timer)
+      }
+    }, [status])
+
+    if (status === 'paused') {
+      return <>Paused at {formatElapsed(displayElapsedSeconds)}</>
+    }
+
+    if (status === 'finalizing') {
+      return <>Finalizing {formatElapsed(displayElapsedSeconds)}</>
+    }
+
+    return <>{formatElapsed(displayElapsedSeconds)}</>
+  }
+
   useEffect(() => {
     if (!isIdle && micCheckActive) {
       void stopMicCheck()
@@ -208,7 +281,13 @@ export function RecorderPanel({
 
         {!isIdle ? (
           <div className="recorder-panel__runtime">
-            <strong className="recorder-panel__timer">{recorder.elapsedLabel}</strong>
+            <strong className="recorder-panel__timer">
+              <RecorderElapsed
+                key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}`}
+                label={recorder.elapsedLabel}
+                status={recorder.status}
+              />
+            </strong>
             {!isFinalizing ? (
               <button
                 className={`recorder-panel__pause-button ${

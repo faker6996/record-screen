@@ -19,7 +19,7 @@ use std::sync::Mutex;
 use app_core::{AppCore, RecorderSnapshot};
 use capture::CaptureController;
 use shortcuts::{ShortcutAction, ShortcutBinding};
-use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_global_shortcut::{
     Builder as GlobalShortcutBuilder, GlobalShortcutExt, Shortcut, ShortcutState,
 };
@@ -298,6 +298,11 @@ pub fn run() {
             commands::window::show_region_selector,
             commands::window::start_hud_drag
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::ExitRequested { .. } = event {
+                recording::finalize_active_recording_before_exit(app);
+            }
+        });
 }

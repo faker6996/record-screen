@@ -3,12 +3,53 @@ import { desktopClient } from '../services/desktop-client'
 import { useRecordingCountdown } from './use-recording-countdown'
 import type { RecorderSnapshot } from '../types/desktop'
 
+function optimisticRecorderStart(recorder: RecorderSnapshot | null) {
+  if (!recorder) {
+    return null
+  }
+
+  return {
+    ...recorder,
+    status: 'recording' as const,
+    elapsedLabel: '00:00:00',
+    canPause: false,
+    pauseNote: 'Recorder is still preparing the native capture session.',
+  }
+}
+
+function optimisticRecorderFinalizing(recorder: RecorderSnapshot | null) {
+  if (!recorder) {
+    return null
+  }
+
+  return {
+    ...recorder,
+    status: 'finalizing' as const,
+    canPause: false,
+    pauseNote: 'Recording is finalizing the output file. Pause is unavailable right now.',
+  }
+}
+
 export function useHudState() {
   const [recorder, setRecorder] = useState<RecorderSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   async function toggleRecordingNow() {
+    const optimisticRecorder =
+      recorder?.status === 'idle'
+        ? optimisticRecorderStart(recorder)
+        : recorder?.status === 'recording' || recorder?.status === 'paused'
+          ? optimisticRecorderFinalizing(recorder)
+          : null
+
+    if (optimisticRecorder) {
+      startTransition(() => {
+        setRecorder(optimisticRecorder)
+        setError(null)
+      })
+    }
+
     const nextRecorder = await desktopClient.toggleRecording()
     startTransition(() => {
       setRecorder(nextRecorder)
