@@ -95,8 +95,15 @@ fn open_path(path: &Path) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        let mut command = Command::new("cmd");
-        command.args(["/C", "start", "", &path.display().to_string()]);
+        let mut command = Command::new("powershell");
+        command.args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Start-Process -FilePath '{}'",
+                path.display().to_string().replace('\'', "''"),
+            ),
+        ]);
         return run_command(command, "open recording");
     }
 
@@ -396,7 +403,15 @@ fn unique_trash_destination(base_path: &Path) -> PathBuf {
     unreachable!("trash destination search should always terminate")
 }
 
-pub fn scan_recent_recordings(output_directory: &str) -> Vec<SessionSummary> {
+#[cfg(test)]
+fn scan_recent_recordings(output_directory: &str) -> Vec<SessionSummary> {
+    scan_recent_recordings_with_exclusions(output_directory, &[])
+}
+
+fn scan_recent_recordings_with_exclusions(
+    output_directory: &str,
+    excluded_paths: &[PathBuf],
+) -> Vec<SessionSummary> {
     let directory = expand_home_path(output_directory);
     let Ok(entries) = fs::read_dir(&directory) else {
         return Vec::new();
@@ -410,8 +425,17 @@ pub fn scan_recent_recordings(output_directory: &str) -> Vec<SessionSummary> {
             if !matches!(extension.as_str(), "mp4" | "mov" | "mkv" | "webm") {
                 return None;
             }
+            if excluded_paths
+                .iter()
+                .any(|excluded_path| same_recording_path(&path, excluded_path))
+            {
+                return None;
+            }
 
             let metadata = entry.metadata().ok()?;
+            if metadata.len() == 0 {
+                return None;
+            }
             let modified = metadata.modified().ok().unwrap_or(SystemTime::UNIX_EPOCH);
             let filename = path.file_name()?.to_string_lossy().to_string();
 
@@ -432,6 +456,17 @@ pub fn scan_recent_recordings(output_directory: &str) -> Vec<SessionSummary> {
     sessions.sort_by(|left, right| right.0.cmp(&left.0));
     sessions.truncate(20);
     sessions.into_iter().map(|(_, session)| session).collect()
+}
+
+fn same_recording_path(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 fn format_modified_at(modified_at: SystemTime) -> String {
@@ -478,15 +513,19 @@ pub fn save_recording_copy(recording_path: String) -> Result<Option<String>, Str
 
 #[tauri::command]
 pub fn get_recent_recordings(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, String> {
-    let output_directory = {
+    let (output_directory, active_output_path) = {
         let core = state
             .core
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
-        core.settings().output_directory
+        (
+            core.settings().output_directory,
+            core.snapshot().active_output_path.map(PathBuf::from),
+        )
     };
 
-    let sessions = scan_recent_recordings(&output_directory);
+    let excluded_paths = active_output_path.into_iter().collect::<Vec<_>>();
+    let sessions = scan_recent_recordings_with_exclusions(&output_directory, &excluded_paths);
 
     {
         let mut core = state
@@ -499,15 +538,19 @@ pub fn get_recent_recordings(state: State<'_, AppState>) -> Result<Vec<SessionSu
 }
 
 fn refresh_recent_recordings(state: &State<'_, AppState>) -> Result<Vec<SessionSummary>, String> {
-    let output_directory = {
+    let (output_directory, active_output_path) = {
         let core = state
             .core
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
-        core.settings().output_directory
+        (
+            core.settings().output_directory,
+            core.snapshot().active_output_path.map(PathBuf::from),
+        )
     };
 
-    let sessions = scan_recent_recordings(&output_directory);
+    let excluded_paths = active_output_path.into_iter().collect::<Vec<_>>();
+    let sessions = scan_recent_recordings_with_exclusions(&output_directory, &excluded_paths);
 
     {
         let mut core = state

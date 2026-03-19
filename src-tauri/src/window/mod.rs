@@ -13,12 +13,15 @@ use tauri::{
     Size, WebviewUrl, WebviewWindowBuilder,
 };
 
-use crate::{emit_recorder_state, with_core};
+use crate::{emit_recorder_state, runtime_log, with_core};
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const HUD_WINDOW_LABEL: &str = "hud";
 pub const REGION_SELECTOR_WINDOW_LABEL: &str = "region-selector";
 pub const TARGET_PREVIEW_WINDOW_LABEL: &str = "target-preview";
+const HUD_DEFAULT_WIDTH: u32 = 294;
+const HUD_DEFAULT_HEIGHT: u32 = 62;
+const HUD_MARGIN_PX: i32 = 24;
 
 static TARGET_PREVIEW_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -213,6 +216,30 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
         .build()
         .map_err(|error: TauriError| error.to_string())?;
     Ok(())
+}
+
+fn position_hud_window(app: &AppHandle, window: &tauri::WebviewWindow) -> Result<(), String> {
+    let monitor = app
+        .get_webview_window(MAIN_WINDOW_LABEL)
+        .and_then(|main_window| main_window.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .ok_or_else(|| "no monitor is available for HUD placement".to_string())?;
+
+    let hud_size = window.outer_size().unwrap_or(PhysicalSize::new(
+        HUD_DEFAULT_WIDTH,
+        HUD_DEFAULT_HEIGHT,
+    ));
+    let monitor_size = monitor.size();
+    let monitor_position = monitor.position();
+    let x = monitor_position.x
+        + monitor_size.width as i32
+        - hud_size.width as i32
+        - HUD_MARGIN_PX;
+    let y = monitor_position.y + HUD_MARGIN_PX;
+
+    window
+        .set_position(Position::Physical(PhysicalPosition::new(x.max(monitor_position.x), y)))
+        .map_err(|error| error.to_string())
 }
 
 fn region_selector_context(app: &AppHandle) -> Result<RegionSelectorContext, String> {
@@ -426,13 +453,23 @@ pub fn show_hud(app: &AppHandle) -> Result<(), String> {
     ensure_hud_window(app)?;
 
     if let Some(window) = app.get_webview_window(HUD_WINDOW_LABEL) {
+        let should_reposition = !window.is_visible().unwrap_or(false);
+        runtime_log::log_runtime_info(&format!(
+            "hud show requested | repositioned={should_reposition}"
+        ));
         if window.is_minimized().map_err(|error| error.to_string())? {
             window.unminimize().map_err(|error| error.to_string())?;
+        }
+        if should_reposition {
+            position_hud_window(app, &window)?;
         }
         window
             .set_always_on_top(true)
             .map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
+        runtime_log::log_runtime_info(&format!(
+            "hud shown | repositioned={should_reposition}"
+        ));
     }
 
     if let Ok(snapshot) = with_core(app, |core| core.snapshot()) {
@@ -446,6 +483,7 @@ pub fn show_hud(app: &AppHandle) -> Result<(), String> {
 pub fn hide_hud(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(HUD_WINDOW_LABEL) {
         window.hide().map_err(|error| error.to_string())?;
+        runtime_log::log_runtime_info("hud hidden");
     }
 
     Ok(())

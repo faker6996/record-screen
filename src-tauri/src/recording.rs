@@ -26,7 +26,12 @@ static LAST_TOGGLE_REQUEST_AT_MS: std::sync::atomic::AtomicU64 =
 fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
     let show_hud_during_recording =
         with_core(app, |core| core.settings().show_hud_during_recording).unwrap_or(true);
-    let _ = window::sync_hud_visibility(app, snapshot, show_hud_during_recording);
+    if let Err(error) = window::sync_hud_visibility(app, snapshot, show_hud_during_recording) {
+        runtime_log::log_runtime_error(&format!(
+            "unable to sync HUD visibility while recorder status was {:?}: {}",
+            snapshot.status, error
+        ));
+    }
 }
 
 pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {

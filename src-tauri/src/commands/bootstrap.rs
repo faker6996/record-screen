@@ -8,6 +8,11 @@ use crate::{
     persist_shortcuts, register_shortcuts,
 };
 
+fn should_eagerly_refresh_capture_targets(settings: &storage::AppSettings) -> bool {
+    settings.capture_target_id != FULL_DESKTOP_TARGET_ID
+        || settings.region_source_capture_target_id != FULL_DESKTOP_TARGET_ID
+}
+
 #[tauri::command]
 pub fn get_bootstrap(
     app: AppHandle,
@@ -20,7 +25,11 @@ pub fn get_bootstrap(
     let capabilities = crate::capture_capabilities::current_capture_capabilities();
     let mut settings = core.settings();
     let mut settings_changed = false;
-    let capture_targets = capture_targets::initial_capture_targets(&settings);
+    let capture_targets = if should_eagerly_refresh_capture_targets(&settings) {
+        capture_targets::refreshed_capture_targets(&settings)
+    } else {
+        capture_targets::initial_capture_targets(&settings)
+    };
     let audio_inputs = audio_inputs::initial_audio_inputs();
     let available_capture_target_ids: Vec<&str> = capture_targets
         .iter()
@@ -64,10 +73,15 @@ pub fn get_bootstrap(
         .iter()
         .any(|target_id| *target_id == settings.capture_target_id)
     {
+        let previous_capture_target_id = settings.capture_target_id.clone();
         settings = core.update_capture_target(
             FULL_DESKTOP_TARGET_ID.to_string(),
             "Full desktop".to_string(),
         );
+        crate::runtime_log::log_runtime_info(&format!(
+            "normalized capture target during bootstrap | from={} | to={}",
+            previous_capture_target_id, FULL_DESKTOP_TARGET_ID
+        ));
         settings_changed = true;
     }
     if settings.system_audio_enabled && !capabilities.supports_system_audio {
@@ -90,6 +104,33 @@ pub fn get_bootstrap(
     }
 
     Ok(snapshot)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_eagerly_refresh_capture_targets;
+    use storage::AppSettings;
+
+    #[test]
+    fn skips_eager_capture_target_refresh_for_full_desktop_defaults() {
+        let settings = AppSettings::default();
+        assert!(!should_eagerly_refresh_capture_targets(&settings));
+    }
+
+    #[test]
+    fn eagerly_refreshes_when_a_monitor_target_is_persisted() {
+        let mut settings = AppSettings::default();
+        settings.capture_target_id = "monitor:\\\\.\\DISPLAY3".to_string();
+        assert!(should_eagerly_refresh_capture_targets(&settings));
+    }
+
+    #[test]
+    fn eagerly_refreshes_when_custom_region_uses_a_monitor_source() {
+        let mut settings = AppSettings::default();
+        settings.capture_target_id = "region:custom".to_string();
+        settings.region_source_capture_target_id = "monitor:\\\\.\\DISPLAY1".to_string();
+        assert!(should_eagerly_refresh_capture_targets(&settings));
+    }
 }
 
 #[tauri::command]

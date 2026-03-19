@@ -258,7 +258,6 @@ export function useDesktopState() {
 
     async function refreshDeviceDiscovery(options?: { reportError?: boolean }) {
       try {
-        const currentSettings = snapshotRef.current?.settings
         const [captureTargets, audioInputs] = await Promise.all([
           desktopClient.getCaptureTargets(),
           desktopClient.getAudioInputs(),
@@ -273,25 +272,10 @@ export function useDesktopState() {
               return current
             }
 
-            const nextCaptureTargetId =
-              currentSettings?.captureTargetId && captureTargets.some((target) => target.id === currentSettings.captureTargetId)
-                ? currentSettings.captureTargetId
-                : current.settings.captureTargetId
-
-            const nextAudioInputId =
-              currentSettings?.audioInputId && audioInputs.some((input) => input.id === currentSettings.audioInputId)
-                ? currentSettings.audioInputId
-                : current.settings.audioInputId
-
             return {
               ...current,
               captureTargets,
               audioInputs,
-              settings: {
-                ...current.settings,
-                captureTargetId: nextCaptureTargetId,
-                audioInputId: nextAudioInputId,
-              },
             }
           })
           if (options?.reportError) {
@@ -465,9 +449,6 @@ export function useDesktopState() {
 
   async function toggleRecordingNow() {
     const currentSnapshot = snapshotRef.current
-    const shouldShowHudOptimistically =
-      currentSnapshot?.recorder.status === 'idle' &&
-      currentSnapshot.settings.showHudDuringRecording
     const optimisticRecorder =
       currentSnapshot?.recorder.status === 'idle'
         ? optimisticRecorderStart(currentSnapshot)
@@ -481,10 +462,6 @@ export function useDesktopState() {
         setSnapshot((current) => updateRecorderSnapshot(current, optimisticRecorder))
         setActionError(null)
       })
-    }
-
-    if (shouldShowHudOptimistically) {
-      void desktopClient.showHud().catch(() => undefined)
     }
 
     const recorder = await desktopClient.toggleRecording()

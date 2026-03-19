@@ -5,6 +5,8 @@ use std::{
 };
 
 use storage::{AppSettings, expand_home_path};
+use std::thread;
+
 use tauri::{AppHandle, State};
 
 use crate::{
@@ -125,11 +127,26 @@ pub fn update_capture_target(
 
     emit_recorder_state(&app, &recorder);
     persist_settings(&app)?;
-    if let Some(bounds) =
-        crate::target_preview::preview_bounds_for_target(&app, &capture_target_id)?
-    {
-        let _ = crate::window::show_target_preview(&app, bounds);
-    }
+
+    let preview_app = app.clone();
+    let preview_target_id = capture_target_id.clone();
+    thread::spawn(move || {
+        let preview = crate::target_preview::preview_bounds_for_target(
+            &preview_app,
+            &preview_target_id,
+        );
+        match preview {
+            Ok(Some(bounds)) => {
+                let _ = crate::window::show_target_preview(&preview_app, bounds);
+            }
+            Ok(None) => {}
+            Err(error) => crate::runtime_log::log_runtime_error(&format!(
+                "unable to preview capture target `{}` after selection: {}",
+                preview_target_id, error
+            )),
+        }
+    });
+
     Ok(settings)
 }
 

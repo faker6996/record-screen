@@ -1,4 +1,7 @@
-use std::{env, path::PathBuf};
+use std::env;
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::path::PathBuf;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::{fs, path::Path};
@@ -6,6 +9,7 @@ use std::{fs, path::Path};
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn home_directory() -> Result<PathBuf, String> {
     env::var("HOME")
         .map(PathBuf::from)

@@ -33,6 +33,8 @@ use windows::{
 pub struct WasapiWindowsAudioBackend;
 
 static WASAPI_WINDOWS_AUDIO_BACKEND: WasapiWindowsAudioBackend = WasapiWindowsAudioBackend;
+#[cfg(target_os = "windows")]
+const WASAPI_STOP_TIMEOUT_MS: u64 = 1_500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsAudioEndpointReport {
@@ -524,11 +526,19 @@ impl WindowsWasapiCaptureWorker {
         if let Some(stop_tx) = self.stop_tx.take() {
             let _ = stop_tx.send(());
         }
-        let result = self.finished_rx.recv().map_err(|error| error.to_string())?;
-        if let Some(worker_handle) = self.worker_handle.take() {
-            let _ = worker_handle.join();
+        match self
+            .finished_rx
+            .recv_timeout(Duration::from_millis(WASAPI_STOP_TIMEOUT_MS))
+        {
+            Ok(result) => {
+                if let Some(worker_handle) = self.worker_handle.take() {
+                    let _ = worker_handle.join();
+                }
+                result
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => Ok(self.snapshot()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Ok(self.snapshot()),
         }
-        result
     }
 }
 

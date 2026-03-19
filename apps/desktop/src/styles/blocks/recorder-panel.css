@@ -110,6 +110,7 @@
 .recorder-panel__record-glow {
   position: absolute;
   inset: -10px;
+  pointer-events: none;
   border-radius: 999px;
   filter: blur(30px);
   opacity: 0.3;

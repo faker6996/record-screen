@@ -246,6 +246,7 @@ pub fn run() {
             }
             register_shortcuts(app.handle())?;
             tray::create(app.handle())?;
+            window::ensure_hud_window(app.handle())?;
             window::focus_launcher(app.handle())?;
             Ok(())
         })

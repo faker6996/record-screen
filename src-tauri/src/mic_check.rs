@@ -1,16 +1,13 @@
 #[cfg(target_os = "linux")]
-use std::process::{Command, Stdio};
+use std::{
+    io::{BufRead, BufReader},
+    process::{Child, ChildStderr, ChildStdout, Command, Stdio},
+};
 #[cfg(target_os = "windows")]
 use std::sync::mpsc::{self, Sender};
 #[cfg(target_os = "windows")]
 use std::time::Duration;
-use std::{
-    io::{BufRead, BufReader},
-    process::{Child, ChildStderr},
-    thread,
-};
-#[cfg(target_os = "linux")]
-use std::process::ChildStdout;
+use std::thread;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -76,6 +73,7 @@ pub struct MicCheckProcess {
 }
 
 enum MicCheckRuntime {
+    #[cfg(target_os = "linux")]
     Process {
         child: Child,
     },
@@ -87,7 +85,7 @@ enum MicCheckRuntime {
 }
 
 enum MicCheckStart {
-    #[allow(dead_code)]
+    #[cfg(target_os = "linux")]
     Process {
         child: Child,
         stdout: Option<ChildStdout>,
@@ -122,6 +120,7 @@ pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
             .lock()
             .map_err(|_| "failed to lock mic check runtime".to_string())?;
         *mic_check = Some(match runtime {
+            #[cfg(target_os = "linux")]
             MicCheckStart::Process {
                 child,
                 stdout,
@@ -208,6 +207,7 @@ pub fn stop_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
 
     if let Some(process) = mic_check.take() {
         match process.runtime {
+            #[cfg(target_os = "linux")]
             MicCheckRuntime::Process { mut child } => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -415,6 +415,7 @@ fn estimate_windows_packet_level(bytes: &[u8], bits_per_sample: u16) -> f32 {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn parse_rms_level(line: &str) -> Option<f32> {
     if let Some(level) = parse_gstreamer_rms_level(line) {
         return Some(level);
@@ -432,6 +433,7 @@ fn parse_rms_level(line: &str) -> Option<f32> {
     Some(normalized)
 }
 
+#[cfg(target_os = "linux")]
 fn parse_gstreamer_rms_level(line: &str) -> Option<f32> {
     let (_, tail) = line.split_once("rms=(GValueArray)<")?;
     let values = tail.split('>').next()?.trim();
@@ -448,6 +450,7 @@ fn parse_gstreamer_rms_level(line: &str) -> Option<f32> {
     Some((10f32.powf(average / 20.0) * 6.0).clamp(0.0, 1.0))
 }
 
+#[cfg(target_os = "linux")]
 fn detect_probe_error(line: &str) -> Option<String> {
     let lowered = line.to_ascii_lowercase();
     if lowered.contains("permission denied")

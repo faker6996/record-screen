@@ -52,9 +52,10 @@ export function useRecordingCountdown({
 
   useEffect(() => {
     if (status !== 'idle') {
+      finishToggleAttempt()
       resetCountdownState()
     }
-  }, [resetCountdownState, status])
+  }, [finishToggleAttempt, resetCountdownState, status])
 
   useEffect(() => {
     return () => {
