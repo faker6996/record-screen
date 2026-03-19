@@ -13,6 +13,8 @@ Pure `Wayland-only` sessions are not fully recordable yet, but the repo now cont
 
 ## What Is Implemented
 
+- native Linux recorder selection no longer depends on the old ffmpeg runtime
+- native X11/XWayland capture, audio, and encode lanes now run through GStreamer
 - session classification:
   - `X11`
   - `Wayland + XWayland`
@@ -33,6 +35,8 @@ Pure `Wayland-only` sessions are not fully recordable yet, but the repo now cont
   - `Start`
   - `OpenPipeWireRemote`
 - launcher diagnostics that explain the active Linux capture path
+- Linux X11 smoke tests, GUI verification, and a 10-minute soak run captured in:
+  - [`docs/linux-x11-performance-report-2026-03-18.md`](../linux-x11-performance-report-2026-03-18.md)
 
 ## What Is Not Implemented Yet
 
@@ -43,6 +47,7 @@ Pure `Wayland-only` sessions are not fully recordable yet, but the repo now cont
 
 - Linux is stable today on `X11`
 - Linux is usable on `Wayland + XWayland`
+- Linux `X11/XWayland` is now on the native mainline recorder path, not the old ffmpeg runtime
 - Linux `Wayland-only` is now diagnosed correctly, negotiates a real ScreenCast portal session, and routes into the native GStreamer lane, but it still is not hardened enough to claim production-ready support
 
 ## Next Work On A Linux Machine
@@ -60,9 +65,10 @@ If you want to continue implementation on a real Linux Wayland desktop, the rema
 
 ## Files To Continue In
 
-- [`crates/capture-linux/src/wayland_portal.rs`](/Users/tran_van_bach/Desktop/project/record-screen/crates/capture-linux/src/wayland_portal.rs)
-- [`crates/capture-linux/src/lib.rs`](/Users/tran_van_bach/Desktop/project/record-screen/crates/capture-linux/src/lib.rs)
-- [`src-tauri/src/diagnostics.rs`](/Users/tran_van_bach/Desktop/project/record-screen/src-tauri/src/diagnostics.rs)
+- [`crates/capture-linux/src/wayland_portal.rs`](../../crates/capture-linux/src/wayland_portal.rs)
+- [`crates/capture-linux/src/native_capture_backend.rs`](../../crates/capture-linux/src/native_capture_backend.rs)
+- [`crates/capture-linux/src/lib.rs`](../../crates/capture-linux/src/lib.rs)
+- [`src-tauri/src/diagnostics.rs`](../../src-tauri/src/diagnostics.rs)
 
 ## Practical Linux Checklist
 

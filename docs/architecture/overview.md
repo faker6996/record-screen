@@ -82,7 +82,7 @@
 - Real capture backends per OS:
   - macOS: direct `ScreenCaptureKit / SCRecordingOutput` on supported runtimes, with older runtimes failing explicitly instead of dropping back to an older non-native runtime
 - Windows: the recorder now routes monitor, window, custom-region, and full-desktop cases through a native-first `Windows.Graphics.Capture + Media Foundation + WASAPI` controller. Multi-monitor full-desktop capture is composed natively from multiple monitor sessions into one D3D11 texture before Media Foundation encoding. App-facing capture/audio/encoder selection on Windows now points only at the native lanes. The WGC scaffold captures surface kind (`d3d11-texture2d`, `dxgi-surface`, `direct3d-surface`), frame size, and timing metadata for smoke validation. The `Windows WASAPI` backend reports as available when endpoint probing succeeds, and the WASAPI module has a real `IMMDevice -> IAudioClient -> IAudioCaptureClient` runtime foundation plus a worker-style smoke lifecycle that does `Start/Stop`, `GetNextPacketSize`, and `GetBuffer/ReleaseBuffer` packet polling for default microphone/loopback validation. The native controller can bridge microphone or loopback packets into the same Media Foundation sink writer, it has strict-format mixing for `mic + loopback` together on the native lane, and it now crops `custom region` frames natively before writing them.
-  - Linux X11/XWayland: native `GStreamer ximagesrc + pulsesrc`
+  - Linux X11/XWayland: native `GStreamer ximagesrc + pulsesrc`, with X11 smoke tests plus a 10-minute soak report captured in `docs/linux-x11-performance-report-2026-03-18.md`
 - Target preview overlay when choosing a display or custom region
 - Runtime diagnostics for active backend path and readiness
 - Local runtime crash/error logging
@@ -94,7 +94,7 @@
 
 - Native backend migration now tracks in `docs/roadmap/native-backend-plan.md`
 - The native migration now explicitly includes legacy cleanup and architecture-boundary tightening, not only feature parity
-- macOS direct-lane hardening now has an explicit scenario checklist in `/Users/tran_van_bach/Desktop/project/record-screen/docs/roadmap/macos-native-backend-qa.md` instead of relying only on informal notes
+- macOS direct-lane hardening now has an explicit scenario checklist in `docs/roadmap/macos-native-backend-qa.md` instead of relying only on informal notes
 - Production-grade Linux pure Wayland capture hardening beyond the current experimental GStreamer PipeWire path
 - Windows native stack hardening, QA, and remaining legacy-source cleanup
 - macOS native encode/system-audio backend work beyond the current legacy process runtime

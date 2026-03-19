@@ -31,7 +31,7 @@
 <br>
 
 - **macOS:** `ScreenCaptureKit / SCRecordingOutput` on supported runtimes
-- **Linux:** native `GStreamer ximagesrc + pulsesrc` on X11/XWayland today, plus a ScreenCast portal lifecycle client and experimental GStreamer PipeWire path for pure Wayland
+- **Linux:** native `GStreamer` recorder lanes on X11/XWayland today, plus a ScreenCast portal / PipeWire / GStreamer path for pure Wayland that still needs more runtime hardening
 - **Windows:** `Windows.Graphics.Capture + Media Foundation + WASAPI`
 </details>
 
@@ -135,25 +135,20 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 - Pause/resume is not available on the direct native file-output lane, so the app disables it explicitly there.
 
 ### 🐧 Linux
-- Supports real recording on `X11` and `Wayland + XWayland`.
+- `X11`: production-ready native lane through `GStreamer ximagesrc + pulsesrc`.
+- `Wayland + XWayland`: uses the same native X11 GStreamer lane and is usable today.
+- `Wayland-only`: native `ScreenCast portal + PipeWire + GStreamer` groundwork exists, but it is still not hardened enough to claim production-ready support.
 - `Custom region` works on `X11` and `XWayland`, but not on pure `Wayland-only`.
-- `System audio mixing` works on the X11/XWayland PulseAudio path when a monitor source exists.
-- Pure `Wayland-only` capture is still experimental, but the repo now includes:
-  - ScreenCast portal capability probing
-  - a native DBus lifecycle client for `CreateSession`, `SelectSources`, `Start`, and `OpenPipeWireRemote`
-  - PipeWire readiness probing
-  - an experimental `GStreamer + pipewiresrc` runtime path
+- `System audio mixing` works on the native X11/XWayland audio lane when a monitor source exists.
 - Native GStreamer / PipeWire runtime packages must be available on the host.
-- Must run inside an X11 desktop session with `DISPLAY` set, or a Wayland session with XWayland compatibility enabled.
-- Microphone narration uses default PulseAudio/PipeWire source.
-- Can discover individual windows from X11.
-- Release packages are distributed as `.deb` files for `apt install ./record-screen_<version>_amd64.deb`.
+- Microphone narration uses the selected PulseAudio/PipeWire source, and Linux mic check now uses the native GStreamer probe path.
 - The launcher reports Linux readiness for:
   - X11/XWayland access
   - Wayland ScreenCast portal capability
   - PipeWire readiness hints
-  - whether the remaining gap is stream ingestion rather than portal negotiation
+  - active capture/audio/encoder backend path
   - microphone availability
+- Release packages are distributed as `.deb` files for `apt install ./record-screen_<version>_amd64.deb`.
 
 ### 🪟 Windows
 - Uses `Windows.Graphics.Capture` for video, `Media Foundation` for output, and `WASAPI` for microphone/system audio.
@@ -170,6 +165,7 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 Dive deeper into the project's design and conventions:
 - 📌 **Roadmap:** [`docs/roadmap/product-plan.md`](docs/roadmap/product-plan.md)
 - 🧭 **Native backend migration plan:** [`docs/roadmap/native-backend-plan.md`](docs/roadmap/native-backend-plan.md)
+- 🐧 **Linux X11 performance report:** [`docs/linux-x11-performance-report-2026-03-18.md`](docs/linux-x11-performance-report-2026-03-18.md)
 - 📋 **Product audit:** [`docs/reports/product-audit-2026-03-14.md`](docs/reports/product-audit-2026-03-14.md)
 - 🏛 **Architecture:** [`docs/architecture/overview.md`](docs/architecture/overview.md)
 - 🐧 **Linux Wayland status:** [`docs/architecture/linux-wayland.md`](docs/architecture/linux-wayland.md)
