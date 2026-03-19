@@ -121,8 +121,6 @@ function HudApp() {
     error,
     isLoading,
     isRecordingCountdownActive,
-    isStartupDelayed,
-    isStartingRecording,
     pauseResume,
     recorder,
     recordingStartCountdown,
@@ -153,8 +151,6 @@ function HudApp() {
       countdownValue={
         isRecordingCountdownActive ? recordingStartCountdown : null
       }
-      isStartupDelayed={isStartupDelayed}
-      isStartingRecording={isStartingRecording}
       onPauseResume={pauseResume}
       onToggleMicrophone={toggleMicrophone}
       onToggleRecording={toggleRecording}
@@ -187,8 +183,6 @@ function LauncherApp() {
     error,
     focusLauncher,
     isRecordingCountdownActive,
-    isStartupDelayed,
-    isStartingRecording,
     isLoading,
     openPermissionSettings,
     openRecording,
@@ -248,8 +242,6 @@ function LauncherApp() {
               isRecordingCountdownActive ? recordingStartCountdown : null
             }
             diagnostics={currentSnapshot.diagnostics}
-            isStartupDelayed={isStartupDelayed}
-            isStartingRecording={isStartingRecording}
             onOpenRegionSelector={showRegionSelector}
             onPauseResume={pauseResume}
             onUpdateAudioInput={updateAudioInput}

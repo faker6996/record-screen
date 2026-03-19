@@ -13,8 +13,6 @@ interface RecorderPanelProps {
   audioInputs: AudioInputOption[]
   captureTargets: CaptureTargetOption[]
   countdownValue: number | null
-  isStartupDelayed: boolean
-  isStartingRecording: boolean
   recorder: RecorderSnapshot
   diagnostics: RuntimeDiagnostics
   onOpenRegionSelector: () => Promise<void>
@@ -33,8 +31,6 @@ export function RecorderPanel({
   audioInputs,
   captureTargets,
   countdownValue,
-  isStartupDelayed,
-  isStartingRecording,
   recorder,
   diagnostics,
   onOpenRegionSelector,
@@ -62,7 +58,7 @@ export function RecorderPanel({
   const isPaused = recorder.status === 'paused'
   const isFinalizing = recorder.status === 'finalizing'
   const isCountingDown = countdownValue !== null
-  const isStartPending = isCountingDown || isStartingRecording
+  const isStartPending = isCountingDown
   const pauseDisabled = !recorder.canPause || isFinalizing
   const recordLabel = isIdle ? (isCountingDown ? 'CANCEL' : 'REC') : isFinalizing ? 'WAIT' : 'STOP'
   const selectedCaptureTarget =
@@ -114,11 +110,7 @@ export function RecorderPanel({
   const copy = isIdle
     ? isCountingDown
       ? `Recording starts in ${countdownValue}. Click again to cancel.`
-      : isStartingRecording
-        ? isStartupDelayed
-          ? 'Recorder startup is taking longer than expected. Check the runtime log if this screen does not advance.'
-          : 'Starting capture. Hold still for a moment.'
-        : 'Select your target and start capturing.'
+      : 'Select your target and start capturing.'
     : isPaused
       ? 'Capture is paused. Resume when you are ready.'
       : isFinalizing
@@ -256,26 +248,14 @@ export function RecorderPanel({
           </button>
         </div>
 
-        {isStartPending ? (
+        {isCountingDown ? (
           <div
             aria-live="polite"
             className="recorder-panel__countdown-copy"
             data-testid="recorder-countdown-copy"
           >
-            <strong>
-              {isCountingDown
-                ? `Starting in ${countdownValue}`
-                : isStartupDelayed
-                  ? 'Startup is taking longer than expected'
-                  : 'Starting capture...'}
-            </strong>
-            <span>
-              {isCountingDown
-                ? 'Click the button again if you want to cancel.'
-                : isStartupDelayed
-                  ? 'The native recorder has not finished starting yet. If this persists, inspect the runtime log for the startup watchdog message.'
-                  : 'Preparing the recorder right now.'}
-            </span>
+            <strong>{`Starting in ${countdownValue}`}</strong>
+            <span>Click the button again if you want to cancel.</span>
           </div>
         ) : null}
 

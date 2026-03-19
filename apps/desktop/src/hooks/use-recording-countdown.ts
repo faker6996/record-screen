@@ -4,7 +4,6 @@ import type { RecorderSnapshot } from '../types/desktop'
 interface UseRecordingCountdownOptions {
   onClearError?: () => void
   onError: (message: string) => void
-  seconds?: number
   startupTimeoutMs?: number
   status: RecorderSnapshot['status']
   toggleRecordingNow: () => Promise<void>
@@ -13,15 +12,12 @@ interface UseRecordingCountdownOptions {
 export function useRecordingCountdown({
   onClearError,
   onError,
-  seconds = 3,
   startupTimeoutMs = 15000,
   status,
   toggleRecordingNow,
 }: UseRecordingCountdownOptions) {
-  const [countdownValue, setCountdownValue] = useState<number | null>(null)
   const [isStartingRecording, setIsStartingRecording] = useState(false)
   const [isStartupDelayed, setIsStartupDelayed] = useState(false)
-  const timerRef = useRef<number | null>(null)
   const startTimeoutRef = useRef<number | null>(null)
   const toggleInFlightRef = useRef(false)
   const lastToggleAtRef = useRef(0)
@@ -41,13 +37,6 @@ export function useRecordingCountdown({
     toggleInFlightRef.current = false
   }, [])
 
-  const clearCountdownTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
-  }, [])
-
   const clearStartTimeout = useCallback(() => {
     if (startTimeoutRef.current !== null) {
       window.clearTimeout(startTimeoutRef.current)
@@ -56,12 +45,10 @@ export function useRecordingCountdown({
   }, [])
 
   const resetCountdownState = useCallback(() => {
-    clearCountdownTimer()
     clearStartTimeout()
-    setCountdownValue(null)
     setIsStartingRecording(false)
     setIsStartupDelayed(false)
-  }, [clearCountdownTimer, clearStartTimeout])
+  }, [clearStartTimeout])
 
   useEffect(() => {
     if (status !== 'idle') {
@@ -71,10 +58,9 @@ export function useRecordingCountdown({
 
   useEffect(() => {
     return () => {
-      clearCountdownTimer()
       clearStartTimeout()
     }
-  }, [clearCountdownTimer, clearStartTimeout])
+  }, [clearStartTimeout])
 
   const commitRecordingStart = useCallback(async () => {
     if (!beginToggleAttempt()) {
@@ -115,26 +101,6 @@ export function useRecordingCountdown({
     toggleRecordingNow,
   ])
 
-  useEffect(() => {
-    if (countdownValue === null) {
-      return
-    }
-
-    timerRef.current = window.setTimeout(() => {
-      if (countdownValue > 1) {
-        setCountdownValue(countdownValue - 1)
-        return
-      }
-
-      setCountdownValue(null)
-      void commitRecordingStart()
-    }, 1000)
-
-    return () => {
-      clearCountdownTimer()
-    }
-  }, [clearCountdownTimer, commitRecordingStart, countdownValue])
-
   const toggleRecording = useCallback(async () => {
     if (status === 'finalizing') {
       return
@@ -158,29 +124,22 @@ export function useRecordingCountdown({
       return
     }
 
-    if (countdownValue !== null) {
-      resetCountdownState()
-      onClearError?.()
-      return
-    }
-
     onClearError?.()
-    setCountdownValue(seconds)
+    await commitRecordingStart()
   }, [
     beginToggleAttempt,
-    countdownValue,
+    commitRecordingStart,
     finishToggleAttempt,
     isStartingRecording,
     onClearError,
     resetCountdownState,
-    seconds,
     status,
     toggleRecordingNow,
   ])
 
   return {
-    countdownValue,
-    isCountingDown: countdownValue !== null,
+    countdownValue: null,
+    isCountingDown: false,
     isStartupDelayed,
     isStartingRecording,
     toggleRecording,

@@ -9,8 +9,6 @@ import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
   countdownValue: number | null
-  isStartupDelayed: boolean
-  isStartingRecording: boolean
   onPauseResume: () => Promise<void>
   onToggleMicrophone: () => Promise<void>
   onToggleRecording: () => Promise<void>
@@ -79,8 +77,6 @@ function HudElapsed({
 
 export function HudSurface({
   countdownValue,
-  isStartupDelayed,
-  isStartingRecording,
   onPauseResume,
   onToggleMicrophone,
   onToggleRecording,
@@ -90,7 +86,6 @@ export function HudSurface({
   const isPaused = recorder.status === 'paused'
   const isFinalizing = recorder.status === 'finalizing'
   const isCountingDown = countdownValue !== null
-  const isStartPending = isCountingDown || isStartingRecording
   const pauseDisabled = isIdle || isFinalizing || !recorder.canPause
   const parsedElapsedSeconds = parseElapsedSeconds(recorder.elapsedLabel, recorder.status)
 
@@ -126,8 +121,8 @@ export function HudSurface({
           title="Drag HUD"
         >
           <span className={`status-dot status-${recorder.status}`} />
-          {isStartPending ? (
-            <strong>{isCountingDown ? `00:00:0${countdownValue}` : 'START'}</strong>
+          {isCountingDown ? (
+            <strong>{`00:00:0${countdownValue}`}</strong>
           ) : (
             <HudElapsed
               initialElapsedSeconds={parsedElapsedSeconds}
@@ -171,11 +166,7 @@ export function HudSurface({
             title={
               isCountingDown
                 ? 'Cancel countdown'
-                : isStartingRecording
-                  ? isStartupDelayed
-                    ? 'Recorder startup is taking longer than expected'
-                    : 'Starting capture'
-                  : isFinalizing
+                : isFinalizing
                     ? 'Finalizing recording'
                   : isIdle
                     ? 'Start recording'
@@ -196,7 +187,7 @@ export function HudSurface({
             className={`button button--secondary hud__icon-button ${
               recorder.micEnabled ? 'hud__icon-button--active' : ''
             }`}
-            disabled={isStartPending}
+            disabled={isCountingDown}
             onClick={() => void onToggleMicrophone()}
             title={recorder.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
             type="button"

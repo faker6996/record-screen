@@ -465,6 +465,9 @@ export function useDesktopState() {
 
   async function toggleRecordingNow() {
     const currentSnapshot = snapshotRef.current
+    const shouldShowHudOptimistically =
+      currentSnapshot?.recorder.status === 'idle' &&
+      currentSnapshot.settings.showHudDuringRecording
     const optimisticRecorder =
       currentSnapshot?.recorder.status === 'idle'
         ? optimisticRecorderStart(currentSnapshot)
@@ -478,6 +481,10 @@ export function useDesktopState() {
         setSnapshot((current) => updateRecorderSnapshot(current, optimisticRecorder))
         setActionError(null)
       })
+    }
+
+    if (shouldShowHudOptimistically) {
+      void desktopClient.showHud().catch(() => undefined)
     }
 
     const recorder = await desktopClient.toggleRecording()

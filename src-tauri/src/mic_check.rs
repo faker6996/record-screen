@@ -9,6 +9,8 @@ use std::{
     process::{Child, ChildStderr},
     thread,
 };
+#[cfg(target_os = "linux")]
+use std::process::ChildStdout;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -86,7 +88,11 @@ enum MicCheckRuntime {
 
 enum MicCheckStart {
     #[allow(dead_code)]
-    Process { child: Child, stderr: ChildStderr },
+    Process {
+        child: Child,
+        stdout: Option<ChildStdout>,
+        stderr: Option<ChildStderr>,
+    },
     #[cfg(target_os = "windows")]
     NativeWindows {
         stop_tx: Sender<()>,
@@ -116,32 +122,60 @@ pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
             .lock()
             .map_err(|_| "failed to lock mic check runtime".to_string())?;
         *mic_check = Some(match runtime {
-            MicCheckStart::Process { child, stderr } => {
-                let app_handle = app.clone();
-                thread::spawn(move || {
-                    let reader = BufReader::new(stderr);
-                    for line in reader.lines().map_while(Result::ok) {
-                        if let Some(level) = parse_rms_level(&line) {
-                            emit_mic_check_state(
-                                &app_handle,
-                                &MicCheckSnapshot {
-                                    active: true,
-                                    level,
-                                    has_signal: level >= 0.08,
-                                    supported: true,
-                                    error: None,
-                                },
-                            );
-                            continue;
+            MicCheckStart::Process {
+                child,
+                stdout,
+                stderr,
+            } => {
+                #[cfg(target_os = "linux")]
+                if let Some(stdout) = stdout {
+                    let app_handle = app.clone();
+                    thread::spawn(move || {
+                        let reader = BufReader::new(stdout);
+                        for line in reader.lines().map_while(Result::ok) {
+                            if let Some(level) = parse_rms_level(&line) {
+                                emit_mic_check_state(
+                                    &app_handle,
+                                    &MicCheckSnapshot {
+                                        active: true,
+                                        level,
+                                        has_signal: level >= 0.08,
+                                        supported: true,
+                                        error: None,
+                                    },
+                                );
+                            }
                         }
 
-                        if let Some(message) = detect_probe_error(&line) {
-                            emit_mic_check_state(&app_handle, &MicCheckSnapshot::error(message));
-                        }
-                    }
+                        let _ = stop_mic_check(&app_handle);
+                    });
+                }
 
-                    let _ = stop_mic_check(&app_handle);
-                });
+                if let Some(stderr) = stderr {
+                    let app_handle = app.clone();
+                    thread::spawn(move || {
+                        let reader = BufReader::new(stderr);
+                        for line in reader.lines().map_while(Result::ok) {
+                            if let Some(level) = parse_rms_level(&line) {
+                                emit_mic_check_state(
+                                    &app_handle,
+                                    &MicCheckSnapshot {
+                                        active: true,
+                                        level,
+                                        has_signal: level >= 0.08,
+                                        supported: true,
+                                        error: None,
+                                    },
+                                );
+                                continue;
+                            }
+
+                            if let Some(message) = detect_probe_error(&line) {
+                                emit_mic_check_state(&app_handle, &MicCheckSnapshot::error(message));
+                            }
+                        }
+                    });
+                }
 
                 MicCheckProcess {
                     runtime: MicCheckRuntime::Process { child },
@@ -242,7 +276,7 @@ fn spawn_platform_mic_check(app: &AppHandle) -> Result<MicCheckStart, String> {
             "fakesink",
         ])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     spawn_probe_process(command)
@@ -312,12 +346,14 @@ fn spawn_probe_process(mut command: Command) -> Result<MicCheckStart, String> {
     let mut child = command
         .spawn()
         .map_err(|error| format!("failed to start microphone check: {error}"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "failed to read microphone monitor output".to_string())?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
 
-    Ok(MicCheckStart::Process { child, stderr })
+    Ok(MicCheckStart::Process {
+        child,
+        stdout,
+        stderr,
+    })
 }
 
 #[cfg(target_os = "windows")]

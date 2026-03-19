@@ -27,9 +27,18 @@ fn linux_smoke_recording_creates_output_file() {
     );
 
     let output_path = unique_output_path();
+    let quality_preset = env::var("RECORD_SCREEN_SMOKE_QUALITY_PRESET")
+        .unwrap_or_else(|_| "720p / 30 fps".to_string());
+    let duration_secs = env::var("RECORD_SCREEN_SMOKE_DURATION_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(3);
+    let keep_output = env::var("RECORD_SCREEN_SMOKE_KEEP_OUTPUT")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
     let options = RecordingOptions {
         output_path: output_path.clone(),
-        quality_preset: "720p / 30 fps".to_string(),
+        quality_preset,
         mic_enabled: env::var("RECORD_SCREEN_SMOKE_WITH_MIC")
             .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
             .unwrap_or(false),
@@ -53,20 +62,24 @@ fn linux_smoke_recording_creates_output_file() {
         .start(options)
         .expect("linux capture backend should start");
 
-    thread::sleep(Duration::from_secs(3));
+    thread::sleep(Duration::from_secs(duration_secs));
 
     let artifact = controller
         .stop()
         .expect("linux capture backend should stop");
     assert_eq!(artifact.output_path, output_path);
-    assert!(artifact.duration >= Duration::from_secs(2));
+    assert!(artifact.duration >= Duration::from_secs(duration_secs.saturating_sub(1).max(1)));
     assert!(artifact.bytes_written > 0);
     assert!(output_path.exists(), "expected recording output to exist");
 
     let metadata = fs::metadata(&output_path).expect("expected output metadata");
     assert!(metadata.len() > 0, "expected non-empty recording output");
 
-    let _ = fs::remove_file(output_path);
+    if keep_output {
+        println!("smoke-output={}", output_path.display());
+    } else {
+        let _ = fs::remove_file(output_path);
+    }
 }
 
 #[test]

@@ -8,21 +8,17 @@
 }
 
 .hud__card {
-  width: fit-content;
-  max-width: none;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
-  border-radius: 999px;
-  padding: 6px 8px;
-  overflow: hidden;
-  backdrop-filter: blur(8px);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-surface-strong) 90%, transparent), var(--color-surface-soft)),
-    color-mix(in srgb, var(--color-surface-2) 88%, transparent);
-  border: 1px solid var(--color-border-soft);
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-shadow) 42%, transparent);
+  gap: 6px;
+  width: fit-content;
+  max-width: none;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   cursor: move;
 }
 
@@ -32,7 +28,13 @@
   align-items: center;
   font-variant-numeric: tabular-nums;
   min-width: 0;
-  padding: 0 6px 0 4px;
+  min-height: 30px;
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border-soft) 72%, transparent);
+  background: color-mix(in srgb, var(--color-bg-overlay) 70%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--color-shadow) 20%, transparent);
 }
 
 .hud__elapsed strong {
@@ -57,18 +59,22 @@
   align-items: center;
   min-width: 0;
   cursor: default;
+  min-height: 30px;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border-soft) 72%, transparent);
+  background: color-mix(in srgb, var(--color-bg-overlay) 70%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--color-shadow) 20%, transparent);
 }
 
 .hud__divider {
-  width: 1px;
-  height: 18px;
-  flex: 0 0 auto;
-  background: var(--color-border-soft);
+  display: none;
 }
 
 .hud__icon-button {
-  min-width: 28px;
-  min-height: 28px;
+  min-width: 26px;
+  min-height: 26px;
   padding: 0;
   border-radius: 999px;
   transition:
@@ -103,7 +109,7 @@
 }
 
 .hud__icon-button.button--secondary:hover:not(:disabled) {
-  background: var(--color-surface-soft);
+  background: color-mix(in srgb, var(--color-surface-soft) 84%, transparent);
   color: var(--color-text-primary);
 }
 
@@ -124,9 +130,9 @@
 }
 
 .hud__icon-button.button--primary {
-  min-width: 28px;
-  min-height: 28px;
-  border-radius: 6px;
+  min-width: 26px;
+  min-height: 26px;
+  border-radius: 999px;
   box-shadow: none;
 }
 
