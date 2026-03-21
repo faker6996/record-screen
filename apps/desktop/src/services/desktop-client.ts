@@ -577,8 +577,11 @@ export const desktopClient = {
       showHudDuringRecording,
     })
   },
-  updateCaptureTarget(captureTargetId: string) {
-    return command<AppSettings>('update_capture_target', { captureTargetId })
+  updateCaptureTarget(captureTargetId: string, captureTargetLabel?: string) {
+    return command<AppSettings>('update_capture_target', {
+      captureTargetId,
+      captureTargetLabel,
+    })
   },
   updateAudioInput(audioInputId: string) {
     return command<AppSettings>('update_audio_input', { audioInputId })

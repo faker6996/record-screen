@@ -44,7 +44,7 @@ export function useRecordingCountdown({
     }
   }, [])
 
-  const resetCountdownState = useCallback(() => {
+  const resetStartupState = useCallback(() => {
     clearStartTimeout()
     setIsStartingRecording(false)
     setIsStartupDelayed(false)
@@ -53,9 +53,9 @@ export function useRecordingCountdown({
   useEffect(() => {
     if (status !== 'idle') {
       finishToggleAttempt()
-      resetCountdownState()
+      resetStartupState()
     }
-  }, [finishToggleAttempt, resetCountdownState, status])
+  }, [finishToggleAttempt, resetStartupState, status])
 
   useEffect(() => {
     return () => {
@@ -112,7 +112,7 @@ export function useRecordingCountdown({
         return
       }
 
-      resetCountdownState()
+      resetStartupState()
       try {
         await toggleRecordingNow()
       } finally {
@@ -133,14 +133,12 @@ export function useRecordingCountdown({
     finishToggleAttempt,
     isStartingRecording,
     onClearError,
-    resetCountdownState,
+    resetStartupState,
     status,
     toggleRecordingNow,
   ])
 
   return {
-    countdownValue: null,
-    isCountingDown: false,
     isStartupDelayed,
     isStartingRecording,
     toggleRecording,

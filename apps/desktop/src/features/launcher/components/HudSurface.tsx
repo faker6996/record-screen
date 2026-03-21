@@ -1,4 +1,4 @@
-import { Mic, MicOff, Move, Pause, Play, Square } from 'lucide-react'
+import { LoaderCircle, Mic, MicOff, Move, Pause, Play, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type {
   MouseEvent as ReactMouseEvent,
@@ -8,7 +8,6 @@ import { desktopClient } from '../../../services/desktop-client'
 import type { RecorderSnapshot } from '../../../types/desktop'
 
 interface HudSurfaceProps {
-  countdownValue: number | null
   onPauseResume: () => Promise<void>
   onToggleMicrophone: () => Promise<void>
   onToggleRecording: () => Promise<void>
@@ -59,6 +58,10 @@ function HudElapsed({
   )
 
   useEffect(() => {
+    setDisplayElapsedSeconds(initialElapsedSeconds)
+  }, [initialElapsedSeconds])
+
+  useEffect(() => {
     if (status !== 'recording') {
       return undefined
     }
@@ -76,7 +79,6 @@ function HudElapsed({
 }
 
 export function HudSurface({
-  countdownValue,
   onPauseResume,
   onToggleMicrophone,
   onToggleRecording,
@@ -85,7 +87,11 @@ export function HudSurface({
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
   const isFinalizing = recorder.status === 'finalizing'
-  const isCountingDown = countdownValue !== null
+  const isPreparingRecording =
+    recorder.status === 'recording' &&
+    !recorder.canPause &&
+    recorder.activeEncoderLabel === null &&
+    recorder.pauseNote?.includes('preparing the native capture session') === true
   const pauseDisabled = isIdle || isFinalizing || !recorder.canPause
   const parsedElapsedSeconds = parseElapsedSeconds(recorder.elapsedLabel, recorder.status)
 
@@ -120,9 +126,12 @@ export function HudSurface({
           data-tauri-drag-region
           title="Drag HUD"
         >
-          <span className={`status-dot status-${recorder.status}`} />
-          {isCountingDown ? (
-            <strong>{`00:00:0${countdownValue}`}</strong>
+          <span className={`status-dot status-${isPreparingRecording ? 'starting' : recorder.status}`} />
+          {isPreparingRecording ? (
+            <strong className="hud__loading">
+              <LoaderCircle aria-hidden="true" className="hud__loading-spinner" />
+              <span>Preparing…</span>
+            </strong>
           ) : (
             <HudElapsed
               initialElapsedSeconds={parsedElapsedSeconds}
@@ -164,13 +173,11 @@ export function HudSurface({
             disabled={isFinalizing}
             onClick={() => void onToggleRecording()}
             title={
-              isCountingDown
-                ? 'Cancel countdown'
-                : isFinalizing
-                    ? 'Finalizing recording'
-                  : isIdle
-                    ? 'Start recording'
-                    : 'Stop recording'
+              isFinalizing
+                ? 'Finalizing recording'
+                : isIdle
+                  ? 'Start recording'
+                  : 'Stop recording'
             }
             type="button"
           >
@@ -187,7 +194,6 @@ export function HudSurface({
             className={`button button--secondary hud__icon-button ${
               recorder.micEnabled ? 'hud__icon-button--active' : ''
             }`}
-            disabled={isCountingDown}
             onClick={() => void onToggleMicrophone()}
             title={recorder.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
             type="button"

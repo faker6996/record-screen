@@ -58,8 +58,6 @@ export function useHudState() {
   }
 
   const {
-    countdownValue: recordingStartCountdown,
-    isCountingDown: isRecordingCountdownActive,
     isStartupDelayed,
     isStartingRecording,
     toggleRecording,
@@ -83,7 +81,6 @@ export function useHudState() {
     let unlistenRecorder: () => void = () => undefined
     let unlistenRuntimeError: () => void = () => undefined
     let unlistenHudShown: () => void = () => undefined
-    let refreshTimer: number | null = null
 
     async function loadRecorder(options?: { silent?: boolean }) {
       try {
@@ -118,10 +115,6 @@ export function useHudState() {
     }
 
     void loadRecorder()
-
-    refreshTimer = window.setInterval(() => {
-      void loadRecorder({ silent: true })
-    }, 1000)
 
     void desktopClient
       .subscribeRecorderState((nextRecorder) => {
@@ -180,23 +173,54 @@ export function useHudState() {
 
     return () => {
       isDisposed = true
-      if (refreshTimer !== null) {
-        window.clearInterval(refreshTimer)
-      }
       unlistenRecorder()
       unlistenRuntimeError()
       unlistenHudShown()
     }
   }, [])
 
+  useEffect(() => {
+    if (!recorder || recorder.status === 'idle') {
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      void desktopClient
+        .getRecorderSnapshot()
+        .then((nextRecorder) => {
+          startTransition(() => {
+            setRecorder((current) => {
+              if (!current) {
+                return nextRecorder
+              }
+
+              const unchanged =
+                current.status === nextRecorder.status &&
+                current.elapsedLabel === nextRecorder.elapsedLabel &&
+                current.activeOutputPath === nextRecorder.activeOutputPath &&
+                current.activeEncoderLabel === nextRecorder.activeEncoderLabel &&
+                current.canPause === nextRecorder.canPause &&
+                current.pauseNote === nextRecorder.pauseNote &&
+                current.micEnabled === nextRecorder.micEnabled
+
+              return unchanged ? current : nextRecorder
+            })
+          })
+        })
+        .catch(() => undefined)
+    }, 750)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [recorder])
+
   return {
     error,
     isLoading,
-    isRecordingCountdownActive,
     isStartupDelayed,
     isStartingRecording,
     recorder,
-    recordingStartCountdown,
     focusLauncher: async () => {
       await desktopClient.focusLauncher()
     },

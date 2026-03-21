@@ -146,25 +146,17 @@ pub(crate) fn availability_for(
                 }
             }
         },
-        LinuxDesktopSession::X11 { .. } => {
+        LinuxDesktopSession::X11 { .. } | LinuxDesktopSession::WaylandWithX11 { .. } => {
             if gst_inspect_available("ximagesrc")
-                && gst_inspect_available("x264enc")
                 && gst_inspect_available("mp4mux")
+                && encoder_plan_for_quality("1080p / 30 fps").is_some()
             {
                 EncoderBackendAvailability::Available
             } else {
                 EncoderBackendAvailability::Unavailable {
-                    reason: "X11 native capture needs GStreamer elements such as `ximagesrc`, `x264enc`, and `mp4mux` before the native encoder lane can run.".to_string(),
+                    reason: "X11/XWayland native capture needs `ximagesrc`, `mp4mux`, and at least one usable native H.264 GStreamer encoder before the encoder lane can run.".to_string(),
                 }
             }
-        }
-        LinuxDesktopSession::WaylandWithX11 { .. } => match support {
-            wayland_portal::PipeWireGstreamerSupport::Available => {
-                EncoderBackendAvailability::Available
-            }
-            _ => EncoderBackendAvailability::Unavailable {
-                reason: "XWayland sessions still need the Wayland portal/PipeWire GStreamer runtime before the native encoder lane can run.".to_string(),
-            },
         }
         LinuxDesktopSession::Headless => EncoderBackendAvailability::Unavailable {
             reason: "A desktop session is required before the Linux native encoder lane can be probed.".to_string(),

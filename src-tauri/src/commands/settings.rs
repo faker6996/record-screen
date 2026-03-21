@@ -10,7 +10,7 @@ use std::thread;
 use tauri::{AppHandle, State};
 
 use crate::{
-    AppState, audio_inputs, capture_targets, emit_recorder_state, launch_on_login, persist_settings,
+    AppState, audio_inputs, emit_recorder_state, launch_on_login, persist_settings,
 };
 
 #[tauri::command]
@@ -101,26 +101,28 @@ pub fn update_capture_target(
     app: AppHandle,
     state: State<'_, AppState>,
     capture_target_id: String,
+    capture_target_label: Option<String>,
 ) -> Result<AppSettings, String> {
-    let available_targets = {
-        let core = state
-            .core
-            .lock()
-            .map_err(|_| "failed to lock app state".to_string())?;
-        capture_targets::available_capture_targets(&core.settings())
-    };
-
-    let capture_target = available_targets
-        .into_iter()
-        .find(|target| target.id == capture_target_id)
-        .ok_or_else(|| "selected capture target is not available".to_string())?;
+    let normalized_label = capture_target_label
+        .map(|label| label.trim().to_string())
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| {
+            if capture_target_id == capture::FULL_DESKTOP_TARGET_ID {
+                "Full desktop".to_string()
+            } else if capture_target_id == capture::CUSTOM_REGION_TARGET_ID {
+                "Custom region".to_string()
+            } else {
+                "Display".to_string()
+            }
+        });
 
     let (settings, recorder) = {
         let mut core = state
             .core
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
-        let settings = core.update_capture_target(capture_target.id, capture_target.label);
+        let settings =
+            core.update_capture_target(capture_target_id.clone(), normalized_label.clone());
         let recorder = core.snapshot();
         (settings, recorder)
     };
@@ -130,10 +132,12 @@ pub fn update_capture_target(
 
     let preview_app = app.clone();
     let preview_target_id = capture_target_id.clone();
+    let preview_target_label = normalized_label.clone();
     thread::spawn(move || {
-        let preview = crate::target_preview::preview_bounds_for_target(
+        let preview = crate::target_preview::preview_bounds_for_target_with_title(
             &preview_app,
             &preview_target_id,
+            preview_target_label,
         );
         match preview {
             Ok(Some(bounds)) => {

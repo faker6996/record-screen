@@ -1,4 +1,4 @@
-import { AudioLines, Mic, Monitor, Pause, Play } from 'lucide-react'
+import { AudioLines, LoaderCircle, Mic, Monitor, Pause, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Combobox } from '../../../components/Combobox'
 import { useMicCheck } from '../../../hooks/use-mic-check'
@@ -12,7 +12,6 @@ import type {
 interface RecorderPanelProps {
   audioInputs: AudioInputOption[]
   captureTargets: CaptureTargetOption[]
-  countdownValue: number | null
   recorder: RecorderSnapshot
   diagnostics: RuntimeDiagnostics
   onOpenRegionSelector: () => Promise<void>
@@ -30,7 +29,6 @@ interface RecorderPanelProps {
 export function RecorderPanel({
   audioInputs,
   captureTargets,
-  countdownValue,
   recorder,
   diagnostics,
   onOpenRegionSelector,
@@ -44,6 +42,11 @@ export function RecorderPanel({
   systemAudioEnabled,
   runtimeError,
 }: RecorderPanelProps) {
+  const isPreparingRecording =
+    recorder.status === 'recording' &&
+    !recorder.canPause &&
+    recorder.activeEncoderLabel === null &&
+    recorder.pauseNote?.includes('preparing the native capture session') === true
   const {
     active: micCheckActive,
     error: micCheckError,
@@ -57,10 +60,9 @@ export function RecorderPanel({
   const isIdle = recorder.status === 'idle'
   const isPaused = recorder.status === 'paused'
   const isFinalizing = recorder.status === 'finalizing'
-  const isCountingDown = countdownValue !== null
-  const isStartPending = isCountingDown
   const pauseDisabled = !recorder.canPause || isFinalizing
-  const recordLabel = isIdle ? (isCountingDown ? 'CANCEL' : 'REC') : isFinalizing ? 'WAIT' : 'STOP'
+  const recordLabel = isIdle ? 'REC' : isFinalizing || isPreparingRecording ? 'WAIT' : 'STOP'
+  const recordVisualState = isPreparingRecording ? 'starting' : recorder.status
   const selectedCaptureTarget =
     captureTargets.find((target) => target.id === selectedCaptureTargetId) ?? null
   const selectedAudioInput =
@@ -84,7 +86,6 @@ export function RecorderPanel({
     !recorder.micEnabled ||
     !micCheckSupported ||
     !isIdle ||
-    isStartPending ||
     micEnumerationUnavailable ||
     systemAudioSelected
   const micCheckLabel = micCheckError
@@ -102,15 +103,17 @@ export function RecorderPanel({
         : 'Audio capture muted'
   const title = isIdle
     ? 'Ready to Record'
+    : isPreparingRecording
+      ? 'Preparing Recorder'
     : isPaused
       ? 'Paused'
       : isFinalizing
         ? 'Finalizing'
         : 'Recording'
   const copy = isIdle
-    ? isCountingDown
-      ? `Recording starts in ${countdownValue}. Click again to cancel.`
-      : 'Select your target and start capturing.'
+    ? 'Select your target and start capturing.'
+    : isPreparingRecording
+      ? 'Starting the native capture session. You can stop now if you changed your mind.'
     : isPaused
       ? 'Capture is paused. Resume when you are ready.'
       : isFinalizing
@@ -203,10 +206,10 @@ export function RecorderPanel({
         <p className="recorder-panel__copy">{copy}</p>
         <div className="recorder-panel__status-row">
           <span
-            className={`recorder-panel__status-pill recorder-panel__status-pill--${recorder.status}`}
+            className={`recorder-panel__status-pill recorder-panel__status-pill--${recordVisualState}`}
             data-testid="recorder-status-pill"
           >
-            {recorder.status}
+            {isPreparingRecording ? 'starting' : recorder.status}
           </span>
           <span className="recorder-panel__status-meta">{selectedCaptureTarget?.label}</span>
           <span className="recorder-panel__status-meta">{audioStatusLabel}</span>
@@ -226,48 +229,42 @@ export function RecorderPanel({
       <div className="recorder-panel__hero">
         <div className="recorder-panel__record-shell">
           <div
-            className={`recorder-panel__record-glow recorder-panel__record-glow--${recorder.status}`}
+            className={`recorder-panel__record-glow recorder-panel__record-glow--${recordVisualState}`}
           />
           <button
-            className={`recorder-panel__record-button recorder-panel__record-button--${recorder.status} ${
-              isStartPending ? 'recorder-panel__record-button--countdown' : ''
-            }`}
+            className={`recorder-panel__record-button recorder-panel__record-button--${recordVisualState}`}
             data-testid="recorder-record-button"
             disabled={isFinalizing}
             onClick={() => void onToggleRecording()}
             type="button"
           >
-            <span
-              className={`recorder-panel__record-core ${
-                isCountingDown ? 'recorder-panel__record-core--countdown' : ''
-              }`}
-            >
-              {isCountingDown ? countdownValue : null}
-            </span>
+            {isPreparingRecording ? (
+              <span className="recorder-panel__record-core recorder-panel__record-core--starting">
+                <LoaderCircle aria-hidden="true" className="recorder-panel__loading-spinner" />
+              </span>
+            ) : (
+              <span className="recorder-panel__record-core" />
+            )}
             <span className="recorder-panel__record-label">{recordLabel}</span>
           </button>
         </div>
 
-        {isCountingDown ? (
-          <div
-            aria-live="polite"
-            className="recorder-panel__countdown-copy"
-            data-testid="recorder-countdown-copy"
-          >
-            <strong>{`Starting in ${countdownValue}`}</strong>
-            <span>Click the button again if you want to cancel.</span>
-          </div>
-        ) : null}
-
         {!isIdle ? (
           <div className="recorder-panel__runtime">
-            <strong className="recorder-panel__timer">
-              <RecorderElapsed
-                key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}`}
-                label={recorder.elapsedLabel}
-                status={recorder.status}
-              />
-            </strong>
+            {isPreparingRecording ? (
+              <strong className="recorder-panel__timer recorder-panel__timer--starting">
+                <LoaderCircle aria-hidden="true" className="recorder-panel__loading-spinner" />
+                <span>Preparing…</span>
+              </strong>
+            ) : (
+              <strong className="recorder-panel__timer">
+                <RecorderElapsed
+                  key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}`}
+                  label={recorder.elapsedLabel}
+                  status={recorder.status}
+                />
+              </strong>
+            )}
             {!isFinalizing ? (
               <button
                 className={`recorder-panel__pause-button ${
@@ -310,7 +307,7 @@ export function RecorderPanel({
           <Combobox
             ariaLabel="Capture target"
             className="recorder-panel__target-combobox"
-            disabled={!isIdle || isStartPending}
+            disabled={!isIdle}
             triggerTestId="recorder-capture-target-trigger"
             onChange={(nextCaptureTargetId) => {
               if (nextCaptureTargetId === 'region:custom') {
@@ -333,7 +330,7 @@ export function RecorderPanel({
             <div>
               <button
                 className="button button--secondary"
-                disabled={!isIdle || isStartPending}
+                disabled={!isIdle}
                 onClick={() => {
                   void onOpenRegionSelector()
                 }}
@@ -358,7 +355,7 @@ export function RecorderPanel({
                 recorder.micEnabled ? 'recorder-panel__switch--active' : ''
               }`}
               data-testid="recorder-audio-toggle-button"
-              disabled={isStartPending}
+              disabled={!isIdle}
               onClick={() => void onToggleMicrophone()}
               type="button"
             >
@@ -369,7 +366,7 @@ export function RecorderPanel({
           <Combobox
             ariaLabel="Audio input"
             className="recorder-panel__target-combobox"
-            disabled={!recorder.micEnabled || !isIdle || isStartPending}
+            disabled={!recorder.micEnabled || !isIdle}
             triggerTestId="recorder-audio-input-trigger"
             onChange={(nextAudioInputId) => {
               void onUpdateAudioInput(nextAudioInputId)

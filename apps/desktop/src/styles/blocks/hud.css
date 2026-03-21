@@ -43,6 +43,18 @@
   letter-spacing: 0.02em;
 }
 
+.hud__loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.hud__loading-spinner {
+  width: 12px;
+  height: 12px;
+  animation: hud-spin 1s linear infinite;
+}
+
 .hud__drag-region {
   cursor: move;
   user-select: none;
@@ -153,6 +165,7 @@
   animation: hud-recording-pulse 1.4s ease-in-out infinite;
 }
 
+.hud .status-starting,
 .hud .status-paused {
   background: var(--color-warning);
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-warning) 20%, transparent);
@@ -176,5 +189,15 @@
 
   50% {
     opacity: 0.55;
+  }
+}
+
+@keyframes hud-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
   }
 }

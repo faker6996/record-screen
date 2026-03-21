@@ -16,8 +16,9 @@ use crate::native_encoder_backend::{self, GstreamerEncoderPlan};
 use crate::{
     LinuxCaptureProcessKind, LinuxDesktopSession, build_recording_artifact,
     current_desktop_session, describe_process_failure, gst_audio_input_device, normalize_display,
-    quality_settings, read_stderr_buffer, request_process_stop, resolve_audio_input,
-    resolve_system_audio_input, resolve_target, verify_process_started, wayland_portal,
+    quality_settings, query_monitors, read_stderr_buffer, request_process_stop,
+    resolve_audio_input, resolve_system_audio_input, resolve_target_with_monitors,
+    verify_process_started, wayland_portal,
 };
 
 pub(crate) struct GstreamerWaylandCapture {
@@ -383,7 +384,7 @@ impl CaptureController for GstreamerX11Capture {
         }
 
         request_process_stop(
-            LinuxCaptureProcessKind::GstreamerWayland,
+            LinuxCaptureProcessKind::GstreamerX11,
             self.child.id(),
             None,
         )?;
@@ -400,7 +401,7 @@ impl CaptureController for GstreamerX11Capture {
             return Err(CaptureError::StopFailed(format!(
                 "capture process exited with status {status}: {}",
                 describe_process_failure(
-                    LinuxCaptureProcessKind::GstreamerWayland,
+                    LinuxCaptureProcessKind::GstreamerX11,
                     &read_stderr_buffer(&self.stderr_buffer)
                 )
             )));
@@ -429,7 +430,7 @@ impl CaptureController for GstreamerX11Capture {
             && status.signal() != Some(libc::SIGINT)
         {
             return Err(CaptureError::StopFailed(describe_process_failure(
-                LinuxCaptureProcessKind::GstreamerWayland,
+                LinuxCaptureProcessKind::GstreamerX11,
                 &read_stderr_buffer(&self.stderr_buffer),
             )));
         }
@@ -495,12 +496,10 @@ pub(crate) fn build_x11_runtime_plan(
         }
     };
 
-    let target = resolve_target(options)?;
-    if target.origin_x < 0 || target.origin_y < 0 {
-        return Err(CaptureError::BackendUnavailable(
-            "The GStreamer X11 lane does not support negative X11 origins yet.".to_string(),
-        ));
-    }
+    let monitors = query_monitors().unwrap_or_default();
+    let target = resolve_target_with_monitors(options, &monitors)?;
+    let desktop_origin_x = monitors.iter().map(|monitor| monitor.x).min().unwrap_or(0);
+    let desktop_origin_y = monitors.iter().map(|monitor| monitor.y).min().unwrap_or(0);
 
     let (output_width, output_height, fps) = quality_settings(&options.quality_preset);
     let encoder_plan = native_encoder_backend::encoder_plan_for_quality(&options.quality_preset)
@@ -526,8 +525,8 @@ pub(crate) fn build_x11_runtime_plan(
         encoder_label: format!("gstreamer / ximagesrc · {}", encoder_plan.label),
         encoder_plan,
         display_name,
-        origin_x: target.origin_x,
-        origin_y: target.origin_y,
+        origin_x: target.origin_x - desktop_origin_x,
+        origin_y: target.origin_y - desktop_origin_y,
         source_width: target.video_size.map(|(width, _)| width),
         source_height: target.video_size.map(|(_, height)| height),
         output_width,
@@ -586,7 +585,7 @@ fn spawn_wayland_gstreamer(
     verify_process_started(
         &mut child,
         &stderr_buffer,
-        LinuxCaptureProcessKind::GstreamerX11,
+        LinuxCaptureProcessKind::GstreamerWayland,
     )?;
 
     Ok(child)
@@ -623,7 +622,7 @@ fn spawn_x11_gstreamer(
     verify_process_started(
         &mut child,
         &stderr_buffer,
-        LinuxCaptureProcessKind::GstreamerWayland,
+        LinuxCaptureProcessKind::GstreamerX11,
     )?;
 
     Ok(child)

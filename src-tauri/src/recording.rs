@@ -1,4 +1,5 @@
 use std::{
+    fs,
     path::Path,
     sync::{
         Arc,
@@ -23,6 +24,36 @@ const RECORDING_TOGGLE_GUARD_MS: u64 = 900;
 static LAST_TOGGLE_REQUEST_AT_MS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
+pub(crate) enum RecordingRuntime {
+    Starting {
+        cancel: Arc<AtomicBool>,
+        output_path: String,
+    },
+    Active(Box<dyn CaptureController>),
+}
+
+struct StartupContext {
+    recording_options: RecordingOptions,
+    startup_pending: Arc<AtomicBool>,
+    startup_cancel: Arc<AtomicBool>,
+    start_started_at: Instant,
+    requested_capture_target_id: String,
+    output_path_display: String,
+    capture_start_plan: String,
+    capture_execution_plan: String,
+    capture_runtime_foundation: String,
+    capture_prepared_runtime: String,
+    capture_smoke_lifecycle: String,
+    capture_encoder_bridge_smoke: String,
+    audio_start_plan: String,
+    audio_runtime_foundation: String,
+    audio_smoke_lifecycle: String,
+    encoder_output_plan: String,
+    encoder_runtime_foundation: String,
+    encoder_sample_bridge: String,
+    initial_wayland_restore_token: Option<String>,
+}
+
 fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
     let show_hud_during_recording =
         with_core(app, |core| core.settings().show_hud_during_recording).unwrap_or(true);
@@ -42,7 +73,8 @@ pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         .as_millis() as u64;
     let previous_toggle_at = LAST_TOGGLE_REQUEST_AT_MS.swap(now_ms, Ordering::SeqCst);
 
-    if previous_toggle_at != 0
+    if matches!(status, RecorderStatus::Idle)
+        && previous_toggle_at != 0
         && now_ms.saturating_sub(previous_toggle_at) < RECORDING_TOGGLE_GUARD_MS
     {
         runtime_log::log_runtime_info(&format!(
@@ -213,11 +245,10 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     #[cfg(not(target_os = "windows"))]
     let encoder_sample_bridge = "n/a".to_string();
     let requested_capture_target_id = recording_options.capture_target_id.clone();
-    let requested_audio_input_id = recording_options.audio_input_id.clone();
     runtime_log::log_runtime_info(&format!(
         "recording startup requested | target_id={} | audio_input_id={} | output={} | quality={} | mic_enabled={} | system_audio_enabled={} | capture_start_plan={} | capture_execution_plan={} | audio_start_plan={} | encoder_output_plan={}",
         requested_capture_target_id,
-        requested_audio_input_id,
+        recording_options.audio_input_id,
         output_path.display(),
         recording_options.quality_preset,
         recording_options.mic_enabled,
@@ -228,6 +259,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         encoder_output_plan,
     ));
     let startup_pending = Arc::new(AtomicBool::new(true));
+    let startup_cancel = Arc::new(AtomicBool::new(false));
     let startup_pending_for_watchdog = Arc::clone(&startup_pending);
     let startup_watch_target = requested_capture_target_id.clone();
     let startup_watch_output = output_path.display().to_string();
@@ -240,39 +272,13 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
             ));
         }
     });
-    let controller = match create_capture_controller(recording_options) {
-        Ok(controller) => {
-            startup_pending.store(false, Ordering::SeqCst);
-            controller
-        }
-        Err(error) => {
-            startup_pending.store(false, Ordering::SeqCst);
-            runtime_log::log_runtime_error(&format!(
-                "recording startup failed after {} ms | target_id={} | output={} | error={}",
-                start_started_at.elapsed().as_millis(),
-                requested_capture_target_id,
-                output_path.display(),
-                error
-            ));
-            return Err(error);
-        }
-    };
-    let controller_ready_after = start_started_at.elapsed();
-
-    #[cfg(target_os = "linux")]
-    if let Some(next_restore_token) = capture_linux::current_wayland_restore_token() {
-        if settings.wayland_restore_token.as_deref() != Some(next_restore_token.as_str()) {
-            with_core(app, |core| {
-                core.update_wayland_restore_token(Some(next_restore_token.clone()))
-            })?;
-            persist_settings(app)?;
-        }
-    }
-    let active = controller.active_recording().clone();
-    let active_target_label = active.target_label.clone();
-    let active_encoder_label = active.encoder_label.clone();
-    let can_pause = controller.supports_pause_resume();
-    let pause_note = controller.pause_resume_note();
+    let selected_target_label = available_capture_targets
+        .iter()
+        .find(|target| target.id == requested_capture_target_id)
+        .map(|target| target.label.clone())
+        .unwrap_or_else(|| "Display".to_string());
+    let startup_pause_note =
+        "Recorder is still preparing the native capture session.".to_string();
 
     {
         let state = app.state::<AppState>();
@@ -285,56 +291,58 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
             return Err("a recording session is already active".to_string());
         }
 
-        *recorder = Some(controller);
+        *recorder = Some(RecordingRuntime::Starting {
+            cancel: Arc::clone(&startup_cancel),
+            output_path: output_path.display().to_string(),
+        });
     }
 
     let snapshot = with_core(app, |core| {
         core.start_recording(
-            active.target_label,
-            active.encoder_label,
+            selected_target_label.clone(),
             output_path.display().to_string(),
-            can_pause,
-            pause_note.clone(),
+            Some(startup_pause_note.clone()),
         )
     })?;
-
-    let diagnostics = crate::diagnostics::initial_runtime_diagnostics();
-    runtime_log::log_runtime_info(&format!(
-        "recording started | target={} | output={} | encoder={} | capture_backend={} | audio_backend={} | encoder_backend={} | can_pause={} | pause_note={} | capture_note={} | audio_note={} | encoder_note={} | capture_start_plan={} | capture_execution_plan={} | capture_runtime_foundation={} | capture_prepared_runtime={} | capture_smoke_lifecycle={} | capture_encoder_bridge_smoke={} | audio_start_plan={} | audio_runtime_foundation={} | audio_smoke_lifecycle={} | encoder_output_plan={} | encoder_runtime_foundation={} | encoder_sample_bridge={} | controller_ready_ms={}",
-        active_target_label,
-        output_path.display(),
-        active_encoder_label,
-        diagnostics.backend_path,
-        diagnostics.audio_backend_path,
-        diagnostics.encoder_backend_path,
-        can_pause,
-        pause_note.clone().unwrap_or_else(|| "n/a".to_string()),
-        diagnostics.capture_selection_note,
-        diagnostics.audio_selection_note,
-        diagnostics.encoder_selection_note,
-        capture_start_plan,
-        capture_execution_plan,
-        capture_runtime_foundation,
-        capture_prepared_runtime,
-        capture_smoke_lifecycle,
-        capture_encoder_bridge_smoke,
-        audio_start_plan,
-        audio_runtime_foundation,
-        audio_smoke_lifecycle,
-        encoder_output_plan,
-        encoder_runtime_foundation,
-        encoder_sample_bridge,
-        controller_ready_after.as_millis(),
-    ));
-
     sync_hud_for_current_settings(app, &snapshot);
     emit_recorder_state(app, &snapshot);
     spawn_recorder_ticker(app.clone());
+    spawn_recording_startup(
+        app.clone(),
+        StartupContext {
+            recording_options,
+            startup_pending,
+            startup_cancel,
+            start_started_at,
+            requested_capture_target_id,
+            output_path_display: output_path.display().to_string(),
+            capture_start_plan,
+            capture_execution_plan,
+            capture_runtime_foundation,
+            capture_prepared_runtime,
+            capture_smoke_lifecycle,
+            capture_encoder_bridge_smoke,
+            audio_start_plan,
+            audio_runtime_foundation,
+            audio_smoke_lifecycle,
+            encoder_output_plan,
+            encoder_runtime_foundation,
+            encoder_sample_bridge,
+            initial_wayland_restore_token: settings.wayland_restore_token,
+        },
+    );
     Ok(snapshot)
 }
 
 pub fn stop_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     runtime_log::log_runtime_info("recording stop requested | reason=toggle");
+    if cancel_pending_startup(app)? {
+        let snapshot = with_core(app, |core| core.finish_recording(None))?;
+        emit_recorder_state(app, &snapshot);
+        sync_hud_for_current_settings(app, &snapshot);
+        return Ok(snapshot);
+    }
+
     let controller = take_controller(app)?;
     let snapshot = with_core(app, |core| core.begin_finalizing())?
         .ok_or_else(|| "no active recorder process".to_string())?;
@@ -368,7 +376,7 @@ pub fn finalize_active_recording_before_exit(app: &AppHandle) {
         recorder_status
     ));
 
-    let controller = {
+    let runtime = {
         let state = app.state::<AppState>();
         let mut recorder = match state.recorder.lock() {
             Ok(recorder) => recorder,
@@ -383,11 +391,26 @@ pub fn finalize_active_recording_before_exit(app: &AppHandle) {
         recorder.take()
     };
 
-    let Some(mut controller) = controller else {
+    let Some(runtime) = runtime else {
         runtime_log::log_runtime_info(
             "recording exit cleanup skipped because no active controller was present",
         );
         return;
+    };
+
+    let mut controller = match runtime {
+        RecordingRuntime::Starting { cancel, .. } => {
+            cancel.store(true, Ordering::SeqCst);
+            if let Ok(snapshot) = with_core(app, |core| core.finish_recording(None)) {
+                emit_recorder_state(app, &snapshot);
+                sync_hud_for_current_settings(app, &snapshot);
+            }
+            runtime_log::log_runtime_info(
+                "recording exit cleanup canceled a native startup that was still pending",
+            );
+            return;
+        }
+        RecordingRuntime::Active(controller) => controller,
     };
 
     if matches!(
@@ -463,9 +486,16 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
                     .recorder
                     .lock()
                     .map_err(|_| "failed to lock recording runtime".to_string())?;
-                let controller = controller
-                    .as_mut()
-                    .ok_or_else(|| "no active recorder process".to_string())?;
+                let controller = match controller.as_mut() {
+                    Some(RecordingRuntime::Active(controller)) => controller,
+                    Some(RecordingRuntime::Starting { .. }) => {
+                        return Err(
+                            "Recording is still preparing the native capture session."
+                                .to_string(),
+                        )
+                    }
+                    None => return Err("no active recorder process".to_string()),
+                };
                 if !controller.supports_pause_resume() {
                     return Err(controller.pause_resume_note().unwrap_or_else(|| {
                         "Pause/resume is not available for the active recording backend."
@@ -488,9 +518,16 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
                     .recorder
                     .lock()
                     .map_err(|_| "failed to lock recording runtime".to_string())?;
-                let controller = controller
-                    .as_mut()
-                    .ok_or_else(|| "no active recorder process".to_string())?;
+                let controller = match controller.as_mut() {
+                    Some(RecordingRuntime::Active(controller)) => controller,
+                    Some(RecordingRuntime::Starting { .. }) => {
+                        return Err(
+                            "Recording is still preparing the native capture session."
+                                .to_string(),
+                        )
+                    }
+                    None => return Err("no active recorder process".to_string()),
+                };
                 if !controller.supports_pause_resume() {
                     return Err(controller.pause_resume_note().unwrap_or_else(|| {
                         "Pause/resume is not available for the active recording backend."
@@ -512,6 +549,216 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
                 .to_string(),
         ),
     }
+}
+
+fn cancel_pending_startup(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<AppState>();
+    let mut recorder = state
+        .recorder
+        .lock()
+        .map_err(|_| "failed to lock recording runtime".to_string())?;
+
+    match recorder.take() {
+        Some(RecordingRuntime::Starting {
+            cancel,
+            output_path,
+        }) => {
+            cancel.store(true, Ordering::SeqCst);
+            cleanup_aborted_output_path(Path::new(&output_path));
+            runtime_log::log_runtime_info(&format!(
+                "recording startup canceled before native controller was ready | output={}",
+                output_path
+            ));
+            Ok(true)
+        }
+        Some(runtime) => {
+            *recorder = Some(runtime);
+            Ok(false)
+        }
+        None => Ok(false),
+    }
+}
+
+fn spawn_recording_startup(app: AppHandle, context: StartupContext) {
+    thread::spawn(move || {
+        let StartupContext {
+            recording_options,
+            startup_pending,
+            startup_cancel,
+            start_started_at,
+            requested_capture_target_id,
+            output_path_display,
+            capture_start_plan,
+            capture_execution_plan,
+            capture_runtime_foundation,
+            capture_prepared_runtime,
+            capture_smoke_lifecycle,
+            capture_encoder_bridge_smoke,
+            audio_start_plan,
+            audio_runtime_foundation,
+            audio_smoke_lifecycle,
+            encoder_output_plan,
+            encoder_runtime_foundation,
+            encoder_sample_bridge,
+            initial_wayland_restore_token,
+        } = context;
+
+        let controller = match create_capture_controller(recording_options) {
+            Ok(controller) => controller,
+            Err(error) => {
+                startup_pending.store(false, Ordering::SeqCst);
+                if startup_cancel.load(Ordering::SeqCst) {
+                    return;
+                }
+
+                {
+                    let state = app.state::<AppState>();
+                    if let Ok(mut recorder) = state.recorder.lock() {
+                        *recorder = None;
+                    }
+                }
+
+                runtime_log::log_runtime_error(&format!(
+                    "recording startup failed after {} ms | target_id={} | output={} | error={}",
+                    start_started_at.elapsed().as_millis(),
+                    requested_capture_target_id,
+                    output_path_display,
+                    error
+                ));
+
+                if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
+                    emit_recorder_state(&app, &snapshot);
+                    sync_hud_for_current_settings(&app, &snapshot);
+                }
+                emit_runtime_error(&app, &error);
+                return;
+            }
+        };
+
+        startup_pending.store(false, Ordering::SeqCst);
+
+        if startup_cancel.load(Ordering::SeqCst) {
+            let mut controller = controller;
+            let aborted_output_path = controller.active_recording().output_path.clone();
+            let _ = controller.stop();
+            cleanup_aborted_output_path(&aborted_output_path);
+            return;
+        }
+
+        #[cfg(target_os = "linux")]
+        if let Some(next_restore_token) = capture_linux::current_wayland_restore_token() {
+            if initial_wayland_restore_token.as_deref() != Some(next_restore_token.as_str()) {
+                if with_core(&app, |core| {
+                    core.update_wayland_restore_token(Some(next_restore_token.clone()))
+                })
+                .is_ok()
+                {
+                    let _ = persist_settings(&app);
+                }
+            }
+        }
+
+        let active = controller.active_recording().clone();
+        let active_target_label = active.target_label.clone();
+        let active_encoder_label = active.encoder_label.clone();
+        let can_pause = controller.supports_pause_resume();
+        let pause_note = controller.pause_resume_note();
+        let controller_ready_after = start_started_at.elapsed();
+
+        {
+            let state = app.state::<AppState>();
+            let mut recorder = match state.recorder.lock() {
+                Ok(recorder) => recorder,
+                Err(_) => {
+                    let mut controller = controller;
+                    let _ = controller.stop();
+                    emit_runtime_error(
+                        &app,
+                        "failed to lock recording runtime after the native controller became ready",
+                    );
+                    return;
+                }
+            };
+
+            match recorder.take() {
+                Some(RecordingRuntime::Starting { cancel, .. }) => {
+                    if cancel.load(Ordering::SeqCst) {
+                        drop(recorder);
+                        let mut controller = controller;
+                        let _ = controller.stop();
+                        return;
+                    }
+                    *recorder = Some(RecordingRuntime::Active(controller));
+                }
+                Some(runtime) => {
+                    *recorder = Some(runtime);
+                    let mut controller = controller;
+                    let _ = controller.stop();
+                    emit_runtime_error(
+                        &app,
+                        "recording runtime changed unexpectedly while the native controller was starting",
+                    );
+                    return;
+                }
+                None => {
+                    let mut controller = controller;
+                    let _ = controller.stop();
+                    return;
+                }
+            }
+        }
+
+        let snapshot = match with_core(&app, |core| {
+            core.complete_recording_startup(
+                active.target_label,
+                active.encoder_label,
+                can_pause,
+                pause_note.clone(),
+            )
+        }) {
+            Ok(Some(snapshot)) => snapshot,
+            Ok(None) => {
+                let _ = cancel_pending_startup(&app);
+                return;
+            }
+            Err(error) => {
+                emit_runtime_error(&app, &error);
+                return;
+            }
+        };
+
+        let diagnostics = crate::diagnostics::initial_runtime_diagnostics();
+        runtime_log::log_runtime_info(&format!(
+            "recording started | target={} | output={} | encoder={} | capture_backend={} | audio_backend={} | encoder_backend={} | can_pause={} | pause_note={} | capture_note={} | audio_note={} | encoder_note={} | capture_start_plan={} | capture_execution_plan={} | capture_runtime_foundation={} | capture_prepared_runtime={} | capture_smoke_lifecycle={} | capture_encoder_bridge_smoke={} | audio_start_plan={} | audio_runtime_foundation={} | audio_smoke_lifecycle={} | encoder_output_plan={} | encoder_runtime_foundation={} | encoder_sample_bridge={} | controller_ready_ms={}",
+            active_target_label,
+            output_path_display,
+            active_encoder_label,
+            diagnostics.backend_path,
+            diagnostics.audio_backend_path,
+            diagnostics.encoder_backend_path,
+            can_pause,
+            pause_note.clone().unwrap_or_else(|| "n/a".to_string()),
+            diagnostics.capture_selection_note,
+            diagnostics.audio_selection_note,
+            diagnostics.encoder_selection_note,
+            capture_start_plan,
+            capture_execution_plan,
+            capture_runtime_foundation,
+            capture_prepared_runtime,
+            capture_smoke_lifecycle,
+            capture_encoder_bridge_smoke,
+            audio_start_plan,
+            audio_runtime_foundation,
+            audio_smoke_lifecycle,
+            encoder_output_plan,
+            encoder_runtime_foundation,
+            encoder_sample_bridge,
+            controller_ready_after.as_millis(),
+        ));
+
+        emit_recorder_state(&app, &snapshot);
+        sync_hud_for_current_settings(&app, &snapshot);
+    });
 }
 
 fn spawn_recorder_ticker(app: AppHandle) {
@@ -560,20 +807,23 @@ fn poll_runtime(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String> {
             .lock()
             .map_err(|_| "failed to lock recording runtime".to_string())?;
 
-        let Some(controller) = recorder.as_mut() else {
+        let Some(runtime) = recorder.as_mut() else {
             return Ok(None);
         };
 
-        match controller.poll_finished() {
-            Ok(Some(artifact)) => {
-                *recorder = None;
-                Some(Ok(artifact))
-            }
-            Ok(None) => None,
-            Err(error) => {
-                *recorder = None;
-                Some(Err(error.to_string()))
-            }
+        match runtime {
+            RecordingRuntime::Starting { .. } => None,
+            RecordingRuntime::Active(controller) => match controller.poll_finished() {
+                Ok(Some(artifact)) => {
+                    *recorder = None;
+                    Some(Ok(artifact))
+                }
+                Ok(None) => None,
+                Err(error) => {
+                    *recorder = None;
+                    Some(Err(error.to_string()))
+                }
+            },
         }
     };
 
@@ -599,16 +849,35 @@ fn take_controller(app: &AppHandle) -> Result<Box<dyn CaptureController>, String
         .recorder
         .lock()
         .map_err(|_| "failed to lock recording runtime".to_string())?;
-    controller
-        .take()
-        .ok_or_else(|| "no active recorder process".to_string())
+    match controller.take() {
+        Some(RecordingRuntime::Active(controller)) => Ok(controller),
+        Some(runtime) => {
+            *controller = Some(runtime);
+            Err("recording is still preparing the native capture session.".to_string())
+        }
+        None => Err("no active recorder process".to_string()),
+    }
 }
 
 fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureController>) {
     thread::spawn(move || {
         let finalize_started_at = Instant::now();
+        let output_path = controller.active_recording().output_path.clone();
         match controller.stop() {
             Ok(completed) => {
+                if completed.bytes_written == 0 {
+                    cleanup_aborted_output_path(&output_path);
+                    runtime_log::log_runtime_info(&format!(
+                        "recording stopped before any media data was written | finalize_ms={}",
+                        finalize_started_at.elapsed().as_millis(),
+                    ));
+                    if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
+                        emit_recorder_state(&app, &snapshot);
+                        sync_hud_for_current_settings(&app, &snapshot);
+                    }
+                    return;
+                }
+
                 runtime_log::log_runtime_info(&format!(
                     "recording finalized | output={} | bytes={} | duration_secs={} | finalize_ms={}",
                     completed.output_path.display(),
@@ -634,6 +903,19 @@ fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureControlle
                 emit_recent_sessions_refresh_request(&app);
             }
             Err(error) => {
+                if should_treat_finalize_as_empty_stop(&error.to_string()) {
+                    cleanup_aborted_output_path(&output_path);
+                    runtime_log::log_runtime_info(&format!(
+                        "recording stopped before any media data was written | finalize_ms={}",
+                        finalize_started_at.elapsed().as_millis(),
+                    ));
+                    if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
+                        emit_recorder_state(&app, &snapshot);
+                        sync_hud_for_current_settings(&app, &snapshot);
+                    }
+                    return;
+                }
+
                 runtime_log::log_runtime_error(&format!(
                     "recording finalize failed after {} ms: {}",
                     finalize_started_at.elapsed().as_millis(),
@@ -647,6 +929,31 @@ fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureControlle
             }
         }
     });
+}
+
+fn should_treat_finalize_as_empty_stop(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("failed to inspect recording output")
+        || normalized.contains("no such file or directory")
+}
+
+fn cleanup_aborted_output_path(path: &Path) {
+    match fs::remove_file(path) {
+        Ok(()) => {
+            runtime_log::log_runtime_info(&format!(
+                "removed aborted recording output | output={}",
+                path.display()
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            runtime_log::log_runtime_error(&format!(
+                "failed to remove aborted recording output | output={} | error={}",
+                path.display(),
+                error
+            ));
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]

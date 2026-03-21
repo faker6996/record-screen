@@ -233,10 +233,7 @@ fn portal_backend_availability_for(
     gstreamer_support: wayland_portal::PipeWireGstreamerSupport,
 ) -> CaptureBackendAvailability {
     match session {
-        LinuxDesktopSession::WaylandOnly { wayland_display }
-        | LinuxDesktopSession::WaylandWithX11 {
-            wayland_display, ..
-        } => match (portal_probe, gstreamer_support) {
+        LinuxDesktopSession::WaylandOnly { wayland_display } => match (portal_probe, gstreamer_support) {
             (
                 wayland_portal::ScreenCastPortalProbe::Available(_),
                 wayland_portal::PipeWireGstreamerSupport::Available,
@@ -274,6 +271,11 @@ fn portal_backend_availability_for(
                 },
             },
         },
+        LinuxDesktopSession::WaylandWithX11 { .. } => {
+            CaptureBackendAvailability::Unavailable {
+                reason: "Wayland sessions with XWayland should use the native X11 GStreamer lane. The pure portal/PipeWire lane is reserved for Wayland-only sessions.".to_string(),
+            }
+        }
         LinuxDesktopSession::X11 { .. } => {
             CaptureBackendAvailability::Unavailable {
                 reason: "The Linux ScreenCast portal / PipeWire backend is reserved for Wayland sessions. This session can use the native X11 recorder lane.".to_string(),
@@ -468,11 +470,17 @@ pub fn system_audio_support_summary() -> (bool, String) {
 }
 
 pub(crate) fn resolve_target(options: &RecordingOptions) -> Result<ResolvedTarget, CaptureError> {
+    resolve_target_with_monitors(options, &query_monitors().unwrap_or_default())
+}
+
+pub(crate) fn resolve_target_with_monitors(
+    options: &RecordingOptions,
+    monitors: &[MonitorDescriptor],
+) -> Result<ResolvedTarget, CaptureError> {
     let target_id = options.capture_target_id.as_str();
-    let monitors = query_monitors().unwrap_or_default();
 
     if target_id == FULL_DESKTOP_TARGET_ID {
-        return Ok(resolve_full_desktop_target(&monitors));
+        return Ok(resolve_full_desktop_target(monitors));
     }
 
     let Some(connector) = target_id.strip_prefix(MONITOR_TARGET_PREFIX) else {
@@ -521,7 +529,7 @@ pub(crate) fn resolve_target(options: &RecordingOptions) -> Result<ResolvedTarge
         })?;
 
     Ok(ResolvedTarget {
-        label: monitor.label,
+        label: monitor.label.clone(),
         origin_x: monitor.x,
         origin_y: monitor.y,
         video_size: Some((monitor.width, monitor.height)),
@@ -560,6 +568,10 @@ fn resolve_full_desktop_target(monitors: &[MonitorDescriptor]) -> ResolvedTarget
 }
 
 pub(crate) fn resolve_audio_input(audio_input_id: &str) -> Result<String, CaptureError> {
+    if audio_input_id != DEFAULT_AUDIO_INPUT_ID {
+        return Ok(audio_input_id.to_string());
+    }
+
     resolve_audio_input_from_snapshot(audio_input_id, query_audio_inputs().ok().as_deref())
 }
 
@@ -628,7 +640,7 @@ fn query_audio_inputs() -> Result<Vec<AudioInputOption>, CaptureError> {
     ))
 }
 
-fn query_monitors() -> Result<Vec<MonitorDescriptor>, CaptureError> {
+pub(crate) fn query_monitors() -> Result<Vec<MonitorDescriptor>, CaptureError> {
     let output = Command::new("xrandr")
         .arg("--listmonitors")
         .output()
@@ -1068,7 +1080,7 @@ mod tests {
     }
 
     #[test]
-    fn native_portal_backend_is_available_for_xwayland_sessions_when_requirements_exist() {
+    fn native_portal_backend_is_unavailable_for_xwayland_sessions() {
         let availability = portal_backend_availability_for(
             &LinuxDesktopSession::WaylandWithX11 {
                 wayland_display: "wayland-0".to_string(),
@@ -1083,7 +1095,7 @@ mod tests {
 
         assert!(matches!(
             availability,
-            capture::CaptureBackendAvailability::Available
+            capture::CaptureBackendAvailability::Unavailable { .. }
         ));
     }
 

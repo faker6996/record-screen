@@ -190,21 +190,43 @@ impl AppCore {
     pub fn start_recording(
         &mut self,
         active_target: String,
-        active_encoder_label: String,
         output_path: String,
-        can_pause: bool,
         pause_note: Option<String>,
     ) -> RecorderSnapshot {
         self.status = RecorderStatus::Recording;
         self.active_target = active_target;
         self.active_output_path = Some(output_path);
-        self.active_encoder_label = Some(active_encoder_label);
-        self.active_can_pause = can_pause;
+        self.active_encoder_label = None;
+        self.active_can_pause = false;
         self.active_pause_note = pause_note;
-        self.started_at = Some(SystemTime::now());
+        self.started_at = None;
         self.paused_at = None;
         self.accumulated_paused = Duration::default();
         self.current_snapshot()
+    }
+
+    pub fn complete_recording_startup(
+        &mut self,
+        active_target: String,
+        active_encoder_label: String,
+        can_pause: bool,
+        pause_note: Option<String>,
+    ) -> Option<RecorderSnapshot> {
+        if self.status != RecorderStatus::Recording {
+            return None;
+        }
+
+        self.status = RecorderStatus::Recording;
+        self.active_target = active_target;
+        self.active_encoder_label = Some(active_encoder_label);
+        self.active_can_pause = can_pause;
+        self.active_pause_note = pause_note;
+        if self.started_at.is_none() {
+            self.started_at = Some(SystemTime::now());
+        }
+        self.paused_at = None;
+        self.accumulated_paused = Duration::default();
+        Some(self.current_snapshot())
     }
 
     pub fn begin_finalizing(&mut self) -> Option<RecorderSnapshot> {

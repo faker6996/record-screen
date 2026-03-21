@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import { desktopClient } from '../services/desktop-client'
 import { useRecordingCountdown } from './use-recording-countdown'
 import type {
@@ -91,6 +91,45 @@ function updateSettingsSnapshot(
   }
 }
 
+function updateCaptureTargetSelectionSnapshot(
+  snapshot: BootstrapSnapshot | null,
+  captureTargetId: string,
+  captureTargetLabel: string,
+) {
+  if (!snapshot) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    settings: {
+      ...snapshot.settings,
+      captureTargetId,
+    },
+    recorder: {
+      ...snapshot.recorder,
+      activeTarget: captureTargetLabel,
+    },
+  }
+}
+
+function updateAudioInputSelectionSnapshot(
+  snapshot: BootstrapSnapshot | null,
+  audioInputId: string,
+) {
+  if (!snapshot) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    settings: {
+      ...snapshot.settings,
+      audioInputId,
+    },
+  }
+}
+
 function updatePermissionsSnapshot(
   snapshot: BootstrapSnapshot | null,
   permissions: PermissionCheck[],
@@ -161,40 +200,14 @@ export function useDesktopState() {
   useEffect(() => {
     let isDisposed = false
     let deferredLoadTimer: number | null = null
-    let recorderRefreshTimer: number | null = null
+    const deferredRefreshTimers = new Set<number>()
     let unlistenRecorder: () => void = () => undefined
     let unlistenRuntimeError: () => void = () => undefined
     let unlistenRecentSessionsRefresh: () => void = () => undefined
 
-    async function refreshRecorderSnapshot(options?: { reportError?: boolean }) {
-      try {
-        const recorder = await desktopClient.getRecorderSnapshot()
-        if (isDisposed) {
-          return
-        }
-
-        startTransition(() => {
-          setSnapshot((current) => updateRecorderSnapshot(current, recorder))
-          if (options?.reportError) {
-            setActionError(null)
-          }
-        })
-      } catch (actionLoadError) {
-        if (isDisposed || !options?.reportError) {
-          return
-        }
-
-        startTransition(() => {
-          setActionError(
-            actionLoadError instanceof Error
-              ? actionLoadError.message
-              : 'Unable to refresh recorder state.',
-          )
-        })
-      }
-    }
-
-    async function refreshRecentSessions(options?: { reportError?: boolean }) {
+    async function refreshRecentSessionsInBackground(options?: {
+      reportError?: boolean
+    }) {
       try {
         const recentSessions = await desktopClient.getRecentRecordings()
         if (isDisposed) {
@@ -297,40 +310,15 @@ export function useDesktopState() {
       }
     }
 
-    async function refreshPermissionsInBackground(options?: {
-      reportError?: boolean
-    }) {
-      try {
-        const permissions = await desktopClient.getPermissions()
-        if (isDisposed) {
-          return
-        }
-
-        startTransition(() => {
-          setSnapshot((current) => updatePermissionsSnapshot(current, permissions))
-          if (options?.reportError) {
-            setActionError(null)
-          }
-        })
-      } catch (actionLoadError) {
-        if (isDisposed || !options?.reportError) {
-          return
-        }
-
-        startTransition(() => {
-          setActionError(
-            actionLoadError instanceof Error
-              ? actionLoadError.message
-              : 'Unable to refresh permissions.',
-          )
-        })
-      }
-    }
-
     function scheduleDeferredStartupRefresh() {
       if (deferredLoadTimer !== null) {
         window.clearTimeout(deferredLoadTimer)
       }
+
+      for (const timer of deferredRefreshTimers) {
+        window.clearTimeout(timer)
+      }
+      deferredRefreshTimers.clear()
 
       deferredLoadTimer = window.setTimeout(() => {
         deferredLoadTimer = null
@@ -338,11 +326,23 @@ export function useDesktopState() {
           return
         }
 
-        void refreshDeviceDiscovery()
-        void refreshRuntimeDiagnostics()
-        void refreshPermissionsInBackground()
-        void refreshRecentSessions()
-      }, 48)
+        const tasks = [
+          () => void refreshRuntimeDiagnostics(),
+          () => void refreshDeviceDiscovery(),
+        ]
+
+        tasks.forEach((task, index) => {
+          const timer = window.setTimeout(() => {
+            deferredRefreshTimers.delete(timer)
+            if (isDisposed) {
+              return
+            }
+            task()
+          }, index * 180)
+
+          deferredRefreshTimers.add(timer)
+        })
+      }, 420)
     }
 
     async function loadSnapshot() {
@@ -381,10 +381,6 @@ export function useDesktopState() {
 
     void loadSnapshot()
 
-    recorderRefreshTimer = window.setInterval(() => {
-      void refreshRecorderSnapshot()
-    }, 1000)
-
     void desktopClient
       .subscribeRecorderState((recorder) => {
         if (!isDisposed) {
@@ -422,7 +418,7 @@ export function useDesktopState() {
           return
         }
 
-        void refreshRecentSessions({ reportError: true })
+        void refreshRecentSessionsInBackground({ reportError: true })
       })
       .then((dispose) => {
         if (isDisposed) {
@@ -438,9 +434,10 @@ export function useDesktopState() {
       if (deferredLoadTimer !== null) {
         window.clearTimeout(deferredLoadTimer)
       }
-      if (recorderRefreshTimer !== null) {
-        window.clearInterval(recorderRefreshTimer)
+      for (const timer of deferredRefreshTimers) {
+        window.clearTimeout(timer)
       }
+      deferredRefreshTimers.clear()
       unlistenRecorder()
       unlistenRuntimeError()
       unlistenRecentSessionsRefresh()
@@ -473,8 +470,6 @@ export function useDesktopState() {
   }
 
   const {
-    countdownValue: recordingStartCountdown,
-    isCountingDown: isRecordingCountdownActive,
     isStartupDelayed,
     isStartingRecording,
     toggleRecording,
@@ -642,8 +637,27 @@ export function useDesktopState() {
   }
 
   async function updateCaptureTarget(captureTargetId: string) {
+    const currentSnapshot = snapshotRef.current
+    const captureTargetLabel =
+      currentSnapshot?.captureTargets.find((target) => target.id === captureTargetId)
+        ?.label ?? 'Display'
+
+    startTransition(() => {
+      setSnapshot((current) =>
+        updateCaptureTargetSelectionSnapshot(
+          current,
+          captureTargetId,
+          captureTargetLabel,
+        ),
+      )
+      setActionError(null)
+    })
+
     try {
-      const settings = await desktopClient.updateCaptureTarget(captureTargetId)
+      const settings = await desktopClient.updateCaptureTarget(
+        captureTargetId,
+        captureTargetLabel,
+      )
       startTransition(() => {
         setSnapshot((current) => updateSettingsSnapshot(current, settings))
         setActionError(null)
@@ -660,6 +674,13 @@ export function useDesktopState() {
   }
 
   async function updateAudioInput(audioInputId: string) {
+    startTransition(() => {
+      setSnapshot((current) =>
+        updateAudioInputSelectionSnapshot(current, audioInputId),
+      )
+      setActionError(null)
+    })
+
     try {
       const settings = await desktopClient.updateAudioInput(audioInputId)
       startTransition(() => {
@@ -764,7 +785,7 @@ export function useDesktopState() {
     }
   }
 
-  async function refreshPermissions() {
+  const refreshPermissions = useCallback(async () => {
     try {
       const permissions = await desktopClient.getPermissions()
       startTransition(() => {
@@ -780,7 +801,27 @@ export function useDesktopState() {
         )
       })
     }
-  }
+  }, [])
+
+  const refreshRecentSessions = useCallback(async () => {
+    try {
+      const recentSessions = await desktopClient.getRecentRecordings()
+      startTransition(() => {
+        setSnapshot((current) =>
+          updateRecentSessionsSnapshot(current, recentSessions),
+        )
+        setActionError(null)
+      })
+    } catch (actionLoadError) {
+      startTransition(() => {
+        setActionError(
+          actionLoadError instanceof Error
+            ? actionLoadError.message
+            : 'Unable to refresh recent recordings.',
+        )
+      })
+    }
+  }, [])
 
   async function requestPermission(permissionName: string) {
     try {
@@ -907,7 +948,6 @@ export function useDesktopState() {
     actionError,
     error,
     isLoading,
-    isRecordingCountdownActive,
     isStartupDelayed,
     isStartingRecording,
     focusLauncher: desktopClient.focusLauncher,
@@ -916,6 +956,7 @@ export function useDesktopState() {
     openRecording,
     pauseResume,
     refreshPermissions,
+    refreshRecentSessions,
     revealRecordingInFolder,
     resetShortcuts,
     updateShortcut,
@@ -925,7 +966,6 @@ export function useDesktopState() {
     showHud: desktopClient.showHud,
     showRegionSelector,
     snapshot,
-    recordingStartCountdown,
     toggleMicrophone,
     toggleRecording,
     updateCaptureTarget,

@@ -14,12 +14,12 @@ pub struct PreviewPresentation {
     pub title: String,
 }
 
-pub fn preview_bounds_for_target(
+pub fn preview_bounds_for_target_with_title(
     app: &AppHandle,
     capture_target_id: &str,
+    title: String,
 ) -> Result<Option<PreviewPresentation>, String> {
     let settings = crate::with_core(app, |core| core.settings())?;
-    let title = preview_title(capture_target_id, &settings);
 
     #[cfg(target_os = "windows")]
     {
@@ -109,20 +109,4 @@ fn macos_preview_bounds(
         },
         title: title.to_string(),
     }))
-}
-
-fn preview_title(capture_target_id: &str, settings: &storage::AppSettings) -> String {
-    crate::capture_targets::available_capture_targets(settings)
-        .into_iter()
-        .find(|target| target.id == capture_target_id)
-        .map(|target| target.label)
-        .unwrap_or_else(|| {
-            if capture_target_id == capture::FULL_DESKTOP_TARGET_ID {
-                "Full desktop".to_string()
-            } else if capture_target_id == capture::CUSTOM_REGION_TARGET_ID {
-                "Custom region".to_string()
-            } else {
-                "Display".to_string()
-            }
-        })
 }

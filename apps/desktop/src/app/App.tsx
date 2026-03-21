@@ -120,10 +120,8 @@ function HudApp() {
   const {
     error,
     isLoading,
-    isRecordingCountdownActive,
     pauseResume,
     recorder,
-    recordingStartCountdown,
     toggleMicrophone,
     toggleRecording,
   } =
@@ -148,9 +146,6 @@ function HudApp() {
 
   return (
     <HudSurface
-      countdownValue={
-        isRecordingCountdownActive ? recordingStartCountdown : null
-      }
       onPauseResume={pauseResume}
       onToggleMicrophone={toggleMicrophone}
       onToggleRecording={toggleRecording}
@@ -182,13 +177,13 @@ function LauncherApp() {
     actionError,
     error,
     focusLauncher,
-    isRecordingCountdownActive,
     isLoading,
     openPermissionSettings,
     openRecording,
     pauseResume,
     pickOutputDirectory,
     refreshPermissions,
+    refreshRecentSessions,
     revealRecordingInFolder,
     resetShortcuts,
     requestPermission,
@@ -197,7 +192,6 @@ function LauncherApp() {
     showHud,
     showRegionSelector,
     snapshot,
-    recordingStartCountdown,
     toggleMicrophone,
     toggleRecording,
     updateAudioInput,
@@ -217,6 +211,17 @@ function LauncherApp() {
       delete document.body.dataset.theme
     }
   }, [themeMode])
+
+  useEffect(() => {
+    if (activeTab === 'recent') {
+      void refreshRecentSessions()
+      return
+    }
+
+    if (activeTab === 'permissions') {
+      void refreshPermissions()
+    }
+  }, [activeTab, refreshPermissions, refreshRecentSessions])
 
   if (isLoading || !snapshot) {
     return <LoadingState />
@@ -238,9 +243,6 @@ function LauncherApp() {
           <RecorderPanel
             audioInputs={currentSnapshot.audioInputs}
             captureTargets={currentSnapshot.captureTargets}
-            countdownValue={
-              isRecordingCountdownActive ? recordingStartCountdown : null
-            }
             diagnostics={currentSnapshot.diagnostics}
             onOpenRegionSelector={showRegionSelector}
             onPauseResume={pauseResume}

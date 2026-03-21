@@ -31,6 +31,14 @@ export function useMicCheck() {
   }, [])
 
   const stop = useCallback(async () => {
+    setState((current) => ({
+      ...current,
+      active: false,
+      error: null,
+      hasSignal: false,
+      level: 0,
+    }))
+
     try {
       const snapshot = await desktopClient.stopMicCheck()
       applySnapshot(snapshot)
@@ -47,6 +55,14 @@ export function useMicCheck() {
   }, [applySnapshot])
 
   const start = useCallback(async () => {
+    setState((current) => ({
+      ...current,
+      active: true,
+      error: null,
+      hasSignal: false,
+      level: 0,
+    }))
+
     try {
       const snapshot = await desktopClient.startMicCheck()
       applySnapshot(snapshot)

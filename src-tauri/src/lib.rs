@@ -17,7 +17,6 @@ use std::str::FromStr;
 use std::sync::Mutex;
 
 use app_core::{AppCore, RecorderSnapshot};
-use capture::CaptureController;
 use shortcuts::{ShortcutAction, ShortcutBinding};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_global_shortcut::{
@@ -26,7 +25,7 @@ use tauri_plugin_global_shortcut::{
 
 pub struct AppState {
     core: Mutex<AppCore>,
-    recorder: Mutex<Option<Box<dyn CaptureController>>>,
+    recorder: Mutex<Option<recording::RecordingRuntime>>,
     mic_check: Mutex<Option<mic_check::MicCheckProcess>>,
 }
 
@@ -246,7 +245,6 @@ pub fn run() {
             }
             register_shortcuts(app.handle())?;
             tray::create(app.handle())?;
-            window::ensure_hud_window(app.handle())?;
             window::focus_launcher(app.handle())?;
             Ok(())
         })

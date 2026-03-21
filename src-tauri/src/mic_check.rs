@@ -12,7 +12,9 @@ use std::thread;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::{AppState, audio_inputs};
+use crate::AppState;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use crate::audio_inputs;
 
 const MIC_CHECK_EVENT: &str = "recorder://mic-check-state";
 
@@ -232,6 +234,7 @@ pub fn emit_mic_check_state(app: &AppHandle, snapshot: &MicCheckSnapshot) {
     let _ = app.emit(MIC_CHECK_EVENT, snapshot);
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn selected_audio_input_id(app: &AppHandle) -> Result<String, String> {
     let state = app.state::<AppState>();
     let core = state
@@ -255,8 +258,24 @@ fn selected_audio_input_id(app: &AppHandle) -> Result<String, String> {
 }
 
 #[cfg(target_os = "linux")]
+fn selected_audio_input_id_for_linux_probe(app: &AppHandle) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    let core = state
+        .core
+        .lock()
+        .map_err(|_| "failed to lock app state".to_string())?;
+    let selected_audio_input_id = core.settings().audio_input_id.trim().to_string();
+
+    if selected_audio_input_id.is_empty() {
+        return Ok(capture::DEFAULT_AUDIO_INPUT_ID.to_string());
+    }
+
+    Ok(selected_audio_input_id)
+}
+
+#[cfg(target_os = "linux")]
 fn spawn_platform_mic_check(app: &AppHandle) -> Result<MicCheckStart, String> {
-    let audio_input = selected_audio_input_id(app)?;
+    let audio_input = selected_audio_input_id_for_linux_probe(app)?;
     let mut command = Command::new("gst-launch-1.0");
     command
         .args([
