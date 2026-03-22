@@ -1,5 +1,4 @@
 import { LoaderCircle, Mic, MicOff, Move, Pause, Play, Square } from 'lucide-react'
-import { useEffect, useState } from 'react'
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -48,34 +47,10 @@ function formatHudTime(totalSeconds: number) {
 
 function HudElapsed({
   initialElapsedSeconds,
-  status,
 }: {
   initialElapsedSeconds: number
-  status: RecorderSnapshot['status']
 }) {
-  const [displayElapsedSeconds, setDisplayElapsedSeconds] = useState(
-    initialElapsedSeconds,
-  )
-
-  useEffect(() => {
-    setDisplayElapsedSeconds(initialElapsedSeconds)
-  }, [initialElapsedSeconds])
-
-  useEffect(() => {
-    if (status !== 'recording') {
-      return undefined
-    }
-
-    const timer = window.setInterval(() => {
-      setDisplayElapsedSeconds((current) => current + 1)
-    }, 1000)
-
-    return () => {
-      window.clearInterval(timer)
-    }
-  }, [status])
-
-  return <strong>{formatHudTime(displayElapsedSeconds)}</strong>
+  return <strong>{formatHudTime(initialElapsedSeconds)}</strong>
 }
 
 export function HudSurface({
@@ -135,8 +110,7 @@ export function HudSurface({
           ) : (
             <HudElapsed
               initialElapsedSeconds={parsedElapsedSeconds}
-              key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}`}
-              status={recorder.status}
+              key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}:${recorder.elapsedLabel}`}
             />
           )}
         </div>

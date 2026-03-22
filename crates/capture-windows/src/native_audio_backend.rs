@@ -825,7 +825,8 @@ fn run_wasapi_worker_thread(
         {
             vec![0u8; output_byte_len]
         } else {
-            let raw_bytes = unsafe { std::slice::from_raw_parts(data as *const u8, source_byte_len) };
+            let raw_bytes =
+                unsafe { std::slice::from_raw_parts(data as *const u8, source_byte_len) };
             normalize_packet_bytes(raw_bytes, &foundation)
         };
         elapsed_frames = elapsed_frames.saturating_add(frames_to_read as u64);
@@ -856,10 +857,7 @@ fn run_wasapi_worker_thread(
 }
 
 #[cfg(target_os = "windows")]
-fn normalize_packet_bytes(
-    bytes: &[u8],
-    foundation: &WindowsWasapiClientFoundation,
-) -> Vec<u8> {
+fn normalize_packet_bytes(bytes: &[u8], foundation: &WindowsWasapiClientFoundation) -> Vec<u8> {
     match (
         foundation.source_sample_format.clone(),
         foundation.source_bits_per_sample.max(8),

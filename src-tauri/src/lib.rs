@@ -246,6 +246,7 @@ pub fn run() {
             register_shortcuts(app.handle())?;
             tray::create(app.handle())?;
             window::focus_launcher(app.handle())?;
+            window::schedule_hud_window_prewarm(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {

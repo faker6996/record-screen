@@ -26,7 +26,7 @@ pub fn get_bootstrap(
     let mut settings = core.settings();
     let mut settings_changed = false;
     let capture_targets = if should_eagerly_refresh_capture_targets(&settings) {
-        capture_targets::refreshed_capture_targets(&settings)
+        capture_targets::available_capture_targets(&settings)
     } else {
         capture_targets::initial_capture_targets(&settings)
     };
@@ -135,7 +135,7 @@ mod tests {
 
 #[tauri::command]
 pub fn get_runtime_diagnostics() -> Result<app_core::RuntimeDiagnostics, String> {
-    Ok(diagnostics::refreshed_runtime_diagnostics())
+    Ok(diagnostics::current_runtime_diagnostics())
 }
 
 #[tauri::command]

@@ -218,6 +218,35 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+pub fn schedule_hud_window_prewarm(app: &AppHandle) {
+    let should_prewarm =
+        with_core(app, |core| core.settings().show_hud_during_recording).unwrap_or(true);
+    if !should_prewarm || app.get_webview_window(HUD_WINDOW_LABEL).is_some() {
+        return;
+    }
+
+    let app_handle = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(900));
+        let Some(main_window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) else {
+            return;
+        };
+        let app_for_main_thread = app_handle.clone();
+        let _ = main_window.run_on_main_thread(move || {
+            if let Err(error) = ensure_hud_window(&app_for_main_thread) {
+                runtime_log::log_runtime_error(&format!(
+                    "unable to prewarm HUD window on macOS: {}",
+                    error
+                ));
+            }
+        });
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn schedule_hud_window_prewarm(_app: &AppHandle) {}
+
 fn position_hud_window(app: &AppHandle, window: &tauri::WebviewWindow) -> Result<(), String> {
     let monitor = app
         .get_webview_window(MAIN_WINDOW_LABEL)
@@ -225,20 +254,19 @@ fn position_hud_window(app: &AppHandle, window: &tauri::WebviewWindow) -> Result
         .or_else(|| app.primary_monitor().ok().flatten())
         .ok_or_else(|| "no monitor is available for HUD placement".to_string())?;
 
-    let hud_size = window.outer_size().unwrap_or(PhysicalSize::new(
-        HUD_DEFAULT_WIDTH,
-        HUD_DEFAULT_HEIGHT,
-    ));
+    let hud_size = window
+        .outer_size()
+        .unwrap_or(PhysicalSize::new(HUD_DEFAULT_WIDTH, HUD_DEFAULT_HEIGHT));
     let monitor_size = monitor.size();
     let monitor_position = monitor.position();
-    let x = monitor_position.x
-        + monitor_size.width as i32
-        - hud_size.width as i32
-        - HUD_MARGIN_PX;
+    let x = monitor_position.x + monitor_size.width as i32 - hud_size.width as i32 - HUD_MARGIN_PX;
     let y = monitor_position.y + HUD_MARGIN_PX;
 
     window
-        .set_position(Position::Physical(PhysicalPosition::new(x.max(monitor_position.x), y)))
+        .set_position(Position::Physical(PhysicalPosition::new(
+            x.max(monitor_position.x),
+            y,
+        )))
         .map_err(|error| error.to_string())
 }
 
@@ -467,9 +495,7 @@ pub fn show_hud(app: &AppHandle) -> Result<(), String> {
             .set_always_on_top(true)
             .map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
-        runtime_log::log_runtime_info(&format!(
-            "hud shown | repositioned={should_reposition}"
-        ));
+        runtime_log::log_runtime_info(&format!("hud shown | repositioned={should_reposition}"));
     }
 
     if let Ok(snapshot) = with_core(app, |core| core.snapshot()) {

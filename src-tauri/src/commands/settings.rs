@@ -4,14 +4,12 @@ use std::{
     process::Command,
 };
 
-use storage::{AppSettings, expand_home_path};
 use std::thread;
+use storage::{AppSettings, expand_home_path};
 
 use tauri::{AppHandle, State};
 
-use crate::{
-    AppState, audio_inputs, emit_recorder_state, launch_on_login, persist_settings,
-};
+use crate::{AppState, audio_inputs, emit_recorder_state, launch_on_login, persist_settings};
 
 #[tauri::command]
 pub fn update_quality_preset(

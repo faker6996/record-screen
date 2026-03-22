@@ -8,9 +8,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use capture::{
-    CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID, RecordingOptions,
-};
+use capture::{CaptureTargetOption, DEFAULT_AUDIO_INPUT_ID, RecordingOptions};
 
 const WINDOW_TARGET_PREFIX: &str = "window:";
 
@@ -18,13 +16,19 @@ const WINDOW_TARGET_PREFIX: &str = "window:";
 #[ignore = "requires a live Windows desktop session with another visible app window"]
 fn windows_smoke_window_recording_creates_output_file() {
     let fixture = spawn_window_fixture();
-    let capture_target = resolve_window_target(fixture.as_ref().map(|fixture| fixture.title_fragment.as_str()));
+    let capture_target = resolve_window_target(
+        fixture
+            .as_ref()
+            .map(|fixture| fixture.title_fragment.as_str()),
+    );
     run_smoke_recording_test(SmokeScenario {
         capture_target_id: capture_target.id,
         output_name: "window",
         mic_enabled: false,
         system_audio_enabled: false,
-        window_title_fragment: fixture.as_ref().map(|fixture| fixture.title_fragment.clone()),
+        window_title_fragment: fixture
+            .as_ref()
+            .map(|fixture| fixture.title_fragment.clone()),
     });
     drop(fixture);
 }
@@ -45,13 +49,19 @@ fn windows_smoke_full_desktop_recording_creates_output_file() {
 #[ignore = "requires a live Windows desktop session with a usable microphone input"]
 fn windows_smoke_window_recording_with_microphone_creates_output_file() {
     let fixture = spawn_window_fixture();
-    let capture_target = resolve_window_target(fixture.as_ref().map(|fixture| fixture.title_fragment.as_str()));
+    let capture_target = resolve_window_target(
+        fixture
+            .as_ref()
+            .map(|fixture| fixture.title_fragment.as_str()),
+    );
     run_smoke_recording_test(SmokeScenario {
         capture_target_id: capture_target.id,
         output_name: "window-mic",
         mic_enabled: true,
         system_audio_enabled: false,
-        window_title_fragment: fixture.as_ref().map(|fixture| fixture.title_fragment.clone()),
+        window_title_fragment: fixture
+            .as_ref()
+            .map(|fixture| fixture.title_fragment.clone()),
     });
     drop(fixture);
 }
@@ -71,7 +81,9 @@ fn windows_smoke_microphone_worker_receives_packets() {
     thread::sleep(Duration::from_millis(900));
 
     let snapshot = worker.snapshot();
-    let final_stats = worker.stop().expect("Windows microphone worker should stop");
+    let final_stats = worker
+        .stop()
+        .expect("Windows microphone worker should stop");
     assert!(
         snapshot.packets_observed > 0
             || final_stats.packets_observed > 0
@@ -183,20 +195,24 @@ fn resolve_window_target(preferred_title_fragment: Option<&str>) -> CaptureTarge
 
     if let Some(title_fragment) = preferred_title_fragment {
         let lowered_fragment = title_fragment.to_ascii_lowercase();
-        if let Some(target) = window_targets
-            .iter()
-            .find(|target| target.label.to_ascii_lowercase().contains(&lowered_fragment))
-        {
+        if let Some(target) = window_targets.iter().find(|target| {
+            target
+                .label
+                .to_ascii_lowercase()
+                .contains(&lowered_fragment)
+        }) {
             return target.clone();
         }
     }
 
     if let Ok(title_fragment) = env::var("RECORD_SCREEN_WINDOWS_SMOKE_WINDOW_TITLE") {
         let lowered_fragment = title_fragment.to_ascii_lowercase();
-        if let Some(target) = window_targets
-            .iter()
-            .find(|target| target.label.to_ascii_lowercase().contains(&lowered_fragment))
-        {
+        if let Some(target) = window_targets.iter().find(|target| {
+            target
+                .label
+                .to_ascii_lowercase()
+                .contains(&lowered_fragment)
+        }) {
             return target.clone();
         }
 

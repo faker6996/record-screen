@@ -187,6 +187,7 @@ function LauncherApp() {
     revealRecordingInFolder,
     resetShortcuts,
     requestPermission,
+    recorder,
     saveRecordingCopy,
     trashRecordings,
     showHud,
@@ -223,7 +224,7 @@ function LauncherApp() {
     }
   }, [activeTab, refreshPermissions, refreshRecentSessions])
 
-  if (isLoading || !snapshot) {
+  if (isLoading || !snapshot || !recorder) {
     return <LoadingState />
   }
 
@@ -232,6 +233,7 @@ function LauncherApp() {
   }
 
   const currentSnapshot = snapshot
+  const currentRecorder = recorder
 
   const activeTabConfig =
     launcherTabs.find((tab) => tab.id === activeTab) ?? launcherTabs[0]
@@ -250,7 +252,7 @@ function LauncherApp() {
             onUpdateCaptureTarget={updateCaptureTarget}
             onToggleMicrophone={toggleMicrophone}
             onToggleRecording={toggleRecording}
-            recorder={currentSnapshot.recorder}
+            recorder={currentRecorder}
             runtimeError={actionError}
             selectedAudioInputId={currentSnapshot.settings.audioInputId}
             selectedCaptureTargetId={currentSnapshot.settings.captureTargetId}

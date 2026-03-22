@@ -33,18 +33,21 @@ function updateRecorderSnapshot(
 
 function optimisticRecorderStart(
   snapshot: BootstrapSnapshot | null,
+  recorder: RecorderSnapshot | null,
 ): RecorderSnapshot | null {
   if (!snapshot) {
     return null
   }
 
+  const currentRecorder = recorder ?? snapshot.recorder
+
   const activeTarget =
     snapshot.captureTargets.find(
       (target) => target.id === snapshot.settings.captureTargetId,
-    )?.label ?? snapshot.recorder.activeTarget
+    )?.label ?? currentRecorder.activeTarget
 
   return {
-    ...snapshot.recorder,
+    ...currentRecorder,
     status: 'recording',
     elapsedLabel: '00:00:00',
     activeTarget,
@@ -58,13 +61,14 @@ function optimisticRecorderStart(
 
 function optimisticRecorderFinalizing(
   snapshot: BootstrapSnapshot | null,
+  recorder: RecorderSnapshot | null,
 ): RecorderSnapshot | null {
   if (!snapshot) {
     return null
   }
 
   return {
-    ...snapshot.recorder,
+    ...(recorder ?? snapshot.recorder),
     status: 'finalizing',
     canPause: false,
     pauseNote: 'Recording is finalizing the output file. Pause is unavailable right now.',
@@ -188,14 +192,20 @@ function updateShortcutsSnapshot(
 
 export function useDesktopState() {
   const [snapshot, setSnapshot] = useState<BootstrapSnapshot | null>(null)
+  const [recorder, setRecorder] = useState<RecorderSnapshot | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const snapshotRef = useRef<BootstrapSnapshot | null>(null)
+  const recorderRef = useRef<RecorderSnapshot | null>(null)
 
   useEffect(() => {
     snapshotRef.current = snapshot
   }, [snapshot])
+
+  useEffect(() => {
+    recorderRef.current = recorder
+  }, [recorder])
 
   useEffect(() => {
     let isDisposed = false
@@ -327,8 +337,8 @@ export function useDesktopState() {
         }
 
         const tasks = [
-          () => void refreshRuntimeDiagnostics(),
           () => void refreshDeviceDiscovery(),
+          () => void refreshRuntimeDiagnostics(),
         ]
 
         tasks.forEach((task, index) => {
@@ -338,11 +348,11 @@ export function useDesktopState() {
               return
             }
             task()
-          }, index * 180)
+          }, 1200 + index * 1000)
 
           deferredRefreshTimers.add(timer)
         })
-      }, 420)
+      }, 240)
     }
 
     async function loadSnapshot() {
@@ -353,6 +363,7 @@ export function useDesktopState() {
         }
         startTransition(() => {
           setSnapshot(nextSnapshot)
+          setRecorder(nextSnapshot.recorder)
           setError(null)
           setActionError(null)
           setIsLoading(false)
@@ -375,7 +386,7 @@ export function useDesktopState() {
 
     function applyRecorderSnapshot(recorder: RecorderSnapshot) {
       startTransition(() => {
-        setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+        setRecorder(recorder)
       })
     }
 
@@ -444,19 +455,19 @@ export function useDesktopState() {
     }
   }, [])
 
-  async function toggleRecordingNow() {
+  const toggleRecordingNow = useCallback(async () => {
     const currentSnapshot = snapshotRef.current
     const optimisticRecorder =
-      currentSnapshot?.recorder.status === 'idle'
-        ? optimisticRecorderStart(currentSnapshot)
-        : currentSnapshot?.recorder.status === 'recording' ||
-            currentSnapshot?.recorder.status === 'paused'
-          ? optimisticRecorderFinalizing(currentSnapshot)
+      recorderRef.current?.status === 'idle'
+        ? optimisticRecorderStart(currentSnapshot, recorderRef.current)
+        : recorderRef.current?.status === 'recording' ||
+            recorderRef.current?.status === 'paused'
+          ? optimisticRecorderFinalizing(currentSnapshot, recorderRef.current)
           : null
 
     if (optimisticRecorder) {
       startTransition(() => {
-        setSnapshot((current) => updateRecorderSnapshot(current, optimisticRecorder))
+        setRecorder(optimisticRecorder)
         setActionError(null)
       })
     }
@@ -464,10 +475,10 @@ export function useDesktopState() {
     const recorder = await desktopClient.toggleRecording()
 
     startTransition(() => {
-      setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+      setRecorder(recorder)
       setActionError(null)
     })
-  }
+  }, [])
 
   const {
     isStartupDelayed,
@@ -484,16 +495,16 @@ export function useDesktopState() {
         setActionError(message)
       })
     },
-    status: snapshot?.recorder.status ?? 'idle',
+    status: recorder?.status ?? 'idle',
     toggleRecordingNow,
   })
 
-  async function pauseResume() {
+  const pauseResume = useCallback(async () => {
     try {
       const recorder = await desktopClient.pauseResume()
       if (recorder) {
         startTransition(() => {
-          setSnapshot((current) => updateRecorderSnapshot(current, recorder))
+          setRecorder(recorder)
           setActionError(null)
         })
       }
@@ -506,12 +517,13 @@ export function useDesktopState() {
         )
       })
     }
-  }
+  }, [])
 
-  async function toggleMicrophone() {
+  const toggleMicrophone = useCallback(async () => {
     try {
       const recorder = await desktopClient.toggleMicrophone()
       startTransition(() => {
+        setRecorder(recorder)
         setSnapshot((current) => updateRecorderSnapshot(current, recorder))
         setActionError(null)
       })
@@ -524,7 +536,7 @@ export function useDesktopState() {
         )
       })
     }
-  }
+  }, [])
 
   async function resetShortcuts() {
     try {
@@ -636,7 +648,7 @@ export function useDesktopState() {
     }
   }
 
-  async function updateCaptureTarget(captureTargetId: string) {
+  const updateCaptureTarget = useCallback(async (captureTargetId: string) => {
     const currentSnapshot = snapshotRef.current
     const captureTargetLabel =
       currentSnapshot?.captureTargets.find((target) => target.id === captureTargetId)
@@ -671,9 +683,9 @@ export function useDesktopState() {
         )
       })
     }
-  }
+  }, [])
 
-  async function updateAudioInput(audioInputId: string) {
+  const updateAudioInput = useCallback(async (audioInputId: string) => {
     startTransition(() => {
       setSnapshot((current) =>
         updateAudioInputSelectionSnapshot(current, audioInputId),
@@ -696,7 +708,7 @@ export function useDesktopState() {
         )
       })
     }
-  }
+  }, [])
 
   async function updateOutputDirectory(outputDirectory: string) {
     try {
@@ -927,7 +939,7 @@ export function useDesktopState() {
     }
   }
 
-  async function showRegionSelector() {
+  const showRegionSelector = useCallback(async () => {
     try {
       await desktopClient.showRegionSelector()
       startTransition(() => {
@@ -942,7 +954,7 @@ export function useDesktopState() {
         )
       })
     }
-  }
+  }, [])
 
   return {
     actionError,
@@ -965,6 +977,7 @@ export function useDesktopState() {
     trashRecordings,
     showHud: desktopClient.showHud,
     showRegionSelector,
+    recorder,
     snapshot,
     toggleMicrophone,
     toggleRecording,

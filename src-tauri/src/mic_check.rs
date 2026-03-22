@@ -1,13 +1,14 @@
+#[cfg(target_os = "windows")]
+use std::sync::mpsc::{self, Sender};
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use std::thread;
+#[cfg(target_os = "windows")]
+use std::time::Duration;
 #[cfg(target_os = "linux")]
 use std::{
     io::{BufRead, BufReader},
     process::{Child, ChildStderr, ChildStdout, Command, Stdio},
 };
-#[cfg(target_os = "windows")]
-use std::sync::mpsc::{self, Sender};
-#[cfg(target_os = "windows")]
-use std::time::Duration;
-use std::thread;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -76,14 +77,15 @@ pub struct MicCheckProcess {
 
 enum MicCheckRuntime {
     #[cfg(target_os = "linux")]
-    Process {
-        child: Child,
-    },
+    Process { child: Child },
     #[cfg(target_os = "windows")]
     NativeWindows {
         stop_tx: Sender<()>,
         worker_handle: thread::JoinHandle<()>,
     },
+    #[allow(dead_code)]
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    Unsupported,
 }
 
 enum MicCheckStart {
@@ -98,6 +100,9 @@ enum MicCheckStart {
         stop_tx: Sender<()>,
         worker_handle: thread::JoinHandle<()>,
     },
+    #[allow(dead_code)]
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    Unsupported,
 }
 
 pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
@@ -172,7 +177,10 @@ pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
                             }
 
                             if let Some(message) = detect_probe_error(&line) {
-                                emit_mic_check_state(&app_handle, &MicCheckSnapshot::error(message));
+                                emit_mic_check_state(
+                                    &app_handle,
+                                    &MicCheckSnapshot::error(message),
+                                );
                             }
                         }
                     });
@@ -191,6 +199,10 @@ pub fn start_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
                     stop_tx,
                     worker_handle,
                 },
+            },
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+            MicCheckStart::Unsupported => MicCheckProcess {
+                runtime: MicCheckRuntime::Unsupported,
             },
         });
     }
@@ -222,6 +234,8 @@ pub fn stop_mic_check(app: &AppHandle) -> Result<MicCheckSnapshot, String> {
                 let _ = stop_tx.send(());
                 let _ = worker_handle.join();
             }
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+            MicCheckRuntime::Unsupported => {}
         }
     }
 

@@ -143,7 +143,9 @@ fn user_home_directory_with(get_env: &impl Fn(&str) -> Option<String>) -> Option
     let home_path = env_var_string_with(get_env, "HOMEPATH");
 
     match (home_drive, home_path) {
-        (Some(home_drive), Some(home_path)) => Some(PathBuf::from(format!("{home_drive}{home_path}"))),
+        (Some(home_drive), Some(home_path)) => {
+            Some(PathBuf::from(format!("{home_drive}{home_path}")))
+        }
         _ => None,
     }
 }
@@ -326,7 +328,8 @@ mod tests {
     #[test]
     fn expand_home_path_uses_userprofile_when_home_is_missing() {
         let env = HashMap::from([("USERPROFILE", r"C:\Users\Tester".to_string())]);
-        let expanded = expand_home_path_with("~/Movies/Record Screen", &|key| env.get(key).cloned());
+        let expanded =
+            expand_home_path_with("~/Movies/Record Screen", &|key| env.get(key).cloned());
 
         assert_eq!(
             expanded,

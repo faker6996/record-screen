@@ -326,17 +326,10 @@ fn native_recording_output_runtime_is_supported() -> bool {
 }
 
 fn macos_version() -> Option<(u64, u64, u64)> {
-    let output = Command::new("sw_vers")
-        .args(["-productVersion"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    parse_macos_version(String::from_utf8_lossy(&output.stdout).trim())
+    super::current_macos_version()
 }
 
+#[cfg(test)]
 fn parse_macos_version(value: &str) -> Option<(u64, u64, u64)> {
     let mut parts = value.trim().split('.');
     let major = parts.next()?.parse().ok()?;

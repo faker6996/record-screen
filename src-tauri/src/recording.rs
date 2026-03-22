@@ -51,6 +51,7 @@ struct StartupContext {
     encoder_output_plan: String,
     encoder_runtime_foundation: String,
     encoder_sample_bridge: String,
+    #[cfg(target_os = "linux")]
     initial_wayland_restore_token: Option<String>,
 }
 
@@ -162,86 +163,96 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     };
     let start_started_at = Instant::now();
     #[cfg(target_os = "windows")]
-    let capture_start_plan = capture_windows::capture_start_plan_summary(&recording_options)
-        .unwrap_or_else(|| "n/a".to_string());
+    let verbose_startup_probes = verbose_startup_probes_enabled();
+    #[cfg(target_os = "windows")]
+    let capture_start_plan = windows_startup_probe_summary(verbose_startup_probes, || {
+        capture_windows::capture_start_plan_summary(&recording_options)
+    });
     #[cfg(not(target_os = "windows"))]
     let capture_start_plan = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let capture_execution_plan =
+    let capture_execution_plan = windows_startup_probe_summary(verbose_startup_probes, || {
         capture_windows::capture_execution_plan_summary(&recording_options)
-            .unwrap_or_else(|| "n/a".to_string());
+    });
     #[cfg(not(target_os = "windows"))]
     let capture_execution_plan = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let capture_runtime_foundation =
+    let capture_runtime_foundation = windows_startup_probe_summary(verbose_startup_probes, || {
         capture_windows::capture_runtime_foundation_summary(&recording_options)
-            .unwrap_or_else(|| "n/a".to_string());
+    });
     #[cfg(not(target_os = "windows"))]
     let capture_runtime_foundation = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let capture_prepared_runtime =
+    let capture_prepared_runtime = windows_startup_probe_summary(verbose_startup_probes, || {
         capture_windows::capture_prepared_runtime_summary(&recording_options)
-            .unwrap_or_else(|| "n/a".to_string());
+    });
     #[cfg(not(target_os = "windows"))]
     let capture_prepared_runtime = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let capture_smoke_lifecycle = if std::env::var_os("RECORD_SCREEN_WINDOWS_WGC_SMOKE").is_some() {
+    let capture_smoke_lifecycle = if verbose_startup_probes
+        && std::env::var_os("RECORD_SCREEN_WINDOWS_WGC_SMOKE").is_some()
+    {
         capture_windows::capture_smoke_lifecycle_summary(&recording_options)
             .unwrap_or_else(|| "n/a".to_string())
     } else {
-        "disabled".to_string()
+        "skipped".to_string()
     };
     #[cfg(not(target_os = "windows"))]
     let capture_smoke_lifecycle = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let capture_encoder_bridge_smoke =
-        if std::env::var_os("RECORD_SCREEN_WINDOWS_WGC_MF_SMOKE").is_some() {
-            capture_windows::capture_encoder_bridge_smoke_summary(&recording_options)
-                .unwrap_or_else(|| "n/a".to_string())
-        } else {
-            "disabled".to_string()
-        };
+    let capture_encoder_bridge_smoke = if verbose_startup_probes
+        && std::env::var_os("RECORD_SCREEN_WINDOWS_WGC_MF_SMOKE").is_some()
+    {
+        capture_windows::capture_encoder_bridge_smoke_summary(&recording_options)
+            .unwrap_or_else(|| "n/a".to_string())
+    } else {
+        "skipped".to_string()
+    };
     #[cfg(not(target_os = "windows"))]
     let capture_encoder_bridge_smoke = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let audio_start_plan = capture_windows::audio_start_plan_summary(&recording_options)
-        .unwrap_or_else(|| "n/a".to_string());
+    let audio_start_plan = windows_startup_probe_summary(verbose_startup_probes, || {
+        capture_windows::audio_start_plan_summary(&recording_options)
+    });
     #[cfg(not(target_os = "windows"))]
     let audio_start_plan = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let audio_runtime_foundation =
+    let audio_runtime_foundation = windows_startup_probe_summary(verbose_startup_probes, || {
         capture_windows::audio_runtime_foundation_summary(&recording_options)
-            .unwrap_or_else(|| "n/a".to_string());
+    });
     #[cfg(not(target_os = "windows"))]
     let audio_runtime_foundation = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let audio_smoke_lifecycle = if std::env::var_os("RECORD_SCREEN_WINDOWS_WASAPI_SMOKE").is_some()
+    let audio_smoke_lifecycle = if verbose_startup_probes
+        && std::env::var_os("RECORD_SCREEN_WINDOWS_WASAPI_SMOKE").is_some()
     {
         capture_windows::audio_smoke_lifecycle_summary(&recording_options)
             .unwrap_or_else(|| "n/a".to_string())
     } else {
-        "disabled".to_string()
+        "skipped".to_string()
     };
     #[cfg(not(target_os = "windows"))]
     let audio_smoke_lifecycle = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let encoder_output_plan = capture_windows::encoder_output_plan_summary(&recording_options)
-        .unwrap_or_else(|| "n/a".to_string());
+    let encoder_output_plan = windows_startup_probe_summary(verbose_startup_probes, || {
+        capture_windows::encoder_output_plan_summary(&recording_options)
+    });
     #[cfg(not(target_os = "windows"))]
     let encoder_output_plan = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let encoder_runtime_foundation = if std::env::var_os("RECORD_SCREEN_WINDOWS_MF_SMOKE").is_some()
-    {
-        capture_windows::encoder_runtime_foundation_summary(&recording_options)
-            .unwrap_or_else(|| "n/a".to_string())
-    } else {
-        "disabled".to_string()
-    };
+    let encoder_runtime_foundation =
+        if verbose_startup_probes && std::env::var_os("RECORD_SCREEN_WINDOWS_MF_SMOKE").is_some() {
+            capture_windows::encoder_runtime_foundation_summary(&recording_options)
+                .unwrap_or_else(|| "n/a".to_string())
+        } else {
+            "skipped".to_string()
+        };
     #[cfg(not(target_os = "windows"))]
     let encoder_runtime_foundation = "n/a".to_string();
     #[cfg(target_os = "windows")]
-    let encoder_sample_bridge = capture_windows::encoder_sample_bridge_summary(&recording_options)
-        .unwrap_or_else(|| "n/a".to_string());
+    let encoder_sample_bridge = windows_startup_probe_summary(verbose_startup_probes, || {
+        capture_windows::encoder_sample_bridge_summary(&recording_options)
+    });
     #[cfg(not(target_os = "windows"))]
     let encoder_sample_bridge = "n/a".to_string();
     let requested_capture_target_id = recording_options.capture_target_id.clone();
@@ -277,8 +288,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         .find(|target| target.id == requested_capture_target_id)
         .map(|target| target.label.clone())
         .unwrap_or_else(|| "Display".to_string());
-    let startup_pause_note =
-        "Recorder is still preparing the native capture session.".to_string();
+    let startup_pause_note = "Recorder is still preparing the native capture session.".to_string();
 
     {
         let state = app.state::<AppState>();
@@ -328,6 +338,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
             encoder_output_plan,
             encoder_runtime_foundation,
             encoder_sample_bridge,
+            #[cfg(target_os = "linux")]
             initial_wayland_restore_token: settings.wayland_restore_token,
         },
     );
@@ -490,9 +501,8 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
                     Some(RecordingRuntime::Active(controller)) => controller,
                     Some(RecordingRuntime::Starting { .. }) => {
                         return Err(
-                            "Recording is still preparing the native capture session."
-                                .to_string(),
-                        )
+                            "Recording is still preparing the native capture session.".to_string()
+                        );
                     }
                     None => return Err("no active recorder process".to_string()),
                 };
@@ -522,9 +532,8 @@ pub fn pause_resume(app: &AppHandle) -> Result<Option<RecorderSnapshot>, String>
                     Some(RecordingRuntime::Active(controller)) => controller,
                     Some(RecordingRuntime::Starting { .. }) => {
                         return Err(
-                            "Recording is still preparing the native capture session."
-                                .to_string(),
-                        )
+                            "Recording is still preparing the native capture session.".to_string()
+                        );
                     }
                     None => return Err("no active recorder process".to_string()),
                 };
@@ -600,6 +609,7 @@ fn spawn_recording_startup(app: AppHandle, context: StartupContext) {
             encoder_output_plan,
             encoder_runtime_foundation,
             encoder_sample_bridge,
+            #[cfg(target_os = "linux")]
             initial_wayland_restore_token,
         } = context;
 
@@ -929,6 +939,20 @@ fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureControlle
             }
         }
     });
+}
+
+#[cfg(target_os = "windows")]
+fn verbose_startup_probes_enabled() -> bool {
+    std::env::var_os("RECORD_SCREEN_VERBOSE_STARTUP").is_some()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_startup_probe_summary(enabled: bool, load: impl FnOnce() -> Option<String>) -> String {
+    if !enabled {
+        return "skipped".to_string();
+    }
+
+    load().unwrap_or_else(|| "n/a".to_string())
 }
 
 fn should_treat_finalize_as_empty_stop(error: &str) -> bool {

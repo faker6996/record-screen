@@ -1,13 +1,11 @@
-use std::process::Command;
-
 #[cfg(target_os = "macos")]
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use capture::{
@@ -33,6 +31,8 @@ static SCREEN_CAPTURE_KIT_MACOS_BACKEND: ScreenCaptureKitMacosBackend =
 
 const SCREEN_CAPTURE_KIT_MINIMUM_MAJOR: u64 = 12;
 const SCREEN_CAPTURE_KIT_MINIMUM_MINOR: u64 = 3;
+#[cfg(target_os = "macos")]
+const SCREEN_CAPTURE_KIT_PROBE_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ScreenCaptureKitProbeReport {
@@ -42,6 +42,13 @@ struct ScreenCaptureKitProbeReport {
     window_count: usize,
     application_count: usize,
     targets: Vec<ScreenCaptureKitNativeTarget>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+struct CachedScreenCaptureKitProbeReport {
+    report: ScreenCaptureKitProbeReport,
+    refreshed_at: Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,16 +231,7 @@ impl CaptureBackendFactory for ScreenCaptureKitMacosBackend {
 }
 
 fn macos_version() -> Option<(u64, u64, u64)> {
-    let output = Command::new("sw_vers")
-        .args(["-productVersion"])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    parse_version(String::from_utf8_lossy(&output.stdout).trim())
+    super::current_macos_version()
 }
 
 fn native_recording_output_runtime_is_supported() -> bool {
@@ -242,6 +240,17 @@ fn native_recording_output_runtime_is_supported() -> bool {
 
 #[cfg(target_os = "macos")]
 fn screen_capture_kit_probe() -> Result<ScreenCaptureKitProbeReport, String> {
+    {
+        let cache = probe_cache()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(entry) = cache.as_ref() {
+            if entry.refreshed_at.elapsed() < SCREEN_CAPTURE_KIT_PROBE_TTL {
+                return Ok(entry.report.clone());
+            }
+        }
+    }
+
     use screencapturekit::shareable_content::SCShareableContent;
 
     let content = SCShareableContent::create()
@@ -254,7 +263,7 @@ fn screen_capture_kit_probe() -> Result<ScreenCaptureKitProbeReport, String> {
     let windows = content.windows();
     let applications = content.applications();
 
-    Ok(ScreenCaptureKitProbeReport {
+    let report = ScreenCaptureKitProbeReport {
         summary: build_probe_summary(displays.len(), windows.len(), applications.len()),
         preferred_target_label: displays.first().map(|display| {
             format_display_label(display.display_id(), display.width(), display.height())
@@ -276,7 +285,17 @@ fn screen_capture_kit_probe() -> Result<ScreenCaptureKitProbeReport, String> {
                 ),
             })
             .collect(),
-    })
+    };
+
+    let mut cache = probe_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache = Some(CachedScreenCaptureKitProbeReport {
+        report: report.clone(),
+        refreshed_at: Instant::now(),
+    });
+
+    Ok(report)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -292,6 +311,12 @@ fn build_probe_summary(
     format!(
         "ScreenCaptureKit shareable-content probe found {display_count} display(s), {window_count} window(s), and {application_count} application(s)."
     )
+}
+
+#[cfg(target_os = "macos")]
+fn probe_cache() -> &'static Mutex<Option<CachedScreenCaptureKitProbeReport>> {
+    static CACHE: OnceLock<Mutex<Option<CachedScreenCaptureKitProbeReport>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
 }
 
 #[cfg(target_os = "macos")]
@@ -828,6 +853,7 @@ fn normalize_native_target_id_from_probe_report(
     None
 }
 
+#[cfg(test)]
 fn parse_version(value: &str) -> Option<(u64, u64, u64)> {
     let mut parts = value.trim().split('.');
     let major = parts.next()?.parse().ok()?;

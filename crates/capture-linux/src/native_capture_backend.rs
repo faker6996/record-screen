@@ -383,11 +383,7 @@ impl CaptureController for GstreamerX11Capture {
             self.resume()?;
         }
 
-        request_process_stop(
-            LinuxCaptureProcessKind::GstreamerX11,
-            self.child.id(),
-            None,
-        )?;
+        request_process_stop(LinuxCaptureProcessKind::GstreamerX11, self.child.id(), None)?;
 
         let status = self
             .child

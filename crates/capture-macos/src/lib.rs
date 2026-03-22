@@ -5,7 +5,7 @@ mod native_encoder_backend;
 use std::{
     fs,
     process::Command,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     thread,
     time::{Duration, SystemTime},
 };
@@ -41,8 +41,8 @@ use screencapturekit::{
 };
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
-const RECORDING_OUTPUT_STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const RECORDING_OUTPUT_STARTUP_POLL_ATTEMPTS: usize = 40;
+const RECORDING_OUTPUT_STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const RECORDING_OUTPUT_STARTUP_POLL_ATTEMPTS: usize = 80;
 
 #[derive(Clone)]
 struct MacosRecorderRuntimePlan {
@@ -638,16 +638,22 @@ fn native_recording_output_support_note_for(version: Option<(u64, u64, u64)>) ->
 }
 
 fn current_macos_version() -> Option<(u64, u64, u64)> {
-    let output = Command::new("sw_vers")
-        .args(["-productVersion"])
-        .output()
-        .ok()?;
+    static CURRENT_MACOS_VERSION: OnceLock<Option<(u64, u64, u64)>> = OnceLock::new();
 
-    if !output.status.success() {
-        return None;
-    }
+    CURRENT_MACOS_VERSION
+        .get_or_init(|| {
+            let output = Command::new("sw_vers")
+                .args(["-productVersion"])
+                .output()
+                .ok()?;
 
-    parse_macos_version(String::from_utf8_lossy(&output.stdout).trim())
+            if !output.status.success() {
+                return None;
+            }
+
+            parse_macos_version(String::from_utf8_lossy(&output.stdout).trim())
+        })
+        .to_owned()
 }
 
 fn parse_macos_version(value: &str) -> Option<(u64, u64, u64)> {

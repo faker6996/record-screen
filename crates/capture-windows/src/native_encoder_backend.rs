@@ -13,8 +13,8 @@ use windows::{
     Graphics::DirectX::Direct3D11::IDirect3DSurface,
     Win32::Graphics::{
         Direct3D11::{
-            D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
-            D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, ID3D11Resource, ID3D11Texture2D,
+            D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC,
+            D3D11_USAGE_STAGING, ID3D11Resource, ID3D11Texture2D,
         },
         Dxgi::IDXGISurface,
     },
@@ -26,9 +26,10 @@ use windows::{
         MF_MT_FIXED_SIZE_SAMPLES, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE,
         MF_MT_MAJOR_TYPE, MF_MT_SAMPLE_SIZE, MF_MT_SUBTYPE, MF_VERSION, MFAudioFormat_AAC,
         MFAudioFormat_Float, MFAudioFormat_PCM, MFCreateDXGISurfaceBuffer, MFCreateMediaType,
-        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFCreateVideoSampleFromSurface,
-        MFMediaType_Audio, MFMediaType_Video, MFSTARTUP_NOSOCKET, MFShutdown, MFStartup,
-        MFVideoFormat_ARGB32, MFVideoFormat_H264, MFVideoInterlace_Progressive,
+        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL,
+        MFCreateVideoSampleFromSurface, MFMediaType_Audio, MFMediaType_Video, MFSTARTUP_NOSOCKET,
+        MFShutdown, MFStartup, MFVideoFormat_ARGB32, MFVideoFormat_H264,
+        MFVideoInterlace_Progressive,
     },
     Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess,
     core::{IUnknown, Interface, PCWSTR},
@@ -763,7 +764,8 @@ fn copy_texture_bytes(texture: &ID3D11Texture2D) -> Result<Vec<u8>, capture::Cap
 
     let source_resource: ID3D11Resource = texture.cast().map_err(map_windows_error)?;
     let staging_resource: ID3D11Resource = staging_texture.cast().map_err(map_windows_error)?;
-    let device_context = unsafe { d3d11_device.GetImmediateContext() }.map_err(map_windows_error)?;
+    let device_context =
+        unsafe { d3d11_device.GetImmediateContext() }.map_err(map_windows_error)?;
     unsafe {
         device_context.CopyResource(&staging_resource, &source_resource);
     }

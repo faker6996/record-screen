@@ -2,7 +2,6 @@ use capture::{
     EncoderBackendAvailability, EncoderBackendDescriptor, EncoderBackendFactory,
     EncoderBackendRuntimeReport, RecordingOptions,
 };
-use std::process::Command;
 
 pub struct AvAssetWriterMacosEncoderBackend;
 
@@ -110,24 +109,12 @@ fn build_output_plan(options: &RecordingOptions) -> AvAssetWriterOutputPlan {
 }
 
 fn macos_version() -> Option<String> {
-    let output = Command::new("sw_vers")
-        .args(["-productVersion"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if version.is_empty() {
-        None
-    } else {
-        Some(version)
-    }
+    let (major, minor, patch) = super::current_macos_version()?;
+    Some(format!("{major}.{minor}.{patch}"))
 }
 
 fn native_recording_output_runtime_is_supported() -> bool {
-    matches!(macos_version(), Some(version) if version.starts_with("15.") || parse_major_version(&version).is_some_and(|major| major >= 15))
+    matches!(super::current_macos_version(), Some((major, _, _)) if major >= 15)
 }
 
 fn native_recording_output_profile(quality_preset: &str) -> (String, Option<String>) {
@@ -137,10 +124,6 @@ fn native_recording_output_profile(quality_preset: &str) -> (String, Option<Stri
         }
         _ => ("h264".to_string(), Some("balanced".to_string())),
     }
-}
-
-fn parse_major_version(version: &str) -> Option<u64> {
-    version.trim().split('.').next()?.parse().ok()
 }
 
 #[cfg(test)]

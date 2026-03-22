@@ -41,25 +41,36 @@ pub fn initial_runtime_diagnostics() -> RuntimeDiagnostics {
     default_runtime_diagnostics()
 }
 
-pub fn refreshed_runtime_diagnostics() -> RuntimeDiagnostics {
-    load_runtime_diagnostics(true)
+pub fn current_runtime_diagnostics() -> RuntimeDiagnostics {
+    load_runtime_diagnostics(false)
 }
 
 fn load_runtime_diagnostics(force_refresh: bool) -> RuntimeDiagnostics {
-    let mut cache = cache()
+    let cache_guard = cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     if !force_refresh {
-        if let Some(entry) = cache.as_ref() {
-            if entry.refreshed_at.elapsed() < DIAGNOSTICS_TTL {
-                return entry.diagnostics.clone();
+        if let Some(entry) = cache_guard.as_ref() {
+            let diagnostics = entry.diagnostics.clone();
+            let is_stale = entry.refreshed_at.elapsed() >= DIAGNOSTICS_TTL;
+            drop(cache_guard);
+            if is_stale {
+                schedule_background_refresh();
             }
+            return diagnostics;
         }
+
+        drop(cache_guard);
+        schedule_background_refresh();
+        return default_runtime_diagnostics();
     }
 
     let diagnostics = runtime_diagnostics_now();
-    *cache = Some(CachedRuntimeDiagnostics {
+    let mut cache_guard = cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache_guard = Some(CachedRuntimeDiagnostics {
         diagnostics: diagnostics.clone(),
         refreshed_at: Instant::now(),
     });

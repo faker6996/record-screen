@@ -159,7 +159,9 @@ pub(crate) fn availability_for(
             }
         }
         LinuxDesktopSession::Headless => EncoderBackendAvailability::Unavailable {
-            reason: "A desktop session is required before the Linux native encoder lane can be probed.".to_string(),
+            reason:
+                "A desktop session is required before the Linux native encoder lane can be probed."
+                    .to_string(),
         },
     }
 }

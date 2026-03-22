@@ -53,20 +53,28 @@ pub fn refreshed_snapshot() -> DeviceDiscoverySnapshot {
 }
 
 fn load_snapshot(force_refresh: bool) -> DeviceDiscoverySnapshot {
-    let mut cache = cache()
+    let cache_guard = cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     if !force_refresh {
-        if let Some(entry) = cache.as_ref() {
-            if entry.refreshed_at.elapsed() < DEVICE_DISCOVERY_TTL {
-                return entry.snapshot.clone();
+        if let Some(entry) = cache_guard.as_ref() {
+            let snapshot = entry.snapshot.clone();
+            let is_stale = entry.refreshed_at.elapsed() >= DEVICE_DISCOVERY_TTL;
+            drop(cache_guard);
+            if is_stale {
+                schedule_background_refresh();
             }
+            return snapshot;
         }
     }
 
+    drop(cache_guard);
     let snapshot = discover_devices();
-    *cache = Some(CachedDeviceDiscovery {
+    let mut cache_guard = cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache_guard = Some(CachedDeviceDiscovery {
         snapshot: snapshot.clone(),
         refreshed_at: Instant::now(),
     });
