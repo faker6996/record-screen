@@ -121,6 +121,7 @@ pub fn update_capture_target(
             .map_err(|_| "failed to lock app state".to_string())?;
         let settings =
             core.update_capture_target(capture_target_id.clone(), normalized_label.clone());
+
         let recorder = core.snapshot();
         (settings, recorder)
     };
@@ -161,6 +162,23 @@ pub fn update_system_audio_enabled(
     let capabilities = crate::capture_capabilities::current_capture_capabilities();
     if system_audio_enabled && !capabilities.supports_system_audio {
         return Err(capabilities.system_audio_note);
+    }
+
+    #[cfg(target_os = "macos")]
+    if system_audio_enabled {
+        let capture_target_id = {
+            let core = state
+                .core
+                .lock()
+                .map_err(|_| "failed to lock app state".to_string())?;
+            let settings = core.settings();
+            settings.capture_target_id
+        };
+        let (supported, note) =
+            capture_macos::system_audio_support_summary_for_target(&capture_target_id);
+        if !supported {
+            return Err(note);
+        }
     }
 
     let (settings, recorder) = {

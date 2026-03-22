@@ -1,3 +1,4 @@
+mod composite_desktop;
 pub mod native_audio_backend;
 mod native_backend;
 mod native_encoder_backend;
@@ -174,6 +175,10 @@ pub fn encoder_output_plan_summary(options: &RecordingOptions) -> Option<String>
 pub(crate) fn start_native_capture_bridge(
     options: RecordingOptions,
 ) -> Result<Box<dyn CaptureController>, CaptureError> {
+    if uses_full_desktop_composite_lane(&options.capture_target_id) {
+        return composite_desktop::start_full_desktop_composite_capture(options);
+    }
+
     if !supports_native_recording_output(&options) || !native_recording_output_is_supported() {
         return Err(CaptureError::BackendUnavailable(
             native_recording_output_support_note(),
@@ -528,7 +533,7 @@ pub fn system_audio_support_summary() -> (bool, String) {
     if native_recording_output_is_supported() {
         (
             true,
-            "System audio capture is available on macOS through the ScreenCaptureKit recording-output lane."
+            "System audio capture is available on macOS through the native ScreenCaptureKit recording lanes."
                 .to_string(),
         )
     } else {
@@ -536,8 +541,53 @@ pub fn system_audio_support_summary() -> (bool, String) {
     }
 }
 
+pub fn microphone_support_summary_for_target(capture_target_id: &str) -> (bool, String) {
+    (
+        true,
+        if uses_full_desktop_composite_lane(capture_target_id) {
+            "Microphone capture is available on macOS through the native desktop-composite lane and can be combined with system audio when ScreenCaptureKit exposes matching PCM layouts for both sources."
+                .to_string()
+        } else {
+            "Microphone capture is available on macOS through the native ScreenCaptureKit recording lanes."
+                .to_string()
+        },
+    )
+}
+
+pub fn system_audio_support_summary_for_target(capture_target_id: &str) -> (bool, String) {
+    if uses_full_desktop_composite_lane(capture_target_id) {
+        return (
+            true,
+            "System audio capture is available on macOS through the native desktop-composite lane and can be combined with microphone capture when ScreenCaptureKit exposes matching PCM layouts for both sources."
+                .to_string(),
+        );
+    }
+
+    system_audio_support_summary()
+}
+
 fn native_preferred_input_label() -> Option<String> {
     native_audio_backend::preferred_input_device_name()
+}
+
+#[cfg(target_os = "macos")]
+fn uses_full_desktop_composite_lane(capture_target_id: &str) -> bool {
+    capture_target_id == FULL_DESKTOP_TARGET_ID
+        && native_backend::full_desktop_display_count().unwrap_or(0) > 1
+}
+
+#[cfg(not(target_os = "macos"))]
+fn uses_full_desktop_composite_lane(_capture_target_id: &str) -> bool {
+    false
+}
+
+pub fn full_desktop_composite_dual_audio_note() -> String {
+    let display_count = native_backend::full_desktop_display_count()
+        .unwrap_or(2)
+        .max(2);
+    format!(
+        "Full desktop across {display_count} macOS displays can combine microphone and system audio on the native desktop-composite lane when ScreenCaptureKit exposes matching PCM layouts for both sources. If the two audio streams use different layouts, choose one audio source or switch to a specific display."
+    )
 }
 
 #[cfg(target_os = "macos")]

@@ -312,6 +312,11 @@ impl AppCore {
         self.current_snapshot()
     }
 
+    pub fn update_microphone_enabled(&mut self, mic_enabled: bool) -> AppSettings {
+        self.settings.mic_enabled = mic_enabled;
+        self.settings.clone()
+    }
+
     pub fn update_system_audio_enabled(&mut self, system_audio_enabled: bool) -> AppSettings {
         self.settings.system_audio_enabled = system_audio_enabled;
         self.settings.clone()

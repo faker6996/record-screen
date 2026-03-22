@@ -410,6 +410,14 @@ dependencies = [
  "capture",
  "core-graphics",
  "libc",
+ "objc2",
+ "objc2-av-foundation",
+ "objc2-avf-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-core-media",
+ "objc2-core-video",
+ "objc2-foundation",
  "screencapturekit",
  "thiserror 2.0.18",
 ]
@@ -2291,6 +2299,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-core-image",
+ "objc2-core-media",
  "objc2-core-video",
  "objc2-foundation",
  "objc2-image-io",
@@ -3070,7 +3079,7 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "record-screen-desktop"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "app-core",
  "capture",

@@ -88,6 +88,14 @@ pub fn get_bootstrap(
         core.update_system_audio_enabled(false);
         settings_changed = true;
     }
+    #[cfg(target_os = "macos")]
+    if settings.mic_enabled && permissions::microphone_permission_blocked("macos") {
+        core.update_microphone_enabled(false);
+        settings_changed = true;
+        crate::runtime_log::log_runtime_info(
+            "disabled microphone during bootstrap because macOS reports microphone access is blocked",
+        );
+    }
     let platform = bootstrap::platform_name();
     let app_version = app.package_info().version.to_string();
     let snapshot = core.bootstrap(

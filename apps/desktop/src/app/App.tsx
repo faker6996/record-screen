@@ -234,7 +234,6 @@ function LauncherApp() {
 
   const currentSnapshot = snapshot
   const currentRecorder = recorder
-
   const activeTabConfig =
     launcherTabs.find((tab) => tab.id === activeTab) ?? launcherTabs[0]
 

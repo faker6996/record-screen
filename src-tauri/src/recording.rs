@@ -98,6 +98,16 @@ pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
 pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     let _ = crate::mic_check::stop_mic_check(app);
     let mut settings = with_core(app, |core| core.settings())?;
+    #[cfg(target_os = "macos")]
+    if settings.mic_enabled && permissions::microphone_permission_blocked("macos") {
+        let message = permissions::microphone_permission_guidance("macos")
+            .unwrap_or_else(|| "Microphone access is blocked in macOS settings.".to_string());
+        runtime_log::log_runtime_error(&format!(
+            "recording startup blocked before native capture because microphone access is unavailable | target_id={} | reason={}",
+            settings.capture_target_id, message
+        ));
+        return Err(message);
+    }
     let available_audio_inputs = audio_inputs::available_audio_inputs();
     let available_capture_targets = crate::capture_targets::available_capture_targets(&settings);
     let mut settings_changed = false;

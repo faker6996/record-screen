@@ -128,7 +128,15 @@ pub fn start_plan(options: &RecordingOptions) -> ScreenCaptureKitStartPlan {
 
 pub fn capture_target_options() -> Option<Vec<CaptureTargetOption>> {
     let report = screen_capture_kit_probe().ok()?;
-    let mut targets = vec![full_desktop_target()];
+    let mut full_desktop = full_desktop_target();
+    if report.display_count > 1 {
+        full_desktop.description = format!(
+            "Record the entire desktop layout across all connected displays. macOS native recording now composites {} display(s) into a single file on the desktop-composite lane. That lane can combine microphone and system audio when ScreenCaptureKit exposes matching PCM layouts for both sources.",
+            report.display_count
+        );
+    }
+
+    let mut targets = vec![full_desktop];
     targets.extend(report.targets.iter().map(|target| CaptureTargetOption {
         id: format!("monitor:{}", target.display_index),
         label: format!("Display {}", target.display_index),
@@ -158,6 +166,12 @@ pub fn prepared_runtime_summary(options: &RecordingOptions) -> Option<String> {
 
 pub fn smoke_lifecycle_summary(options: &RecordingOptions) -> Option<String> {
     build_smoke_lifecycle(options).ok().map(|plan| plan.summary)
+}
+
+pub fn full_desktop_display_count() -> Option<usize> {
+    screen_capture_kit_probe()
+        .ok()
+        .map(|report| report.display_count)
 }
 
 impl CaptureBackendFactory for ScreenCaptureKitMacosBackend {
@@ -200,10 +214,17 @@ impl CaptureBackendFactory for ScreenCaptureKitMacosBackend {
         match screen_capture_kit_probe() {
             Ok(report) => CaptureBackendRuntimeReport {
                 summary: Some(if native_recording_output_runtime_is_supported() {
-                    format!(
+                    let mut summary = format!(
                         "{} ScreenCaptureKit is the active macOS native capture path; display, monitor, and custom-region recording now target the direct recording-output lane on supported runtimes.",
                         report.summary
-                    )
+                    );
+                    if report.display_count > 1 {
+                        summary.push_str(&format!(
+                            " Full-desktop selection currently detects {} displays and routes through a native desktop-composite lane. That lane can combine microphone and system audio when ScreenCaptureKit exposes matching PCM layouts for both sources.",
+                            report.display_count
+                        ));
+                    }
+                    summary
                 } else {
                     format!(
                         "{} ScreenCaptureKit is available for native capture planning, while older macOS runtimes do not expose the direct native recording lane.",

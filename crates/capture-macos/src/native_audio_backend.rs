@@ -329,15 +329,6 @@ fn macos_version() -> Option<(u64, u64, u64)> {
     super::current_macos_version()
 }
 
-#[cfg(test)]
-fn parse_macos_version(value: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = value.trim().split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next().unwrap_or("0").parse().ok()?;
-    let patch = parts.next().unwrap_or("0").parse().ok()?;
-    Some((major, minor, patch))
-}
-
 fn parse_system_profiler_audio_report(stdout: &str) -> Option<MacosAudioDeviceReport> {
     let mut devices = Vec::new();
     let mut current: Option<MacosAudioDevice> = None;

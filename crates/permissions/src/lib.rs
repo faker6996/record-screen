@@ -130,6 +130,22 @@ pub fn default_permissions(platform: &str) -> Vec<PermissionCheck> {
     items
 }
 
+pub fn microphone_permission_blocked(platform: &str) -> bool {
+    match platform {
+        #[cfg(target_os = "macos")]
+        "macos" => macos::microphone_permission_blocked(),
+        _ => false,
+    }
+}
+
+pub fn microphone_permission_guidance(platform: &str) -> Option<String> {
+    match platform {
+        #[cfg(target_os = "macos")]
+        "macos" => Some(macos::microphone_guidance()),
+        _ => None,
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use std::{process::Command, sync::mpsc, time::Duration};
@@ -227,7 +243,14 @@ mod macos {
         }
     }
 
-    fn microphone_guidance() -> String {
+    pub(crate) fn microphone_permission_blocked() -> bool {
+        matches!(
+            microphone_authorization_status(),
+            AVAuthorizationStatus::Denied | AVAuthorizationStatus::Restricted
+        )
+    }
+
+    pub(crate) fn microphone_guidance() -> String {
         match microphone_authorization_status() {
             AVAuthorizationStatus::Authorized => {
                 "macOS reports that microphone access is already granted.".to_string()
