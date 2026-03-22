@@ -15,6 +15,7 @@ mod window;
 
 use std::str::FromStr;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use app_core::{AppCore, RecorderSnapshot};
 use shortcuts::{ShortcutAction, ShortcutBinding};
@@ -56,6 +57,10 @@ pub(crate) fn emit_recent_sessions_refresh_request(app: &AppHandle) {
     let _ = app.emit("recorder://recent-sessions-refresh-requested", ());
 }
 
+pub(crate) fn emit_bootstrap_refresh_request(app: &AppHandle) {
+    let _ = app.emit("recorder://bootstrap-refresh-requested", ());
+}
+
 pub(crate) fn persist_settings(app: &AppHandle) -> Result<(), String> {
     let settings = with_core(app, |core| core.settings())?;
     storage::save_app_settings(&settings).map_err(|error| error.to_string())
@@ -85,6 +90,46 @@ fn load_initial_shortcuts() -> Vec<ShortcutBinding> {
         }
     }
 }
+
+#[cfg(target_os = "macos")]
+fn schedule_macos_composite_selftest(app: &AppHandle) {
+    let Some(delay_ms) = std::env::var("RECORD_SCREEN_MAC_COMPOSITE_SELFTEST_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+    else {
+        return;
+    };
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1_500));
+        match recording::toggle_recording(&app) {
+            Ok(_) => runtime_log::log_runtime_info(&format!(
+                "macOS composite self-test started | auto_stop_ms={delay_ms}"
+            )),
+            Err(error) => {
+                runtime_log::log_runtime_error(&format!(
+                    "macOS composite self-test failed to start | auto_stop_ms={delay_ms} | error={error}"
+                ));
+                return;
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(delay_ms));
+        match recording::toggle_recording(&app) {
+            Ok(_) => runtime_log::log_runtime_info(&format!(
+                "macOS composite self-test stopped | auto_stop_ms={delay_ms}"
+            )),
+            Err(error) => runtime_log::log_runtime_error(&format!(
+                "macOS composite self-test failed to stop | auto_stop_ms={delay_ms} | error={error}"
+            )),
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn schedule_macos_composite_selftest(_app: &AppHandle) {}
 
 pub(crate) fn parse_shortcut_accelerator(accelerator: &str) -> Result<Shortcut, String> {
     let mut normalized_tokens = Vec::new();
@@ -247,6 +292,7 @@ pub fn run() {
             tray::create(app.handle())?;
             window::focus_launcher(app.handle())?;
             window::schedule_hud_window_prewarm(app.handle());
+            schedule_macos_composite_selftest(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -285,6 +331,7 @@ pub fn run() {
             commands::settings::update_launch_on_login,
             commands::settings::update_show_hud_during_recording,
             commands::settings::update_capture_target,
+            commands::settings::update_region_source_capture_target,
             commands::settings::update_audio_input,
             commands::settings::update_system_audio_enabled,
             commands::settings::update_custom_region,
@@ -294,7 +341,9 @@ pub fn run() {
             commands::window::focus_launcher,
             commands::window::hide_hud,
             commands::window::hide_region_selector,
+            commands::window::hide_target_preview,
             commands::window::show_hud,
+            commands::window::show_custom_region_preview,
             commands::window::show_region_selector,
             commands::window::start_hud_drag
         ])

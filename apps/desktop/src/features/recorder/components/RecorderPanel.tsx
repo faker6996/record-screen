@@ -18,10 +18,14 @@ interface RecorderPanelProps {
   onPauseResume: () => Promise<void>
   onUpdateAudioInput: (audioInputId: string) => Promise<void>
   onUpdateCaptureTarget: (captureTargetId: string) => Promise<void>
+  onUpdateRegionSourceCaptureTarget: (
+    regionSourceCaptureTargetId: string,
+  ) => Promise<void>
   onToggleMicrophone: () => Promise<void>
   onToggleRecording: () => Promise<void>
   selectedAudioInputId: string
   selectedCaptureTargetId: string
+  selectedRegionSourceCaptureTargetId: string
   systemAudioEnabled: boolean
   runtimeError: string | null
 }
@@ -58,6 +62,29 @@ function formatElapsed(totalSeconds: number) {
     .join(':')
 }
 
+function parseCustomRegionTargetSummary(targetLabel: string) {
+  const match = targetLabel.match(
+    /^Custom region(?:\s+[\u00b7•]\s+(-?\d+),\s*(-?\d+))?(?:\s+[\u00b7•]\s+(\d+)\s*x\s*(\d+))?/i,
+  )
+
+  if (!match) {
+    return null
+  }
+
+  const originX = Number.parseInt(match[1] ?? '', 10)
+  const originY = Number.parseInt(match[2] ?? '', 10)
+  const width = Number.parseInt(match[3] ?? '', 10)
+  const height = Number.parseInt(match[4] ?? '', 10)
+
+  return {
+    hasOrigin: Number.isFinite(originX) && Number.isFinite(originY),
+    height: Number.isFinite(height) ? height : null,
+    originX: Number.isFinite(originX) ? originX : null,
+    originY: Number.isFinite(originY) ? originY : null,
+    width: Number.isFinite(width) ? width : null,
+  }
+}
+
 const RecorderControlGrid = memo(function RecorderControlGrid({
   captureTargetDescription,
   captureTargetOptions,
@@ -74,10 +101,13 @@ const RecorderControlGrid = memo(function RecorderControlGrid({
   onToggleMicrophone,
   onUpdateAudioInput,
   onUpdateCaptureTarget,
+  onUpdateRegionSourceCaptureTarget,
   recorderMicEnabled,
+  regionSourceTargetOptions,
   selectedAudioDescription,
   selectedAudioInputId,
   selectedCaptureTargetId,
+  selectedRegionSourceCaptureTargetId,
   systemAudioEnabled,
   toggleMicCheck,
 }: {
@@ -96,10 +126,15 @@ const RecorderControlGrid = memo(function RecorderControlGrid({
   onToggleMicrophone: () => Promise<void>
   onUpdateAudioInput: (audioInputId: string) => Promise<void>
   onUpdateCaptureTarget: (captureTargetId: string) => Promise<void>
+  onUpdateRegionSourceCaptureTarget: (
+    regionSourceCaptureTargetId: string,
+  ) => Promise<void>
   recorderMicEnabled: boolean
+  regionSourceTargetOptions: Array<{ value: string; label: string }>
   selectedAudioDescription?: string
   selectedAudioInputId: string
   selectedCaptureTargetId: string
+  selectedRegionSourceCaptureTargetId: string
   systemAudioEnabled: boolean
   toggleMicCheck: () => Promise<void>
 }) {
@@ -130,7 +165,21 @@ const RecorderControlGrid = memo(function RecorderControlGrid({
         />
         <p className="subtle-copy recorder-panel__helper">{captureTargetDescription}</p>
         {customRegionSelected && diagnostics.supportsCustomRegion ? (
-          <div>
+          <div className="recorder-panel__custom-region-actions">
+            <Combobox
+              ariaLabel="Custom region source display"
+              className="recorder-panel__target-combobox"
+              disabled={!isIdle}
+              onChange={(nextRegionSourceCaptureTargetId) => {
+                void onUpdateRegionSourceCaptureTarget(nextRegionSourceCaptureTargetId)
+              }}
+              options={regionSourceTargetOptions}
+              value={selectedRegionSourceCaptureTargetId}
+            />
+            <p className="subtle-copy recorder-panel__helper">
+              Choose which display to edit on, then move, resize, or redraw the
+              current region on that screen.
+            </p>
             <button
               className="button button--secondary"
               disabled={!isIdle}
@@ -139,7 +188,7 @@ const RecorderControlGrid = memo(function RecorderControlGrid({
               }}
               type="button"
             >
-              Select on screen again
+              Edit on screen
             </button>
           </div>
         ) : null}
@@ -246,10 +295,12 @@ export function RecorderPanel({
   onPauseResume,
   onUpdateAudioInput,
   onUpdateCaptureTarget,
+  onUpdateRegionSourceCaptureTarget,
   onToggleMicrophone,
   onToggleRecording,
   selectedAudioInputId,
   selectedCaptureTargetId,
+  selectedRegionSourceCaptureTargetId,
   systemAudioEnabled,
   runtimeError,
 }: RecorderPanelProps) {
@@ -294,6 +345,25 @@ export function RecorderPanel({
       })),
     [captureTargets],
   )
+  const regionSourceTargetOptions = useMemo(
+    () =>
+      captureTargets
+        .filter(
+          (target) =>
+            target.id !== 'full-desktop' && target.id !== 'region:custom',
+        )
+        .map((target) => ({
+          value: target.id,
+          label: target.label,
+        })),
+    [captureTargets],
+  )
+  const selectedRegionSourceCaptureTargetValue =
+    regionSourceTargetOptions.find(
+      (target) => target.value === selectedRegionSourceCaptureTargetId,
+    )?.value ??
+    regionSourceTargetOptions[0]?.value ??
+    selectedRegionSourceCaptureTargetId
   const microphoneInputOptions = useMemo(
     () =>
       microphoneOptions.map((input) => ({
@@ -354,6 +424,10 @@ export function RecorderPanel({
         ? 'Writing the recording file. Wait a moment before starting another capture.'
       : 'Recording is in progress. Stop when your session is complete.'
   const customRegionSelected = selectedCaptureTargetId === 'region:custom'
+  const activeCustomRegionSummary = useMemo(
+    () => parseCustomRegionTargetSummary(recorder.activeTarget),
+    [recorder.activeTarget],
+  )
 
   function RecorderElapsed({
     label,
@@ -433,46 +507,65 @@ export function RecorderPanel({
 
         {!isIdle ? (
           <div className="recorder-panel__runtime">
-            {isPreparingRecording ? (
-              <strong className="recorder-panel__timer recorder-panel__timer--starting">
-                <LoaderCircle aria-hidden="true" className="recorder-panel__loading-spinner" />
-                <span>Preparing…</span>
-              </strong>
-            ) : (
-              <strong className="recorder-panel__timer">
-                <RecorderElapsed
-                  key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}:${recorder.elapsedLabel}`}
-                  label={recorder.elapsedLabel}
-                  status={recorder.status}
-                />
-              </strong>
-            )}
-            {!isFinalizing ? (
-              <button
-                className={`recorder-panel__pause-button ${
-                  isPaused ? 'recorder-panel__pause-button--paused' : ''
-                }`}
-                data-testid="recorder-pause-button"
-                disabled={pauseDisabled}
-                onClick={() => void onPauseResume()}
-                title={pauseDisabled ? recorder.pauseNote ?? 'Pause is unavailable' : undefined}
-                type="button"
-              >
-                {isPaused ? (
-                  <>
-                    <Play aria-hidden="true" size={18} strokeWidth={2} />
-                    <span>Resume</span>
-                  </>
-                ) : (
-                  <>
-                    <Pause aria-hidden="true" size={18} strokeWidth={2} />
-                    <span>Pause</span>
-                  </>
-                )}
-              </button>
-            ) : null}
-            {pauseDisabled && recorder.pauseNote ? (
-              <span className="subtle-copy recorder-panel__helper">{recorder.pauseNote}</span>
+            <div className="recorder-panel__runtime-main">
+              {isPreparingRecording ? (
+                <strong className="recorder-panel__timer recorder-panel__timer--starting">
+                  <LoaderCircle aria-hidden="true" className="recorder-panel__loading-spinner" />
+                  <span>Preparing…</span>
+                </strong>
+              ) : (
+                <strong className="recorder-panel__timer">
+                  <RecorderElapsed
+                    key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}:${recorder.elapsedLabel}`}
+                    label={recorder.elapsedLabel}
+                    status={recorder.status}
+                  />
+                </strong>
+              )}
+              {!isFinalizing ? (
+                <button
+                  className={`recorder-panel__pause-button ${
+                    isPaused ? 'recorder-panel__pause-button--paused' : ''
+                  }`}
+                  data-testid="recorder-pause-button"
+                  disabled={pauseDisabled}
+                  onClick={() => void onPauseResume()}
+                  title={pauseDisabled ? recorder.pauseNote ?? 'Pause is unavailable' : undefined}
+                  type="button"
+                >
+                  {isPaused ? (
+                    <>
+                      <Play aria-hidden="true" size={18} strokeWidth={2} />
+                      <span>Resume</span>
+                    </>
+                  ) : (
+                    <>
+                      <Pause aria-hidden="true" size={18} strokeWidth={2} />
+                      <span>Pause</span>
+                    </>
+                  )}
+                </button>
+              ) : null}
+              {pauseDisabled && recorder.pauseNote ? (
+                <span className="subtle-copy recorder-panel__helper">{recorder.pauseNote}</span>
+              ) : null}
+            </div>
+            {activeCustomRegionSummary ? (
+              <div className="recorder-panel__region-runtime" role="status" aria-live="polite">
+                <span className="recorder-panel__region-runtime-label">
+                  {isPaused ? 'Custom region paused' : 'Recording custom region'}
+                </span>
+                <strong className="recorder-panel__region-runtime-size">
+                  {activeCustomRegionSummary.width && activeCustomRegionSummary.height
+                    ? `${activeCustomRegionSummary.width} x ${activeCustomRegionSummary.height}`
+                    : 'Region locked in'}
+                </strong>
+                <span className="recorder-panel__region-runtime-meta">
+                  {activeCustomRegionSummary.hasOrigin
+                    ? `Origin ${activeCustomRegionSummary.originX}, ${activeCustomRegionSummary.originY}`
+                    : 'The selected region stays fixed while recording.'}
+                </span>
+              </div>
             ) : null}
           </div>
         ) : null}
@@ -494,10 +587,13 @@ export function RecorderPanel({
         onToggleMicrophone={onToggleMicrophone}
         onUpdateAudioInput={onUpdateAudioInput}
         onUpdateCaptureTarget={onUpdateCaptureTarget}
+        onUpdateRegionSourceCaptureTarget={onUpdateRegionSourceCaptureTarget}
         recorderMicEnabled={recorder.micEnabled}
+        regionSourceTargetOptions={regionSourceTargetOptions}
         selectedAudioDescription={selectedAudioInput?.description}
         selectedAudioInputId={selectedAudioInputId}
         selectedCaptureTargetId={selectedCaptureTargetId}
+        selectedRegionSourceCaptureTargetId={selectedRegionSourceCaptureTargetValue}
         systemAudioEnabled={systemAudioEnabled}
         toggleMicCheck={toggleMicCheck}
       />

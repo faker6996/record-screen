@@ -1,5 +1,10 @@
 # End-to-End Test Report 2026-03-16
 
+> Update 2026-03-22:
+> This report is no longer the latest macOS app-path status.
+> Real-hardware validation for the native multi-display macOS lane now lives in `docs/reports/macos-app-path-validation-2026-03-22.md`.
+> The earlier `full desktop + microphone` TCC blocker described below has since been resolved on the real app path, and the current remaining macOS gap is the multi-display `microphone + system audio` case when `ScreenCaptureKit` exposes mismatched PCM layouts.
+
 ## Summary
 
 This report captures two different automated test layers that now exist for the macOS development flow:

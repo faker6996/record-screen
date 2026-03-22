@@ -36,6 +36,14 @@ struct RegionSelectorContext {
     height: u32,
     scale_factor: f64,
     capture_target_id: String,
+    initial_region: Option<RegionSelectorInitialRegion>,
+}
+
+struct RegionSelectorInitialRegion {
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
 }
 
 pub fn focus_launcher(app: &AppHandle) -> Result<(), String> {
@@ -215,6 +223,9 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
     builder
         .build()
         .map_err(|error: TauriError| error.to_string())?;
+    if let Some(window) = app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL) {
+        let _ = window.set_ignore_cursor_events(true);
+    }
     Ok(())
 }
 
@@ -274,14 +285,102 @@ fn region_selector_context(app: &AppHandle) -> Result<RegionSelectorContext, Str
     let main_window = app
         .get_webview_window(MAIN_WINDOW_LABEL)
         .ok_or_else(|| "main window is not available".to_string())?;
+    let settings = with_core(app, |core| core.settings())?;
+    let preferred_target_id = {
+        if settings.capture_target_id == capture::CUSTOM_REGION_TARGET_ID {
+            settings.region_source_capture_target_id.clone()
+        } else {
+            settings.capture_target_id.clone()
+        }
+    };
+    let capture_target_id = if preferred_target_id == capture::FULL_DESKTOP_TARGET_ID {
+        let monitor = main_window
+            .current_monitor()
+            .map_err(|error| error.to_string())?
+            .and_then(|current_monitor| {
+                region_selector_monitor_for_target(app, &preferred_target_id)
+                    .or(Some(current_monitor))
+            })
+            .or_else(|| region_selector_monitor_for_target(app, &preferred_target_id))
+            .or_else(|| app.primary_monitor().ok().flatten())
+            .ok_or_else(|| "no active monitor is available for region selection".to_string())?;
+        current_monitor_capture_target_id(app, &monitor)
+    } else {
+        preferred_target_id.clone()
+    };
+    #[cfg(target_os = "macos")]
+    if let Some((origin_x, origin_y, width, height, scale_factor_milli)) =
+        capture_macos::logical_target_display_context(&capture_target_id)
+    {
+        let scale_factor = (f64::from(scale_factor_milli.max(1)) / 1000.0).max(1.0);
+        let initial_region = if settings.capture_target_id == capture::CUSTOM_REGION_TARGET_ID
+            && settings.region_source_capture_target_id == capture_target_id
+        {
+            let left = f64::from(settings.region_x) / scale_factor;
+            let top = f64::from(settings.region_y) / scale_factor;
+            let width_points = f64::from(settings.region_width.max(64)) / scale_factor;
+            let height_points = f64::from(settings.region_height.max(64)) / scale_factor;
+
+            let clamped_left = left.clamp(0.0, f64::from(width.saturating_sub(64)));
+            let clamped_top = top.clamp(0.0, f64::from(height.saturating_sub(64)));
+            let max_width = (f64::from(width) - clamped_left).max(64.0);
+            let max_height = (f64::from(height) - clamped_top).max(64.0);
+
+            Some(RegionSelectorInitialRegion {
+                left: clamped_left,
+                top: clamped_top,
+                width: width_points.clamp(64.0, max_width),
+                height: height_points.clamp(64.0, max_height),
+            })
+        } else {
+            None
+        };
+
+        return Ok(RegionSelectorContext {
+            origin_x: origin_x,
+            origin_y: origin_y,
+            width,
+            height,
+            scale_factor,
+            capture_target_id,
+            initial_region,
+        });
+    }
+
     let monitor = main_window
         .current_monitor()
         .map_err(|error| error.to_string())?
+        .and_then(|current_monitor| {
+            region_selector_monitor_for_target(app, &preferred_target_id).or(Some(current_monitor))
+        })
+        .or_else(|| region_selector_monitor_for_target(app, &preferred_target_id))
         .or_else(|| app.primary_monitor().ok().flatten())
         .ok_or_else(|| "no active monitor is available for region selection".to_string())?;
     let size = monitor.size();
     let position = monitor.position();
-    let capture_target_id = current_monitor_capture_target_id(app, &monitor);
+    let initial_region = if settings.capture_target_id == capture::CUSTOM_REGION_TARGET_ID
+        && settings.region_source_capture_target_id == capture_target_id
+    {
+        let scale_factor = monitor.scale_factor().max(1.0);
+        let left = f64::from(settings.region_x) / scale_factor;
+        let top = f64::from(settings.region_y) / scale_factor;
+        let width = f64::from(settings.region_width.max(64)) / scale_factor;
+        let height = f64::from(settings.region_height.max(64)) / scale_factor;
+
+        let clamped_left = left.clamp(0.0, f64::from(size.width.saturating_sub(64)));
+        let clamped_top = top.clamp(0.0, f64::from(size.height.saturating_sub(64)));
+        let max_width = (f64::from(size.width) - clamped_left).max(64.0);
+        let max_height = (f64::from(size.height) - clamped_top).max(64.0);
+
+        Some(RegionSelectorInitialRegion {
+            left: clamped_left,
+            top: clamped_top,
+            width: width.clamp(64.0, max_width),
+            height: height.clamp(64.0, max_height),
+        })
+    } else {
+        None
+    };
 
     Ok(RegionSelectorContext {
         origin_x: position.x,
@@ -290,41 +389,84 @@ fn region_selector_context(app: &AppHandle) -> Result<RegionSelectorContext, Str
         height: size.height,
         scale_factor: monitor.scale_factor(),
         capture_target_id,
+        initial_region,
     })
 }
 
 fn region_selector_init_script(context: &RegionSelectorContext) -> String {
+    let initial_region = context.initial_region.as_ref().map(|region| {
+        serde_json::json!({
+            "left": region.left,
+            "top": region.top,
+            "width": region.width,
+            "height": region.height,
+        })
+    });
     format!(
-        "window.__RECORD_SCREEN_SURFACE__ = 'region-selector'; window.__RECORD_SCREEN_SELECTOR_CONTEXT__ = {{ originX: {}, originY: {}, width: {}, height: {}, scaleFactor: {}, captureTargetId: {:?} }};",
+        "window.__RECORD_SCREEN_SURFACE__ = 'region-selector'; window.__RECORD_SCREEN_SELECTOR_CONTEXT__ = {{ originX: {}, originY: {}, width: {}, height: {}, scaleFactor: {}, captureTargetId: {:?}, initialRegion: {} }};",
         context.origin_x,
         context.origin_y,
         context.width,
         context.height,
         context.scale_factor,
-        context.capture_target_id
+        context.capture_target_id,
+        initial_region.unwrap_or(serde_json::Value::Null)
     )
 }
 
 #[cfg(target_os = "macos")]
-fn current_monitor_capture_target_id(app: &AppHandle, monitor: &tauri::Monitor) -> String {
-    let monitors = match app.available_monitors() {
-        Ok(monitors) => monitors,
-        Err(_) => return capture::FULL_DESKTOP_TARGET_ID.to_string(),
-    };
-
-    let current_index = monitors.iter().position(|candidate| {
-        candidate.position() == monitor.position() && candidate.size() == monitor.size()
-    });
-
-    let monitor_targets: Vec<_> = capture_macos::list_capture_targets()
+fn current_monitor_capture_target_id(_app: &AppHandle, monitor: &tauri::Monitor) -> String {
+    capture_macos::list_capture_targets()
         .into_iter()
-        .filter(|target| target.id != capture::FULL_DESKTOP_TARGET_ID)
-        .collect();
-
-    current_index
-        .and_then(|index| monitor_targets.get(index))
-        .map(|target| target.id.clone())
+        .filter(|target| {
+            target.id != capture::FULL_DESKTOP_TARGET_ID
+                && target.id != capture::CUSTOM_REGION_TARGET_ID
+        })
+        .find(|target| {
+            let Some((x, y, width, height)) =
+                capture_macos::logical_preview_target_bounds(&target.id)
+            else {
+                return false;
+            };
+            monitor.position().x == x
+                && monitor.position().y == y
+                && monitor.size().width == width
+                && monitor.size().height == height
+        })
+        .map(|target| target.id)
         .unwrap_or_else(|| capture::FULL_DESKTOP_TARGET_ID.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn region_selector_monitor_for_target(
+    app: &AppHandle,
+    capture_target_id: &str,
+) -> Option<tauri::Monitor> {
+    if capture_target_id == capture::FULL_DESKTOP_TARGET_ID
+        || capture_target_id == capture::CUSTOM_REGION_TARGET_ID
+    {
+        return None;
+    }
+
+    let (target_x, target_y, target_width, target_height) =
+        capture_macos::logical_preview_target_bounds(capture_target_id)?;
+
+    app.available_monitors().ok()?.into_iter().find(|monitor| {
+        let size = monitor.size();
+        let position = monitor.position();
+        position.x == target_x
+            && position.y == target_y
+            && size.width == target_width
+            && size.height == target_height
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn region_selector_monitor_for_target(
+    _app: &AppHandle,
+    _capture_target_id: &str,
+) -> Option<tauri::Monitor> {
+    None
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -342,6 +484,34 @@ pub fn show_region_selector(app: &AppHandle) -> Result<(), String> {
 
     if let Some(window) = app.get_webview_window(REGION_SELECTOR_WINDOW_LABEL) {
         let _ = window.eval(&init_script);
+        #[cfg(target_os = "macos")]
+        {
+            window
+                .set_size(Size::Logical(tauri::LogicalSize::new(
+                    logical_width.max(64.0),
+                    logical_height.max(64.0),
+                )))
+                .map_err(|error| error.to_string())?;
+            window
+                .set_position(Position::Logical(tauri::LogicalPosition::new(
+                    logical_x, logical_y,
+                )))
+                .map_err(|error| error.to_string())?;
+        }
+        #[cfg(not(target_os = "macos"))]
+        window
+            .set_size(Size::Physical(PhysicalSize::new(
+                context.width.max(64),
+                context.height.max(64),
+            )))
+            .map_err(|error| error.to_string())?;
+        #[cfg(not(target_os = "macos"))]
+        window
+            .set_position(Position::Physical(PhysicalPosition::new(
+                context.origin_x,
+                context.origin_y,
+            )))
+            .map_err(|error| error.to_string())?;
         if window.is_minimized().map_err(|error| error.to_string())? {
             window.unminimize().map_err(|error| error.to_string())?;
         }
@@ -435,36 +605,70 @@ pub fn show_target_preview(
     if let Some(window) = app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL) {
         let payload = serde_json::json!({
             "title": preview.title,
+            "detail": preview.detail,
             "sequence": sequence,
+            "style": match preview.style {
+                crate::target_preview::PreviewStyle::Badge => "badge",
+                crate::target_preview::PreviewStyle::RegionOutline => "region-outline",
+            },
         });
-        window
-            .set_position(Position::Physical(PhysicalPosition::new(
-                preview.bounds.x,
-                preview.bounds.y,
-            )))
-            .map_err(|error| error.to_string())?;
-        window
-            .set_size(Size::Physical(PhysicalSize::new(
-                preview.bounds.width.max(64),
-                preview.bounds.height.max(64),
-            )))
-            .map_err(|error| error.to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            window
+                .set_position(Position::Logical(tauri::LogicalPosition::new(
+                    f64::from(preview.bounds.x),
+                    f64::from(preview.bounds.y),
+                )))
+                .map_err(|error| error.to_string())?;
+            window
+                .set_size(Size::Logical(tauri::LogicalSize::new(
+                    f64::from(preview.bounds.width.max(64)),
+                    f64::from(preview.bounds.height.max(64)),
+                )))
+                .map_err(|error| error.to_string())?;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            window
+                .set_position(Position::Physical(PhysicalPosition::new(
+                    preview.bounds.x,
+                    preview.bounds.y,
+                )))
+                .map_err(|error| error.to_string())?;
+            window
+                .set_size(Size::Physical(PhysicalSize::new(
+                    preview.bounds.width.max(64),
+                    preview.bounds.height.max(64),
+                )))
+                .map_err(|error| error.to_string())?;
+        }
         let script = format!(
             "window.__RECORD_SCREEN_TARGET_PREVIEW_CONTEXT__ = {payload}; window.dispatchEvent(new Event('record-screen:target-preview'));"
         );
         let _ = window.eval(&script);
+        let _ = window.set_ignore_cursor_events(true);
         window.show().map_err(|error| error.to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            if preview.style == crate::target_preview::PreviewStyle::Badge {
+                let _ = window.set_focus();
+            } else {
+                let _ = focus_launcher(app);
+            }
+        }
     }
 
-    let app_handle = app.clone();
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(3000));
-        if TARGET_PREVIEW_SEQUENCE.load(Ordering::Relaxed) != sequence {
-            return;
-        }
+    if preview.style == crate::target_preview::PreviewStyle::Badge {
+        let app_handle = app.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(3000));
+            if TARGET_PREVIEW_SEQUENCE.load(Ordering::Relaxed) != sequence {
+                return;
+            }
 
-        let _ = hide_target_preview(&app_handle);
-    });
+            let _ = hide_target_preview(&app_handle);
+        });
+    }
 
     Ok(())
 }
@@ -472,6 +676,23 @@ pub fn show_target_preview(
 pub fn hide_target_preview(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(TARGET_PREVIEW_WINDOW_LABEL) {
         window.hide().map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+pub fn show_custom_region_preview(app: &AppHandle) -> Result<(), String> {
+    let preview = crate::target_preview::preview_bounds_for_target_with_title(
+        app,
+        capture::CUSTOM_REGION_TARGET_ID,
+        "Custom region".to_string(),
+        crate::target_preview::PreviewStyle::RegionOutline,
+    )?;
+
+    if let Some(preview) = preview {
+        show_target_preview(app, preview)?;
+    } else {
+        hide_target_preview(app)?;
     }
 
     Ok(())

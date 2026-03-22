@@ -259,9 +259,17 @@
 }
 
 .recorder-panel__runtime {
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+}
+
+.recorder-panel__runtime-main {
   display: flex;
   align-items: center;
   gap: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .recorder-panel__timer {
@@ -327,6 +335,42 @@
 .recorder-panel__pause-button--paused {
   background: color-mix(in srgb, var(--color-warning) 12%, var(--color-control-bg));
   border-color: color-mix(in srgb, var(--color-warning) 36%, var(--color-control-border-strong));
+}
+
+.recorder-panel__region-runtime {
+  min-width: min(100%, 320px);
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--recorder-card-border));
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--accent) 12%, transparent), transparent 68%),
+    color-mix(in srgb, var(--recorder-card-bg) 94%, transparent);
+  box-shadow: var(--recorder-card-shadow);
+  text-align: center;
+}
+
+.recorder-panel__region-runtime-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.recorder-panel__region-runtime-size {
+  color: var(--text-main);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.recorder-panel__region-runtime-meta {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .recorder-panel__control-grid {
@@ -584,6 +628,10 @@
   }
 
   .recorder-panel__runtime {
+    gap: 12px;
+  }
+
+  .recorder-panel__runtime-main {
     gap: 12px;
   }
 

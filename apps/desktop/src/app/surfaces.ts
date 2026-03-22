@@ -7,11 +7,19 @@ export interface RegionSelectorSurfaceContext {
   height: number
   scaleFactor: number
   captureTargetId: string
+  initialRegion?: {
+    left: number
+    top: number
+    width: number
+    height: number
+  }
 }
 
 export interface TargetPreviewSurfaceContext {
   title: string
+  detail?: string
   sequence: number
+  style: 'badge' | 'region-outline'
 }
 
 declare global {

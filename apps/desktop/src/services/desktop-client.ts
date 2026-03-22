@@ -340,6 +340,18 @@ async function command<T>(
         }
         return structuredClone(mockSnapshot.settings) as T
       }
+      case 'update_region_source_capture_target': {
+        const regionSourceCaptureTargetId = String(
+          args?.regionSourceCaptureTargetId ?? '',
+        )
+        if (regionSourceCaptureTargetId) {
+          mockSnapshot.settings.captureTargetId = 'region:custom'
+          mockSnapshot.settings.regionSourceCaptureTargetId =
+            regionSourceCaptureTargetId
+          mockSnapshot.recorder.activeTarget = 'Custom region'
+        }
+        return structuredClone(mockSnapshot.settings) as T
+      }
       case 'update_audio_input': {
         const audioInputId = String(args?.audioInputId ?? '')
         const audioInput = mockSnapshot.audioInputs.find(
@@ -367,6 +379,12 @@ async function command<T>(
         mockSnapshot.settings.regionHeight = Number(
           args?.regionHeight ?? mockSnapshot.settings.regionHeight,
         )
+        if (typeof args?.regionSourceCaptureTargetId === 'string') {
+          mockSnapshot.settings.regionSourceCaptureTargetId = String(
+            args.regionSourceCaptureTargetId,
+          )
+        }
+        mockSnapshot.settings.captureTargetId = 'region:custom'
         const customRegionTarget = mockSnapshot.captureTargets.find(
           (target) => target.id === 'region:custom',
         )
@@ -413,9 +431,11 @@ async function command<T>(
       }
       case 'focus_launcher':
       case 'show_hud':
+      case 'show_custom_region_preview':
       case 'show_region_selector':
       case 'hide_hud':
       case 'hide_region_selector':
+      case 'hide_target_preview':
       case 'open_recording':
       case 'reveal_recording_in_folder':
       case 'open_permission_settings':
@@ -525,11 +545,17 @@ export const desktopClient = {
   showHud() {
     return command<void>('show_hud')
   },
+  showCustomRegionPreview() {
+    return command<void>('show_custom_region_preview')
+  },
   showRegionSelector() {
     return command<void>('show_region_selector')
   },
   hideHud() {
     return command<void>('hide_hud')
+  },
+  hideTargetPreview() {
+    return command<void>('hide_target_preview')
   },
   hideRegionSelector() {
     return command<void>('hide_region_selector')
@@ -581,6 +607,11 @@ export const desktopClient = {
     return command<AppSettings>('update_capture_target', {
       captureTargetId,
       captureTargetLabel,
+    })
+  },
+  updateRegionSourceCaptureTarget(regionSourceCaptureTargetId: string) {
+    return command<AppSettings>('update_region_source_capture_target', {
+      regionSourceCaptureTargetId,
     })
   },
   updateAudioInput(audioInputId: string) {
@@ -682,6 +713,16 @@ export const desktopClient = {
     }
 
     const unlisten = await listen('recorder://recent-sessions-refresh-requested', () => {
+      listener()
+    })
+    return unlisten
+  },
+  async subscribeBootstrapRefreshRequest(listener: () => void) {
+    if (!isTauriRuntime()) {
+      return () => undefined
+    }
+
+    const unlisten = await listen('recorder://bootstrap-refresh-requested', () => {
       listener()
     })
     return unlisten

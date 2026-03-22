@@ -177,6 +177,7 @@ function LauncherApp() {
     actionError,
     error,
     focusLauncher,
+    hideTargetPreview,
     isLoading,
     openPermissionSettings,
     openRecording,
@@ -189,6 +190,7 @@ function LauncherApp() {
     requestPermission,
     recorder,
     saveRecordingCopy,
+    showCustomRegionPreview,
     trashRecordings,
     showHud,
     showRegionSelector,
@@ -201,6 +203,7 @@ function LauncherApp() {
     updateLaunchOnLogin,
     updateOutputDirectory,
     updateQualityPreset,
+    updateRegionSourceCaptureTarget,
     updateShortcut,
     updateShowHudDuringRecording,
     updateSystemAudioEnabled,
@@ -223,6 +226,46 @@ function LauncherApp() {
       void refreshPermissions()
     }
   }, [activeTab, refreshPermissions, refreshRecentSessions])
+
+  useEffect(() => {
+    if (!snapshot) {
+      return
+    }
+
+    if (
+      activeTab === 'recorder' &&
+      snapshot.settings.captureTargetId === 'region:custom' &&
+      recorder?.status === 'idle'
+    ) {
+      void showCustomRegionPreview()
+      return
+    }
+
+    void hideTargetPreview()
+  }, [
+    activeTab,
+    hideTargetPreview,
+    recorder?.status,
+    showCustomRegionPreview,
+    snapshot,
+  ])
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      if (
+        activeTab === 'recorder' &&
+        snapshot?.settings.captureTargetId === 'region:custom' &&
+        recorder?.status === 'idle'
+      ) {
+        void showCustomRegionPreview()
+      }
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+    }
+  }, [activeTab, recorder?.status, showCustomRegionPreview, snapshot])
 
   if (isLoading || !snapshot || !recorder) {
     return <LoadingState />
@@ -249,12 +292,16 @@ function LauncherApp() {
             onPauseResume={pauseResume}
             onUpdateAudioInput={updateAudioInput}
             onUpdateCaptureTarget={updateCaptureTarget}
+            onUpdateRegionSourceCaptureTarget={updateRegionSourceCaptureTarget}
             onToggleMicrophone={toggleMicrophone}
             onToggleRecording={toggleRecording}
             recorder={currentRecorder}
             runtimeError={actionError}
             selectedAudioInputId={currentSnapshot.settings.audioInputId}
             selectedCaptureTargetId={currentSnapshot.settings.captureTargetId}
+            selectedRegionSourceCaptureTargetId={
+              currentSnapshot.settings.regionSourceCaptureTargetId
+            }
             systemAudioEnabled={currentSnapshot.settings.systemAudioEnabled}
           />
         )

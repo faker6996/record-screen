@@ -9,7 +9,10 @@ use storage::{AppSettings, expand_home_path};
 
 use tauri::{AppHandle, State};
 
-use crate::{AppState, audio_inputs, emit_recorder_state, launch_on_login, persist_settings};
+use crate::{
+    AppState, audio_inputs, emit_bootstrap_refresh_request, emit_recorder_state, launch_on_login,
+    persist_settings,
+};
 
 #[tauri::command]
 pub fn update_quality_preset(
@@ -29,6 +32,7 @@ pub fn update_quality_preset(
 
     emit_recorder_state(&app, &recorder);
     persist_settings(&app)?;
+    emit_bootstrap_refresh_request(&app);
     Ok(settings)
 }
 
@@ -128,28 +132,54 @@ pub fn update_capture_target(
 
     emit_recorder_state(&app, &recorder);
     persist_settings(&app)?;
+    emit_bootstrap_refresh_request(&app);
 
-    let preview_app = app.clone();
-    let preview_target_id = capture_target_id.clone();
-    let preview_target_label = normalized_label.clone();
-    thread::spawn(move || {
-        let preview = crate::target_preview::preview_bounds_for_target_with_title(
-            &preview_app,
-            &preview_target_id,
-            preview_target_label,
-        );
-        match preview {
-            Ok(Some(bounds)) => {
-                let _ = crate::window::show_target_preview(&preview_app, bounds);
+    if capture_target_id != capture::CUSTOM_REGION_TARGET_ID {
+        let preview_app = app.clone();
+        let preview_target_id = capture_target_id.clone();
+        let preview_target_label = normalized_label.clone();
+        thread::spawn(move || {
+            let preview = crate::target_preview::preview_bounds_for_target_with_title(
+                &preview_app,
+                &preview_target_id,
+                preview_target_label,
+                crate::target_preview::PreviewStyle::Badge,
+            );
+            match preview {
+                Ok(Some(bounds)) => {
+                    let _ = crate::window::show_target_preview(&preview_app, bounds);
+                }
+                Ok(None) => {}
+                Err(error) => crate::runtime_log::log_runtime_error(&format!(
+                    "unable to preview capture target `{}` after selection: {}",
+                    preview_target_id, error
+                )),
             }
-            Ok(None) => {}
-            Err(error) => crate::runtime_log::log_runtime_error(&format!(
-                "unable to preview capture target `{}` after selection: {}",
-                preview_target_id, error
-            )),
-        }
-    });
+        });
+    }
 
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn update_region_source_capture_target(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    region_source_capture_target_id: String,
+) -> Result<AppSettings, String> {
+    let (settings, recorder) = {
+        let mut core = state
+            .core
+            .lock()
+            .map_err(|_| "failed to lock app state".to_string())?;
+        let settings = core.update_region_source_capture_target(region_source_capture_target_id);
+        let recorder = core.snapshot();
+        (settings, recorder)
+    };
+
+    emit_recorder_state(&app, &recorder);
+    persist_settings(&app)?;
+    emit_bootstrap_refresh_request(&app);
     Ok(settings)
 }
 
@@ -193,6 +223,27 @@ pub fn update_system_audio_enabled(
 
     emit_recorder_state(&app, &recorder);
     persist_settings(&app)?;
+    emit_bootstrap_refresh_request(&app);
+
+    let preview_app = app.clone();
+    thread::spawn(move || {
+        let preview = crate::target_preview::preview_bounds_for_target_with_title(
+            &preview_app,
+            capture::CUSTOM_REGION_TARGET_ID,
+            "Custom region".to_string(),
+            crate::target_preview::PreviewStyle::RegionOutline,
+        );
+        match preview {
+            Ok(Some(bounds)) => {
+                let _ = crate::window::show_target_preview(&preview_app, bounds);
+            }
+            Ok(None) => {}
+            Err(error) => crate::runtime_log::log_runtime_error(&format!(
+                "unable to preview custom region after selection: {}",
+                error
+            )),
+        }
+    });
     Ok(settings)
 }
 
@@ -247,7 +298,7 @@ pub fn update_custom_region(
             .core
             .lock()
             .map_err(|_| "failed to lock app state".to_string())?;
-        let settings = core.update_custom_region(
+        core.update_custom_region(
             region_x,
             region_y,
             region_width,
@@ -257,12 +308,37 @@ pub fn update_custom_region(
             region_source_origin_y,
             region_source_scale_factor_milli,
         );
+        let settings = core.update_capture_target(
+            capture::CUSTOM_REGION_TARGET_ID.to_string(),
+            "Custom region".to_string(),
+        );
         let recorder = core.snapshot();
         (settings, recorder)
     };
 
     emit_recorder_state(&app, &recorder);
     persist_settings(&app)?;
+    emit_bootstrap_refresh_request(&app);
+
+    let preview_app = app.clone();
+    thread::spawn(move || {
+        let preview = crate::target_preview::preview_bounds_for_target_with_title(
+            &preview_app,
+            capture::CUSTOM_REGION_TARGET_ID,
+            "Custom region".to_string(),
+            crate::target_preview::PreviewStyle::RegionOutline,
+        );
+        match preview {
+            Ok(Some(bounds)) => {
+                let _ = crate::window::show_target_preview(&preview_app, bounds);
+            }
+            Ok(None) => {}
+            Err(error) => crate::runtime_log::log_runtime_error(&format!(
+                "unable to preview custom region after selection: {}",
+                error
+            )),
+        }
+    });
     Ok(settings)
 }
 

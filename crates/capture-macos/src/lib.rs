@@ -375,6 +375,27 @@ pub fn list_capture_targets() -> Vec<CaptureTargetOption> {
 }
 
 #[cfg(target_os = "macos")]
+pub fn logical_preview_target_bounds(capture_target_id: &str) -> Option<(i32, i32, u32, u32)> {
+    native_backend::target_bounds(capture_target_id)
+        .map(|bounds| (bounds.x, bounds.y, bounds.width, bounds.height))
+}
+
+#[cfg(target_os = "macos")]
+pub fn logical_target_display_context(
+    capture_target_id: &str,
+) -> Option<(i32, i32, u32, u32, u32)> {
+    native_backend::target_display_context(capture_target_id).map(|context| {
+        (
+            context.x,
+            context.y,
+            context.width,
+            context.height,
+            context.scale_factor_milli,
+        )
+    })
+}
+
+#[cfg(target_os = "macos")]
 pub fn preview_target_bounds(
     capture_target_id: &str,
     region_x: u32,
@@ -545,7 +566,7 @@ pub fn microphone_support_summary_for_target(capture_target_id: &str) -> (bool, 
     (
         true,
         if uses_full_desktop_composite_lane(capture_target_id) {
-            "Microphone capture is available on macOS through the native desktop-composite lane and can be combined with system audio when ScreenCaptureKit exposes matching PCM layouts for both sources."
+            "Microphone capture is available on macOS through the native desktop-composite lane. Common PCM differences between microphone and system audio are converted automatically before mixing."
                 .to_string()
         } else {
             "Microphone capture is available on macOS through the native ScreenCaptureKit recording lanes."
@@ -558,7 +579,7 @@ pub fn system_audio_support_summary_for_target(capture_target_id: &str) -> (bool
     if uses_full_desktop_composite_lane(capture_target_id) {
         return (
             true,
-            "System audio capture is available on macOS through the native desktop-composite lane and can be combined with microphone capture when ScreenCaptureKit exposes matching PCM layouts for both sources."
+            "System audio capture is available on macOS through the native desktop-composite lane. Common PCM differences between microphone and system audio are converted automatically before mixing."
                 .to_string(),
         );
     }
@@ -586,7 +607,7 @@ pub fn full_desktop_composite_dual_audio_note() -> String {
         .unwrap_or(2)
         .max(2);
     format!(
-        "Full desktop across {display_count} macOS displays can combine microphone and system audio on the native desktop-composite lane when ScreenCaptureKit exposes matching PCM layouts for both sources. If the two audio streams use different layouts, choose one audio source or switch to a specific display."
+        "Full desktop across {display_count} macOS displays can combine microphone and system audio on the native desktop-composite lane. Common PCM differences such as sample rate, mono-versus-stereo layout, and 16-bit-versus-float samples are converted automatically. Unsupported PCM encodings still require choosing one audio source or switching to a specific display."
     )
 }
 
@@ -904,10 +925,8 @@ fn build_native_source_rect_from_dimensions(
         return None;
     }
 
-    let x =
-        ((options.region_x as i32 - options.region_source_origin_x).max(0) as f64) / source_scale;
-    let y =
-        ((options.region_y as i32 - options.region_source_origin_y).max(0) as f64) / source_scale;
+    let x = (options.region_x.max(0) as f64) / source_scale;
+    let y = (options.region_y.max(0) as f64) / source_scale;
     if x >= display_points_width || y >= display_points_height {
         return None;
     }
@@ -986,8 +1005,8 @@ mod tests {
         let rect = build_native_source_rect_from_dimensions(&options, 3024.0, 1964.0)
             .expect("custom region should map to a native source rect");
 
-        assert_eq!(rect.x, 50.0);
-        assert_eq!(rect.y, 25.0);
+        assert_eq!(rect.x, 100.0);
+        assert_eq!(rect.y, 50.0);
         assert_eq!(rect.width, 200.0);
         assert_eq!(rect.height, 150.0);
     }

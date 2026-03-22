@@ -117,6 +117,24 @@ function updateCaptureTargetSelectionSnapshot(
   }
 }
 
+function updateRegionSourceCaptureTargetSelectionSnapshot(
+  snapshot: BootstrapSnapshot | null,
+  regionSourceCaptureTargetId: string,
+) {
+  if (!snapshot) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    settings: {
+      ...snapshot.settings,
+      captureTargetId: 'region:custom',
+      regionSourceCaptureTargetId,
+    },
+  }
+}
+
 function updateAudioInputSelectionSnapshot(
   snapshot: BootstrapSnapshot | null,
   audioInputId: string,
@@ -214,6 +232,7 @@ export function useDesktopState() {
     let unlistenRecorder: () => void = () => undefined
     let unlistenRuntimeError: () => void = () => undefined
     let unlistenRecentSessionsRefresh: () => void = () => undefined
+    let unlistenBootstrapRefresh: () => void = () => undefined
 
     async function refreshRecentSessionsInBackground(options?: {
       reportError?: boolean
@@ -384,6 +403,24 @@ export function useDesktopState() {
       }
     }
 
+    async function refreshSnapshot() {
+      try {
+        const nextSnapshot = await desktopClient.getBootstrap()
+        if (isDisposed) {
+          return
+        }
+
+        startTransition(() => {
+          setSnapshot(nextSnapshot)
+          setRecorder(nextSnapshot.recorder)
+          setError(null)
+          setActionError(null)
+        })
+      } catch {
+        // Ignore snapshot refresh failures and keep the last known launcher state.
+      }
+    }
+
     function applyRecorderSnapshot(recorder: RecorderSnapshot) {
       startTransition(() => {
         setRecorder(recorder)
@@ -440,8 +477,20 @@ export function useDesktopState() {
         unlistenRecentSessionsRefresh = dispose
       })
 
+    function handleWindowFocus() {
+      void refreshSnapshot()
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    void desktopClient.subscribeBootstrapRefreshRequest(() => {
+      void refreshSnapshot()
+    }).then((dispose) => {
+      unlistenBootstrapRefresh = dispose
+    })
+
     return () => {
       isDisposed = true
+      window.removeEventListener('focus', handleWindowFocus)
       if (deferredLoadTimer !== null) {
         window.clearTimeout(deferredLoadTimer)
       }
@@ -452,6 +501,7 @@ export function useDesktopState() {
       unlistenRecorder()
       unlistenRuntimeError()
       unlistenRecentSessionsRefresh()
+      unlistenBootstrapRefresh()
     }
   }, [])
 
@@ -797,6 +847,44 @@ export function useDesktopState() {
     }
   }
 
+  const updateRegionSourceCaptureTarget = useCallback(
+    async (regionSourceCaptureTargetId: string) => {
+      const currentSnapshot = snapshotRef.current
+      if (!currentSnapshot) {
+        return
+      }
+
+      startTransition(() => {
+        setSnapshot((current) =>
+          updateRegionSourceCaptureTargetSelectionSnapshot(
+            current,
+            regionSourceCaptureTargetId,
+          ),
+        )
+        setActionError(null)
+      })
+
+      try {
+        const settings = await desktopClient.updateRegionSourceCaptureTarget(
+          regionSourceCaptureTargetId,
+        )
+        startTransition(() => {
+          setSnapshot((current) => updateSettingsSnapshot(current, settings))
+          setActionError(null)
+        })
+      } catch (actionLoadError) {
+        startTransition(() => {
+          setActionError(
+            actionLoadError instanceof Error
+              ? actionLoadError.message
+              : 'Unable to update custom-region source display.',
+          )
+        })
+      }
+    },
+    [],
+  )
+
   const refreshPermissions = useCallback(async () => {
     try {
       const permissions = await desktopClient.getPermissions()
@@ -964,6 +1052,7 @@ export function useDesktopState() {
     isStartingRecording,
     focusLauncher: desktopClient.focusLauncher,
     hideHud: desktopClient.hideHud,
+    hideTargetPreview: desktopClient.hideTargetPreview,
     openPermissionSettings,
     openRecording,
     pauseResume,
@@ -974,6 +1063,7 @@ export function useDesktopState() {
     updateShortcut,
     requestPermission,
     saveRecordingCopy,
+    showCustomRegionPreview: desktopClient.showCustomRegionPreview,
     trashRecordings,
     showHud: desktopClient.showHud,
     showRegionSelector,
@@ -983,6 +1073,7 @@ export function useDesktopState() {
     toggleRecording,
     updateCaptureTarget,
     updateCustomRegion,
+    updateRegionSourceCaptureTarget,
     updateAudioInput,
     updateShowHudDuringRecording,
     updateSystemAudioEnabled,

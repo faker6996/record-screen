@@ -1,4 +1,6 @@
 #[cfg(target_os = "macos")]
+use core_graphics::display::CGDisplay;
+#[cfg(target_os = "macos")]
 use std::{
     sync::{
         Arc, Mutex, OnceLock,
@@ -57,6 +59,23 @@ struct ScreenCaptureKitNativeTarget {
     display_index: usize,
     display_id: u32,
     label: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenCaptureKitTargetBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenCaptureKitTargetDisplayContext {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub scale_factor_milli: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,21 +150,170 @@ pub fn capture_target_options() -> Option<Vec<CaptureTargetOption>> {
     let mut full_desktop = full_desktop_target();
     if report.display_count > 1 {
         full_desktop.description = format!(
-            "Record the entire desktop layout across all connected displays. macOS native recording now composites {} display(s) into a single file on the desktop-composite lane. That lane can combine microphone and system audio when ScreenCaptureKit exposes matching PCM layouts for both sources.",
+            "Record the entire desktop layout across all connected displays. macOS native recording now composites {} display(s) into a single file on the desktop-composite lane. That lane converts common PCM differences between microphone and system audio automatically before mixing.",
             report.display_count
         );
     }
 
     let mut targets = vec![full_desktop];
-    targets.extend(report.targets.iter().map(|target| CaptureTargetOption {
-        id: format!("monitor:{}", target.display_index),
-        label: format!("Display {}", target.display_index),
-        description: format!(
-            "ScreenCaptureKit display {} mapped to native display {}.",
-            target.display_index, target.display_id
-        ),
-    }));
+    let ordered_targets = ordered_native_targets_for_ui(&report);
+    targets.extend(
+        ordered_targets
+            .iter()
+            .enumerate()
+            .map(|(display_index, target)| CaptureTargetOption {
+                id: format!("monitor:{}", target.display_index),
+                label: format!("Display {}", display_index),
+                description: format!(
+                    "ScreenCaptureKit display {} mapped to native display {}.",
+                    target.display_index, target.display_id
+                ),
+            }),
+    );
     Some(targets)
+}
+
+#[cfg(target_os = "macos")]
+fn ordered_native_targets_for_ui(
+    probe_report: &ScreenCaptureKitProbeReport,
+) -> Vec<ScreenCaptureKitNativeTarget> {
+    let main_display_id = CGDisplay::main().id;
+    let mut ordered_targets = probe_report.targets.clone();
+    ordered_targets.sort_by_key(|target| {
+        let bounds = CGDisplay::new(target.display_id).bounds();
+        (
+            if target.display_id == main_display_id {
+                0
+            } else {
+                1
+            },
+            bounds.origin.x.round() as i32,
+            bounds.origin.y.round() as i32,
+        )
+    });
+    ordered_targets
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ordered_native_targets_for_ui(
+    probe_report: &ScreenCaptureKitProbeReport,
+) -> Vec<ScreenCaptureKitNativeTarget> {
+    probe_report.targets.clone()
+}
+
+#[cfg(target_os = "macos")]
+pub fn target_bounds(capture_target_id: &str) -> Option<ScreenCaptureKitTargetBounds> {
+    let probe_report = screen_capture_kit_probe().ok()?;
+
+    if capture_target_id == FULL_DESKTOP_TARGET_ID {
+        let mut targets = probe_report.targets.iter();
+        let first_target = targets.next()?;
+        let first_bounds = CGDisplay::new(first_target.display_id).bounds();
+        let mut min_x = first_bounds.origin.x;
+        let mut min_y = first_bounds.origin.y;
+        let mut max_x = first_bounds.origin.x + first_bounds.size.width;
+        let mut max_y = first_bounds.origin.y + first_bounds.size.height;
+
+        for target in targets {
+            let bounds = CGDisplay::new(target.display_id).bounds();
+            min_x = min_x.min(bounds.origin.x);
+            min_y = min_y.min(bounds.origin.y);
+            max_x = max_x.max(bounds.origin.x + bounds.size.width);
+            max_y = max_y.max(bounds.origin.y + bounds.size.height);
+        }
+
+        return Some(ScreenCaptureKitTargetBounds {
+            x: min_x.round() as i32,
+            y: min_y.round() as i32,
+            width: (max_x - min_x).max(64.0).round() as u32,
+            height: (max_y - min_y).max(64.0).round() as u32,
+        });
+    }
+
+    let start_plan = build_start_plan(&RecordingOptions {
+        output_path: "/tmp/record-screen-preview.mp4".into(),
+        quality_preset: "1080p / 30 fps".to_string(),
+        mic_enabled: false,
+        system_audio_enabled: false,
+        capture_target_id: capture_target_id.to_string(),
+        audio_input_id: capture::DEFAULT_AUDIO_INPUT_ID.to_string(),
+        portal_parent_window: None,
+        portal_restore_token: None,
+        region_x: 0,
+        region_y: 0,
+        region_width: 64,
+        region_height: 64,
+        region_source_capture_target_id: capture_target_id.to_string(),
+        region_source_origin_x: 0,
+        region_source_origin_y: 0,
+        region_source_scale_factor_milli: 1000,
+    });
+    let target = resolve_native_target(&probe_report, &start_plan.resolved_native_target_id)?;
+    let bounds = CGDisplay::new(target.display_id).bounds();
+
+    Some(ScreenCaptureKitTargetBounds {
+        x: bounds.origin.x.round() as i32,
+        y: bounds.origin.y.round() as i32,
+        width: bounds.size.width.max(64.0).round() as u32,
+        height: bounds.size.height.max(64.0).round() as u32,
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn target_display_context(
+    capture_target_id: &str,
+) -> Option<ScreenCaptureKitTargetDisplayContext> {
+    if capture_target_id == FULL_DESKTOP_TARGET_ID || capture_target_id == CUSTOM_REGION_TARGET_ID {
+        return None;
+    }
+
+    let probe_report = screen_capture_kit_probe().ok()?;
+    let start_plan = build_start_plan(&RecordingOptions {
+        output_path: "/tmp/record-screen-preview.mp4".into(),
+        quality_preset: "1080p / 30 fps".to_string(),
+        mic_enabled: false,
+        system_audio_enabled: false,
+        capture_target_id: capture_target_id.to_string(),
+        audio_input_id: capture::DEFAULT_AUDIO_INPUT_ID.to_string(),
+        portal_parent_window: None,
+        portal_restore_token: None,
+        region_x: 0,
+        region_y: 0,
+        region_width: 64,
+        region_height: 64,
+        region_source_capture_target_id: capture_target_id.to_string(),
+        region_source_origin_x: 0,
+        region_source_origin_y: 0,
+        region_source_scale_factor_milli: 1000,
+    });
+    let target = resolve_native_target(&probe_report, &start_plan.resolved_native_target_id)?;
+    let cg_display = CGDisplay::new(target.display_id);
+    let bounds = cg_display.bounds();
+    let scale_factor = if bounds.size.width > 0.0 {
+        (cg_display.pixels_wide() as f64 / bounds.size.width).max(1.0)
+    } else {
+        1.0
+    };
+
+    Some(ScreenCaptureKitTargetDisplayContext {
+        x: bounds.origin.x.round() as i32,
+        y: bounds.origin.y.round() as i32,
+        width: bounds.size.width.max(64.0).round() as u32,
+        height: bounds.size.height.max(64.0).round() as u32,
+        scale_factor_milli: (scale_factor * 1000.0).round() as u32,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn target_display_context(
+    _capture_target_id: &str,
+) -> Option<ScreenCaptureKitTargetDisplayContext> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn target_bounds(_capture_target_id: &str) -> Option<ScreenCaptureKitTargetBounds> {
+    None
 }
 
 pub fn execution_plan(options: &RecordingOptions) -> Result<ScreenCaptureKitExecutionPlan, String> {
@@ -220,7 +388,7 @@ impl CaptureBackendFactory for ScreenCaptureKitMacosBackend {
                     );
                     if report.display_count > 1 {
                         summary.push_str(&format!(
-                            " Full-desktop selection currently detects {} displays and routes through a native desktop-composite lane. That lane can combine microphone and system audio when ScreenCaptureKit exposes matching PCM layouts for both sources.",
+                            " Full-desktop selection currently detects {} displays and routes through a native desktop-composite lane. That lane converts common PCM differences between microphone and system audio automatically before mixing.",
                             report.display_count
                         ));
                     }

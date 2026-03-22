@@ -1,6 +1,9 @@
 # macOS Native Backend QA Checklist
 
-This checklist is the hardening gate for the direct macOS native lane built on `ScreenCaptureKit + SCRecordingOutput`.
+This checklist is the hardening gate for the macOS native recorder lanes built on:
+
+- direct `ScreenCaptureKit + SCRecordingOutput`
+- multi-display `ScreenCaptureKit + AVAssetWriter` desktop composite
 
 The rule is simple:
 
@@ -10,18 +13,20 @@ The rule is simple:
 
 ## Current Lane Scope
 
-The direct native lane currently targets:
+The current macOS native lanes target:
 
 - `display`
 - `monitor`
 - `custom region`
+- `full desktop` across multiple displays through the desktop-composite lane
 - `system audio`
 - `microphone device id`
 
-Known limitation:
+Known limitations:
 
 - `pause/resume` is not available on the direct `SCRecordingOutput` lane because the public API does not expose a real pause/resume primitive.
 - The app therefore disables pause in HUD, tray, and shortcut handling when that lane is active.
+- `full desktop + microphone + system audio` on the multi-display composite lane currently depends on `ScreenCaptureKit` exposing matching PCM layouts for both audio sources. When the layouts differ, the app fails explicitly instead of mixing invalid audio.
 
 ## Runtime Signals To Inspect
 
@@ -90,10 +95,17 @@ Current observed note:
   - `full desktop`
   - `custom region`
   - `full desktop + system audio`
-- `full desktop + system audio` now has an automated macOS smoke pass on the current machine.
-- `full desktop + microphone` now starts through the native `SCRecordingOutput` lane instead of the older microphone-specific fallback path.
-- the current automated smoke failure is now a native-lane start failure in the `cargo test` harness: `SpawnFailed("Failed to start capture: Stream error: The user declined TCCs for application, window, display capture")`.
-- that means the previous legacy microphone-stop bug is no longer the active blocker; the remaining gap is TCC/permission verification for the native mic lane on real app/test binaries.
+- app-path validation on the current machine now passes for:
+  - `full desktop · 3 displays`
+  - `full desktop · 3 displays + microphone`
+  - `full desktop · 3 displays + system audio`
+- the multi-display composite lane previously had two real bugs:
+  - giant output durations caused by unre-based audio timestamps
+  - a composite-audio `EXC_BAD_ACCESS` caused by incorrect Core Media sample-buffer ownership
+- both bugs are now fixed and documented in `docs/reports/macos-app-path-validation-2026-03-22.md`.
+- the remaining active gap on the current machine is:
+  - `full desktop · 3 displays + microphone + system audio`
+  - this now fails explicitly only when `ScreenCaptureKit` reports mismatched PCM layouts for the two sources
 
 ### Permissions and session changes
 
@@ -116,6 +128,7 @@ Current observed note:
 ### Recovery and fallback
 
 - [ ] Native direct lane starts and finishes without fallback
+- [ ] Native multi-display composite lane starts and finishes without fallback
 - [ ] Unsupported pause action is disabled in HUD
 - [ ] Unsupported pause action is disabled in tray
 - [ ] Unsupported pause shortcut returns a clear runtime error instead of a backend crash
@@ -131,3 +144,4 @@ The macOS direct native lane can be called production-hardened only when:
 - permission and filesystem failure cases are recoverable with clear runtime diagnostics
 - unsupported pause remains explicit and never degrades into a backend error path
 - fallback decisions stay visible in diagnostics and `runtime.log`
+- multi-display composite output files have sane finalized duration/metadata instead of timeline drift

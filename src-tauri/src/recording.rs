@@ -66,6 +66,14 @@ fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
     }
 }
 
+fn sync_custom_region_preview_for_snapshot(app: &AppHandle, _snapshot: &RecorderSnapshot) {
+    let capture_target_id = with_core(app, |core| core.settings().capture_target_id)
+        .unwrap_or_else(|_| capture::FULL_DESKTOP_TARGET_ID.to_string());
+    if capture_target_id != capture::CUSTOM_REGION_TARGET_ID {
+        let _ = window::hide_target_preview(app);
+    }
+}
+
 pub fn toggle_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
     let status = with_core(app, |core| core.recorder_status())?;
     let now_ms = SystemTime::now()
@@ -325,6 +333,7 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         )
     })?;
     sync_hud_for_current_settings(app, &snapshot);
+    sync_custom_region_preview_for_snapshot(app, &snapshot);
     emit_recorder_state(app, &snapshot);
     spawn_recorder_ticker(app.clone());
     spawn_recording_startup(
@@ -361,6 +370,7 @@ pub fn stop_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         let snapshot = with_core(app, |core| core.finish_recording(None))?;
         emit_recorder_state(app, &snapshot);
         sync_hud_for_current_settings(app, &snapshot);
+        sync_custom_region_preview_for_snapshot(app, &snapshot);
         return Ok(snapshot);
     }
 
@@ -369,6 +379,7 @@ pub fn stop_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
         .ok_or_else(|| "no active recorder process".to_string())?;
     emit_recorder_state(app, &snapshot);
     sync_hud_for_current_settings(app, &snapshot);
+    sync_custom_region_preview_for_snapshot(app, &snapshot);
     spawn_stop_finalizer(app.clone(), controller);
     Ok(snapshot)
 }
@@ -425,6 +436,7 @@ pub fn finalize_active_recording_before_exit(app: &AppHandle) {
             if let Ok(snapshot) = with_core(app, |core| core.finish_recording(None)) {
                 emit_recorder_state(app, &snapshot);
                 sync_hud_for_current_settings(app, &snapshot);
+                sync_custom_region_preview_for_snapshot(app, &snapshot);
             }
             runtime_log::log_runtime_info(
                 "recording exit cleanup canceled a native startup that was still pending",
@@ -479,6 +491,7 @@ pub fn finalize_active_recording_before_exit(app: &AppHandle) {
             if let Ok(snapshot) = with_core(app, |core| core.finish_recording(None)) {
                 emit_recorder_state(app, &snapshot);
                 sync_hud_for_current_settings(app, &snapshot);
+                sync_custom_region_preview_for_snapshot(app, &snapshot);
             }
             emit_recent_sessions_refresh_request(app);
         }
@@ -894,6 +907,7 @@ fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureControlle
                     if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
                         emit_recorder_state(&app, &snapshot);
                         sync_hud_for_current_settings(&app, &snapshot);
+                        sync_custom_region_preview_for_snapshot(&app, &snapshot);
                     }
                     return;
                 }
@@ -919,6 +933,7 @@ fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureControlle
                 if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
                     emit_recorder_state(&app, &snapshot);
                     sync_hud_for_current_settings(&app, &snapshot);
+                    sync_custom_region_preview_for_snapshot(&app, &snapshot);
                 }
                 emit_recent_sessions_refresh_request(&app);
             }
@@ -932,6 +947,7 @@ fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureControlle
                     if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
                         emit_recorder_state(&app, &snapshot);
                         sync_hud_for_current_settings(&app, &snapshot);
+                        sync_custom_region_preview_for_snapshot(&app, &snapshot);
                     }
                     return;
                 }
@@ -944,6 +960,7 @@ fn spawn_stop_finalizer(app: AppHandle, mut controller: Box<dyn CaptureControlle
                 if let Ok(snapshot) = with_core(&app, |core| core.finish_recording(None)) {
                     emit_recorder_state(&app, &snapshot);
                     sync_hud_for_current_settings(&app, &snapshot);
+                    sync_custom_region_preview_for_snapshot(&app, &snapshot);
                 }
                 emit_runtime_error(&app, &error.to_string());
             }

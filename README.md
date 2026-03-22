@@ -19,7 +19,7 @@
 - 🎨 **Modern UI** - Sleek launcher, HUD, tray menu, and recent sessions manager.
 - 🦀 **Rust App State** - High-performance, memory-safe backend as the source of truth.
 - 🧾 **Local Runtime Log** - Persist launch/runtime/panic logs in the app config directory for debugging real machines.
-- 🎯 **Flexible Capture Targets** - Record the full desktop, a specific display, or an individual window.
+- 🎯 **Flexible Capture Targets** - Record the full desktop, a specific display, or an individual window. On macOS, `Full desktop` now composites all active displays on the native multi-display lane.
 - ✂️ **Custom Region Capture** - Drag-select a reusable capture rectangle on supported backends and preview the selected target on screen.
 - 🔊 **Audio Input + System Audio Mixing** - Choose a microphone and optionally mix a supported system-audio loopback source where the backend can do it.
 - 🔒 **Native Permissions** - Seamless flow for `Screen recording` and `Microphone` access on macOS.
@@ -132,6 +132,9 @@ The repository is structured as a monorepo, separating the UI from the Rust core
 - Must grant **Screen Recording** permission.
 - If narration is enabled, must grant **Microphone** permission.
 - `Display`, `custom region`, and supported audio lanes now record through the native ScreenCaptureKit path on supported runtimes.
+- `Full desktop` on multi-display setups now records through a native desktop-composite lane instead of binding only the first display.
+- `Full desktop + microphone` and `Full desktop + system audio` now work on the native composite lane.
+- `Full desktop + microphone + system audio` on multi-display setups currently depends on ScreenCaptureKit exposing matching PCM layouts for both audio sources; when the layouts differ, the app fails explicitly instead of producing bad audio.
 - Pause/resume is not available on the direct native file-output lane, so the app disables it explicitly there.
 
 ### 🐧 Linux

@@ -38,6 +38,10 @@
 - The macOS lane now also has a gated smoke lifecycle for `SCStream::start_capture()/stop_capture()`, enabled only when `RECORD_SCREEN_MACOS_SCSTREAM_SMOKE` is set, so native capture lifecycle can be validated explicitly without running on every recording by default
 - That macOS smoke lifecycle now also records lightweight Rust-side bridge stats for observed screen/audio samples plus first sample PTS values, so ScreenCaptureKit sample-buffer flow can be inspected without switching the recorder over end-to-end yet
 - On macOS 15+ display, monitor, custom-region, microphone, and system-audio capture now all target the direct `SCRecordingOutput` lane instead of the older hybrid or microphone-specific fallback paths
+- macOS full-desktop capture on multi-display setups now also has a dedicated native desktop-composite lane built on multiple `SCStream` inputs plus `AVAssetWriter`, so `Full desktop` no longer silently records only the first display
+- That macOS desktop-composite lane now supports video-only, microphone-only, and system-audio-only runs across multiple displays, and it can also attempt `microphone + system audio` together when `ScreenCaptureKit` exposes matching PCM layouts for both sources
+- The macOS desktop-composite lane now also normalizes audio timestamps before append and retains sample buffers with the correct Core Media ownership semantics, fixing the earlier giant-duration metadata bug and the composite-audio `EXC_BAD_ACCESS` crash during real app-path microphone runs
+- macOS permission handling now fails early and explicitly when microphone access is blocked, so the launcher no longer lets native ScreenCaptureKit starts drift into opaque TCC errors
 - Older macOS runtimes now also enumerate capture targets from `ScreenCaptureKit` instead of the older shell-process device listing path, and unsupported native runtime combinations fail explicitly instead of falling back to a legacy process runtime
 - macOS microphone selection now also prefers native device discovery, so the launcher no longer depends on the older external device-listing helper just to populate the primary microphone combobox
 - The macOS app path now also selects only native capture/audio/encoder backends, so unsupported runtimes fail explicitly instead of silently dropping back to an older non-native runtime
@@ -97,6 +101,6 @@
 - macOS direct-lane hardening now has an explicit scenario checklist in `docs/roadmap/macos-native-backend-qa.md` instead of relying only on informal notes
 - Production-grade Linux pure Wayland capture hardening beyond the current experimental GStreamer PipeWire path
 - Windows native stack hardening, QA, and remaining legacy-source cleanup
-- macOS native encode/system-audio backend work beyond the current legacy process runtime
+- macOS dual-audio composite hardening beyond the current strict-format mix, including resample/format-conversion for `microphone + system audio` on multi-display full-desktop runs
 - Richer diagnostics and benchmark telemetry
 - Richer export workflow

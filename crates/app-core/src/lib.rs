@@ -442,6 +442,18 @@ impl AppCore {
         self.settings.clone()
     }
 
+    pub fn update_region_source_capture_target(
+        &mut self,
+        region_source_capture_target_id: String,
+    ) -> AppSettings {
+        if !region_source_capture_target_id.trim().is_empty() {
+            self.settings.capture_target_id = capture::CUSTOM_REGION_TARGET_ID.to_string();
+            self.settings.region_source_capture_target_id = region_source_capture_target_id;
+        }
+
+        self.settings.clone()
+    }
+
     fn current_snapshot(&self) -> RecorderSnapshot {
         let elapsed = self.elapsed_duration();
         let elapsed_label = match self.status {

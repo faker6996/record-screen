@@ -40,6 +40,7 @@
   z-index: 1;
   border: 2px dashed color-mix(in srgb, var(--color-accent) 72%, white 10%);
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  outline: 1px solid color-mix(in srgb, white 28%, transparent);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--color-bg-overlay) 26%, transparent),
     0 0 0 9999px color-mix(in srgb, var(--color-bg-base) 30%, transparent);
@@ -58,4 +59,55 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
+}
+
+.region-selector__handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border-soft) 86%, transparent);
+  background: color-mix(in srgb, var(--color-surface-strong) 94%, transparent);
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--color-shadow) 22%, transparent);
+  transform: translate(-50%, -50%);
+}
+
+.region-selector__handle--nw {
+  left: 0;
+  top: 0;
+}
+
+.region-selector__handle--n {
+  left: 50%;
+  top: 0;
+}
+
+.region-selector__handle--ne {
+  left: 100%;
+  top: 0;
+}
+
+.region-selector__handle--e {
+  left: 100%;
+  top: 50%;
+}
+
+.region-selector__handle--se {
+  left: 100%;
+  top: 100%;
+}
+
+.region-selector__handle--s {
+  left: 50%;
+  top: 100%;
+}
+
+.region-selector__handle--sw {
+  left: 0;
+  top: 100%;
+}
+
+.region-selector__handle--w {
+  left: 0;
+  top: 50%;
 }

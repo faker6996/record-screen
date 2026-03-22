@@ -6,42 +6,203 @@
   background: transparent;
   display: grid;
   place-items: center;
+  overflow: hidden;
 }
 
 .target-preview__veil {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at center, transparent 0%, transparent 34%, color-mix(in srgb, var(--color-bg-base) 24%, transparent) 100%);
+    radial-gradient(circle at center, color-mix(in srgb, white 4%, transparent) 0%, transparent 32%, color-mix(in srgb, var(--color-bg-base) 18%, transparent) 100%);
   animation: target-preview-fade 3s ease forwards;
+}
+
+.target-preview__guides {
+  position: absolute;
+  inset: 0;
+  animation: target-preview-fade 3s ease forwards;
+}
+
+.target-preview__guide {
+  position: absolute;
+  display: block;
+  background: color-mix(in srgb, var(--color-text-primary) 12%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
+.target-preview__guide--horizontal {
+  top: 50%;
+  left: 6%;
+  right: 6%;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+
+.target-preview__guide--vertical {
+  left: 50%;
+  top: 8%;
+  bottom: 8%;
+  width: 1px;
+  transform: translateX(-0.5px);
 }
 
 .target-preview__badge {
   position: relative;
   z-index: 1;
-  min-width: 11rem;
-  max-width: min(58vw, 24rem);
-  padding: 1.1rem 1.6rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, white 8%);
-  background: color-mix(in srgb, var(--color-bg-overlay) 72%, transparent);
+  min-width: 16rem;
+  max-width: min(52vw, 28rem);
+  padding: 1.3rem 1.6rem 1.45rem;
+  border-radius: 1.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 36%, white 12%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-bg-overlay) 88%, transparent),
+      color-mix(in srgb, var(--color-bg-base) 78%, transparent)
+    );
   box-shadow:
-    0 22px 54px color-mix(in srgb, var(--color-shadow) 68%, transparent),
+    0 28px 72px color-mix(in srgb, var(--color-shadow) 72%, transparent),
     inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
   backdrop-filter: blur(22px);
   display: grid;
   place-items: center;
+  gap: 0.45rem;
   animation: target-preview-fade 3s ease forwards;
+  text-align: center;
 }
 
-.target-preview__title {
-  font-size: clamp(2.6rem, 8vw, 4.8rem);
-  line-height: 1;
-  letter-spacing: 0.08em;
+.target-preview__eyebrow {
+  position: relative;
+  z-index: 1;
+  font-size: 0.78rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-text-muted) 82%, white 8%);
+}
+
+.target-preview__region {
+  position: absolute;
+  inset: 0;
+  padding: 0.2rem;
+}
+
+.target-preview__region-frame {
+  width: 100%;
+  height: 100%;
+  border: 3px dashed color-mix(in srgb, var(--color-accent) 82%, white 18%);
+  border-radius: 0.95rem;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-bg-base) 34%, transparent),
+    0 0 28px color-mix(in srgb, var(--color-accent) 28%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-accent) 8%, transparent),
+      color-mix(in srgb, var(--color-accent) 2%, transparent)
+    );
+}
+
+.target-preview__region-chip {
+  position: absolute;
+  top: 0.85rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, white 10%);
+  background: color-mix(in srgb, var(--color-bg-overlay) 90%, transparent);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--color-shadow) 28%, transparent);
+}
+
+.target-preview__region-title {
+  font-size: 0.76rem;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   font-weight: 700;
   color: color-mix(in srgb, var(--color-text-primary) 88%, white 12%);
-  text-shadow: 0 0 22px color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+
+.target-preview__region-detail {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-text-muted) 84%, white 8%);
+}
+
+.target-preview__handle {
+  position: absolute;
+  z-index: 2;
+  width: 0.82rem;
+  height: 0.82rem;
+  border-radius: 0.24rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 78%, white 22%);
+  background: color-mix(in srgb, var(--color-bg-overlay) 94%, white 6%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-bg-base) 28%, transparent),
+    0 0 18px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.target-preview__handle--nw {
+  top: 0.05rem;
+  left: 0.05rem;
+}
+
+.target-preview__handle--n {
+  top: 0.05rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.target-preview__handle--ne {
+  top: 0.05rem;
+  right: 0.05rem;
+}
+
+.target-preview__handle--e {
+  top: 50%;
+  right: 0.05rem;
+  transform: translateY(-50%);
+}
+
+.target-preview__handle--se {
+  right: 0.05rem;
+  bottom: 0.05rem;
+}
+
+.target-preview__handle--s {
+  bottom: 0.05rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.target-preview__handle--sw {
+  bottom: 0.05rem;
+  left: 0.05rem;
+}
+
+.target-preview__handle--w {
+  top: 50%;
+  left: 0.05rem;
+  transform: translateY(-50%);
+}
+
+.target-preview__title {
+  position: relative;
+  z-index: 1;
+  font-size: clamp(2.6rem, 8vw, 4.8rem);
+  line-height: 0.95;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-weight: 750;
+  color: color-mix(in srgb, var(--color-text-primary) 92%, white 8%);
+  text-shadow:
+    0 0 26px color-mix(in srgb, var(--color-accent) 20%, transparent),
+    0 8px 28px color-mix(in srgb, var(--color-shadow) 36%, transparent);
 }
 
 @keyframes target-preview-fade {

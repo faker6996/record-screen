@@ -31,14 +31,15 @@ use objc2_av_foundation::{
 use objc2_avf_audio::{AVEncoderBitRateKey, AVFormatIDKey, AVNumberOfChannelsKey, AVSampleRateKey};
 #[cfg(target_os = "macos")]
 use objc2_core_audio_types::{
-    AudioBuffer, AudioBufferList, kAudioFormatFlagIsBigEndian, kAudioFormatFlagIsFloat,
-    kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger, kAudioFormatMPEG4AAC,
+    AudioBuffer, AudioBufferList, AudioStreamBasicDescription, kAudioFormatFlagIsBigEndian,
+    kAudioFormatFlagIsFloat, kAudioFormatFlagIsNonInterleaved, kAudioFormatFlagIsPacked,
+    kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM, kAudioFormatMPEG4AAC,
 };
 #[cfg(target_os = "macos")]
 use objc2_core_foundation::CFRetained;
 #[cfg(target_os = "macos")]
 use objc2_core_media::{
-    CMFormatDescription, CMSampleBuffer as ObjcCMSampleBuffer,
+    CMAudioFormatDescriptionCreate, CMFormatDescription, CMSampleBuffer as ObjcCMSampleBuffer,
     CMSampleTimingInfo as ObjcCMSampleTimingInfo, CMTime, CMTimeFlags,
     kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, kCMTimeZero,
 };
@@ -65,6 +66,16 @@ const COMPOSITE_PIXEL_FORMAT_BGRA: u32 = 0x4247_5241;
 const COMPOSITE_STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(50);
 #[cfg(target_os = "macos")]
 const COMPOSITE_STARTUP_POLL_ATTEMPTS: usize = 40;
+#[cfg(target_os = "macos")]
+const MIXED_AUDIO_TARGET_SAMPLE_RATE: f64 = 48_000.0;
+#[cfg(target_os = "macos")]
+const MIXED_AUDIO_TARGET_CHANNEL_COUNT: u32 = 2;
+#[cfg(target_os = "macos")]
+const MIXED_AUDIO_TARGET_BITS_PER_CHANNEL: u32 = 32;
+#[cfg(target_os = "macos")]
+const MIXED_AUDIO_TARGET_BYTES_PER_FRAME: u32 = 8;
+#[cfg(target_os = "macos")]
+const MIXED_AUDIO_TARGET_FORMAT_FLAGS: u32 = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
 
 #[cfg(target_os = "macos")]
 #[derive(Clone)]
@@ -242,13 +253,15 @@ impl MixedAudioSample {
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     queue_state.pending_samples.push_front(primary);
                 }
-                if let Some(secondary_queue_state) =
-                    audio_writer_plan.secondary_queue_state.as_ref()
-                {
-                    let mut queue_state = secondary_queue_state
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    queue_state.pending_samples.push_front(secondary);
+                if let Some(secondary) = secondary {
+                    if let Some(secondary_queue_state) =
+                        audio_writer_plan.secondary_queue_state.as_ref()
+                    {
+                        let mut queue_state = secondary_queue_state
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        queue_state.pending_samples.push_front(secondary);
+                    }
                 }
             }
         }
@@ -282,12 +295,22 @@ struct CompositeAudioWriterPlan {
     primary_queue_state: Arc<Mutex<CompositeAudioQueueState>>,
     secondary_queue_state: Option<Arc<Mutex<CompositeAudioQueueState>>>,
     timestamp_origin: Arc<Mutex<Option<screencapturekit::cm::CMTime>>>,
+    output_frame_cursor: Arc<Mutex<u64>>,
     sample_rate: f64,
     channel_count: u32,
     bits_per_channel: u32,
     _bytes_per_frame: u32,
     format_flags: u32,
-    buffer_count: usize,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct CompositeAudioDrainStats {
+    primary_dequeued_samples: usize,
+    secondary_dequeued_samples: usize,
+    appended_samples: usize,
+    appended_frames: u64,
+    silent_secondary_mixes: usize,
 }
 
 #[cfg(target_os = "macos")]
@@ -302,6 +325,13 @@ struct CompositeAudioFormatMetadata {
 }
 
 #[cfg(target_os = "macos")]
+struct DecodedAudioSample {
+    timing: screencapturekit::cm::CMSampleTimingInfo,
+    sample_rate: f64,
+    channels: Vec<Vec<f32>>,
+}
+
+#[cfg(target_os = "macos")]
 struct OwnedAudioBufferList {
     ptr: NonNull<AudioBufferList>,
     layout: Layout,
@@ -313,7 +343,7 @@ enum MixedAudioSample {
     Retained(RetainedSampleBuffer),
     Mixed {
         primary: RetainedSampleBuffer,
-        secondary: RetainedSampleBuffer,
+        secondary: Option<RetainedSampleBuffer>,
     },
 }
 
@@ -425,7 +455,20 @@ impl ScreenCaptureKitCompositeDesktopCapture {
             if is_audio_owner {
                 if let Some(audio_capture_plan) = audio_capture_plan.as_ref() {
                     if captures_system_audio {
-                        let queue_state = Arc::clone(&audio_capture_plan.primary_queue_state);
+                        let queue_state = if captures_microphone {
+                            audio_capture_plan
+                                .secondary_queue_state
+                                .as_ref()
+                                .cloned()
+                                .ok_or_else(|| {
+                                    CaptureError::SpawnFailed(
+                                        "ScreenCaptureKit composite desktop capture lost its secondary system-audio queue."
+                                            .to_string(),
+                                    )
+                                })?
+                        } else {
+                            Arc::clone(&audio_capture_plan.primary_queue_state)
+                        };
                         if stream
                             .add_output_handler(
                                 move |sample: CMSampleBuffer, _type| {
@@ -444,20 +487,7 @@ impl ScreenCaptureKitCompositeDesktopCapture {
                     }
 
                     if captures_microphone {
-                        let queue_state = if captures_system_audio {
-                            audio_capture_plan
-                                .secondary_queue_state
-                                .as_ref()
-                                .cloned()
-                                .ok_or_else(|| {
-                                    CaptureError::SpawnFailed(
-                                        "ScreenCaptureKit composite desktop capture lost its secondary microphone queue."
-                                            .to_string(),
-                                    )
-                                })?
-                        } else {
-                            Arc::clone(&audio_capture_plan.primary_queue_state)
-                        };
+                        let queue_state = Arc::clone(&audio_capture_plan.primary_queue_state);
                         if stream
                             .add_output_handler(
                                 move |sample: CMSampleBuffer, _type| {
@@ -681,12 +711,12 @@ fn wait_for_audio_writer_plan(
                         primary_queue_state: Arc::clone(&audio_capture_plan.primary_queue_state),
                         secondary_queue_state: None,
                         timestamp_origin: Arc::new(Mutex::new(None)),
+                        output_frame_cursor: Arc::new(Mutex::new(0)),
                         sample_rate: primary_metadata.sample_rate,
                         channel_count: primary_metadata.channel_count.max(1),
                         bits_per_channel: primary_metadata.bits_per_channel,
                         _bytes_per_frame: primary_metadata.bytes_per_frame,
                         format_flags: primary_metadata.format_flags,
-                        buffer_count: primary_metadata.buffer_count.max(1),
                     }));
                 }
             }
@@ -694,18 +724,18 @@ fn wait_for_audio_writer_plan(
                 if let (Some(primary_metadata), Some(secondary_metadata)) =
                     (primary_metadata, secondary_metadata)
                 {
-                    ensure_dual_audio_formats_match(primary_metadata, secondary_metadata)?;
+                    ensure_dual_audio_formats_supported(primary_metadata, secondary_metadata)?;
                     return Ok(Some(CompositeAudioWriterPlan {
                         kind: CompositeAudioKind::Mixed,
                         primary_queue_state: Arc::clone(&audio_capture_plan.primary_queue_state),
                         secondary_queue_state: audio_capture_plan.secondary_queue_state.clone(),
                         timestamp_origin: Arc::new(Mutex::new(None)),
-                        sample_rate: primary_metadata.sample_rate,
-                        channel_count: primary_metadata.channel_count.max(1),
-                        bits_per_channel: primary_metadata.bits_per_channel,
-                        _bytes_per_frame: primary_metadata.bytes_per_frame,
-                        format_flags: primary_metadata.format_flags,
-                        buffer_count: primary_metadata.buffer_count.max(1),
+                        output_frame_cursor: Arc::new(Mutex::new(0)),
+                        sample_rate: MIXED_AUDIO_TARGET_SAMPLE_RATE,
+                        channel_count: MIXED_AUDIO_TARGET_CHANNEL_COUNT,
+                        bits_per_channel: MIXED_AUDIO_TARGET_BITS_PER_CHANNEL,
+                        _bytes_per_frame: MIXED_AUDIO_TARGET_BYTES_PER_FRAME,
+                        format_flags: MIXED_AUDIO_TARGET_FORMAT_FLAGS,
                     }));
                 }
             }
@@ -782,23 +812,36 @@ fn current_audio_format_metadata(
 }
 
 #[cfg(target_os = "macos")]
-fn ensure_dual_audio_formats_match(
+fn ensure_dual_audio_formats_supported(
     primary: CompositeAudioFormatMetadata,
     secondary: CompositeAudioFormatMetadata,
 ) -> Result<(), CaptureError> {
-    let sample_rate_matches = (primary.sample_rate - secondary.sample_rate).abs() < 0.5;
-    if sample_rate_matches
-        && primary.channel_count == secondary.channel_count
-        && primary.bits_per_channel == secondary.bits_per_channel
-        && primary.bytes_per_frame == secondary.bytes_per_frame
-        && primary.format_flags == secondary.format_flags
-        && primary.buffer_count == secondary.buffer_count
-    {
+    ensure_audio_format_supported(primary)?;
+    ensure_audio_format_supported(secondary)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_audio_format_supported(
+    metadata: CompositeAudioFormatMetadata,
+) -> Result<(), CaptureError> {
+    if metadata.format_flags & kAudioFormatFlagIsBigEndian != 0 {
+        return Err(CaptureError::BackendUnavailable(
+            "Full desktop across multiple macOS displays can only combine microphone and system audio for little-endian PCM audio on the native composite lane right now."
+                .to_string(),
+        ));
+    }
+
+    let is_float32 =
+        metadata.format_flags & kAudioFormatFlagIsFloat != 0 && metadata.bits_per_channel == 32;
+    let is_i16 = metadata.format_flags & kAudioFormatFlagIsSignedInteger != 0
+        && metadata.bits_per_channel == 16;
+    if is_float32 || is_i16 {
         return Ok(());
     }
 
     Err(CaptureError::BackendUnavailable(
-        "Full desktop across multiple macOS displays can only combine microphone and system audio when ScreenCaptureKit exposes matching PCM stream layouts for both sources. This runtime reported different audio layouts, so choose one audio source or switch to a specific display."
+        "Full desktop across multiple macOS displays can only combine microphone and system audio for 32-bit float PCM or 16-bit signed PCM sources right now."
             .to_string(),
     ))
 }
@@ -871,6 +914,7 @@ fn run_composite_writer(
     let frame_interval = Duration::from_nanos(1_000_000_000u64 / u64::from(fps.max(1)));
     let mut frame_index: i64 = 0;
     let mut next_frame_at = Instant::now();
+    let mut audio_drain_stats = CompositeAudioDrainStats::default();
 
     loop {
         let composite_frame =
@@ -894,6 +938,7 @@ fn run_composite_writer(
             audio_writer_plan.as_ref(),
             &writer,
             false,
+            &mut audio_drain_stats,
         )?;
 
         frame_index = frame_index.saturating_add(1);
@@ -915,7 +960,9 @@ fn run_composite_writer(
         audio_writer_plan.as_ref(),
         &writer,
         true,
+        &mut audio_drain_stats,
     )?;
+    log_composite_audio_drain_stats(audio_writer_plan.as_ref(), &audio_drain_stats);
     unsafe {
         writer_input.markAsFinished();
     }
@@ -1163,6 +1210,12 @@ fn build_audio_writer_input(
 fn current_audio_format_hint(
     audio_writer_plan: &CompositeAudioWriterPlan,
 ) -> Result<Option<objc2_core_foundation::CFRetained<CMFormatDescription>>, CaptureError> {
+    if audio_writer_plan.kind == CompositeAudioKind::Mixed {
+        return Ok(Some(build_mixed_audio_format_description(
+            audio_writer_plan,
+        )?));
+    }
+
     let queue_state = audio_writer_plan
         .primary_queue_state
         .lock()
@@ -1172,6 +1225,52 @@ fn current_audio_format_hint(
     };
     let sample_ref = sample.as_objc()?;
     Ok(unsafe { sample_ref.format_description() })
+}
+
+#[cfg(target_os = "macos")]
+fn build_mixed_audio_format_description(
+    audio_writer_plan: &CompositeAudioWriterPlan,
+) -> Result<objc2_core_foundation::CFRetained<CMFormatDescription>, CaptureError> {
+    let mut asbd = AudioStreamBasicDescription {
+        mSampleRate: audio_writer_plan.sample_rate,
+        mFormatID: kAudioFormatLinearPCM,
+        mFormatFlags: audio_writer_plan.format_flags,
+        mBytesPerPacket: audio_writer_plan._bytes_per_frame,
+        mFramesPerPacket: 1,
+        mBytesPerFrame: audio_writer_plan._bytes_per_frame,
+        mChannelsPerFrame: audio_writer_plan.channel_count,
+        mBitsPerChannel: audio_writer_plan.bits_per_channel,
+        mReserved: 0,
+    };
+    let mut format_description_ptr: *const CMFormatDescription = std::ptr::null();
+    let status = unsafe {
+        CMAudioFormatDescriptionCreate(
+            None,
+            NonNull::from(&mut asbd),
+            0,
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            None,
+            NonNull::new(&mut format_description_ptr).expect("audio format description output"),
+        )
+    };
+    if status != 0 {
+        return Err(CaptureError::SpawnFailed(format!(
+            "macOS desktop-composite mixed audio could not create a Core Media format description (status={status})."
+        )));
+    }
+
+    unsafe {
+        Ok(CFRetained::from_raw(NonNull::new(format_description_ptr.cast_mut()).ok_or_else(
+            || {
+                CaptureError::SpawnFailed(
+                    "macOS desktop-composite mixed audio format description creation returned a null pointer."
+                        .to_string(),
+                )
+            },
+        )?))
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1204,6 +1303,7 @@ fn drain_audio_samples(
     audio_writer_plan: Option<&CompositeAudioWriterPlan>,
     writer: &AVAssetWriter,
     final_drain: bool,
+    audio_drain_stats: &mut CompositeAudioDrainStats,
 ) -> Result<(), CaptureError> {
     let Some(audio_input) = audio_input else {
         return Ok(());
@@ -1213,7 +1313,7 @@ fn drain_audio_samples(
     };
 
     loop {
-        let next_sample = {
+        let next_primary_sample = {
             let mut queue_state = audio_writer_plan
                 .primary_queue_state
                 .lock()
@@ -1221,9 +1321,6 @@ fn drain_audio_samples(
             queue_state.pending_samples.pop_front()
         };
         let next_audio_sample = if audio_writer_plan.kind == CompositeAudioKind::Mixed {
-            let Some(next_sample) = next_sample else {
-                return Ok(());
-            };
             let secondary_queue_state = audio_writer_plan
                 .secondary_queue_state
                 .as_ref()
@@ -1239,25 +1336,34 @@ fn drain_audio_samples(
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 queue_state.pending_samples.pop_front()
             };
-            let Some(secondary_sample) = secondary_sample else {
-                if final_drain {
-                    return Ok(());
+            match (next_primary_sample, secondary_sample) {
+                (Some(primary), secondary) => {
+                    audio_drain_stats.primary_dequeued_samples =
+                        audio_drain_stats.primary_dequeued_samples.saturating_add(1);
+                    if secondary.is_some() {
+                        audio_drain_stats.secondary_dequeued_samples = audio_drain_stats
+                            .secondary_dequeued_samples
+                            .saturating_add(1);
+                    }
+                    MixedAudioSample::Mixed { primary, secondary }
                 }
-                let mut queue_state = audio_writer_plan
-                    .primary_queue_state
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                queue_state.pending_samples.push_front(next_sample);
-                return Ok(());
-            };
-            MixedAudioSample::Mixed {
-                primary: next_sample,
-                secondary: secondary_sample,
+                (None, Some(secondary)) => {
+                    audio_drain_stats.secondary_dequeued_samples = audio_drain_stats
+                        .secondary_dequeued_samples
+                        .saturating_add(1);
+                    MixedAudioSample::Mixed {
+                        primary: secondary,
+                        secondary: None,
+                    }
+                }
+                (None, None) => return Ok(()),
             }
         } else {
-            let Some(next_sample) = next_sample else {
+            let Some(next_sample) = next_primary_sample else {
                 return Ok(());
             };
+            audio_drain_stats.primary_dequeued_samples =
+                audio_drain_stats.primary_dequeued_samples.saturating_add(1);
             MixedAudioSample::Retained(next_sample)
         };
 
@@ -1271,7 +1377,11 @@ fn drain_audio_samples(
                 create_retimed_audio_sample(&next_sample, audio_writer_plan)?
             }
             MixedAudioSample::Mixed { primary, secondary } => {
-                create_mixed_audio_sample(&primary, &secondary, audio_writer_plan)?
+                if secondary.is_none() {
+                    audio_drain_stats.silent_secondary_mixes =
+                        audio_drain_stats.silent_secondary_mixes.saturating_add(1);
+                }
+                create_mixed_audio_sample(&primary, secondary.as_ref(), audio_writer_plan)?
             }
         };
         let sample_ref = normalized_sample.as_ref();
@@ -1282,117 +1392,79 @@ fn drain_audio_samples(
                 "failed to append an audio sample to the macOS desktop-composite AVAssetWriter",
             )));
         }
+        audio_drain_stats.appended_samples = audio_drain_stats.appended_samples.saturating_add(1);
+        audio_drain_stats.appended_frames = audio_drain_stats
+            .appended_frames
+            .saturating_add(unsafe { sample_ref.num_samples() }.max(0) as u64);
     }
 }
 
 #[cfg(target_os = "macos")]
 fn create_mixed_audio_sample(
     primary_sample: &RetainedSampleBuffer,
-    secondary_sample: &RetainedSampleBuffer,
+    secondary_sample: Option<&RetainedSampleBuffer>,
     audio_writer_plan: &CompositeAudioWriterPlan,
 ) -> Result<CFRetained<ObjcCMSampleBuffer>, CaptureError> {
     let primary_screen_capture_sample = primary_sample.as_sample()?;
-    let secondary_screen_capture_sample = secondary_sample.as_sample()?;
-    let primary_objc_sample = primary_sample.as_objc()?;
-
-    let primary_buffer_list = primary_screen_capture_sample
-        .audio_buffer_list()
-        .ok_or_else(|| {
-            CaptureError::StopFailed(
-                "macOS desktop-composite mixed audio expected a primary PCM audio buffer list."
-                    .to_string(),
-            )
-        })?;
-    let secondary_buffer_list = secondary_screen_capture_sample
-        .audio_buffer_list()
-        .ok_or_else(|| {
-            CaptureError::StopFailed(
-                "macOS desktop-composite mixed audio expected a secondary PCM audio buffer list."
-                    .to_string(),
-            )
-        })?;
-
-    if primary_screen_capture_sample.num_samples() != secondary_screen_capture_sample.num_samples()
-    {
+    let primary_decoded = decode_audio_sample_to_f32(&primary_screen_capture_sample)?;
+    let target_frame_count = canonical_frame_count(&primary_decoded);
+    if target_frame_count == 0 {
         return Err(CaptureError::StopFailed(
-            "macOS desktop-composite mixed audio received mismatched sample counts between microphone and system audio."
+            "macOS desktop-composite mixed audio could not derive a non-empty canonical frame count."
                 .to_string(),
         ));
     }
 
-    let buffer_count = audio_writer_plan.buffer_count.max(1);
-    if primary_buffer_list.num_buffers() != buffer_count
-        || secondary_buffer_list.num_buffers() != buffer_count
-    {
-        return Err(CaptureError::StopFailed(
-            "macOS desktop-composite mixed audio received a different PCM buffer shape than the negotiated writer format."
-                .to_string(),
-        ));
-    }
+    let primary_channels = convert_decoded_audio_sample(&primary_decoded, target_frame_count)?;
+    let secondary_channels = if let Some(secondary_sample) = secondary_sample {
+        let secondary_screen_capture_sample = secondary_sample.as_sample()?;
+        let secondary_decoded = decode_audio_sample_to_f32(&secondary_screen_capture_sample)?;
+        convert_decoded_audio_sample(&secondary_decoded, target_frame_count)?
+    } else {
+        silent_mix_channels(target_frame_count)
+    };
+    let mixed_payload = mix_audio_buffer_bytes(
+        &encode_canonical_audio_bytes(&primary_channels, target_frame_count)?,
+        &encode_canonical_audio_bytes(&secondary_channels, target_frame_count)?,
+    )?
+    .into_boxed_slice();
 
-    let mut mixed_payloads = Vec::with_capacity(buffer_count);
-    let mut buffer_channels = Vec::with_capacity(buffer_count);
-    for buffer_index in 0..buffer_count {
-        let primary_buffer = primary_buffer_list.get(buffer_index).ok_or_else(|| {
-            CaptureError::StopFailed(
-                "macOS desktop-composite mixed audio could not read the primary PCM buffer."
-                    .to_string(),
-            )
-        })?;
-        let secondary_buffer = secondary_buffer_list.get(buffer_index).ok_or_else(|| {
-            CaptureError::StopFailed(
-                "macOS desktop-composite mixed audio could not read the secondary PCM buffer."
-                    .to_string(),
-            )
-        })?;
-        if primary_buffer.data_byte_size() != secondary_buffer.data_byte_size() {
-            return Err(CaptureError::StopFailed(
-                "macOS desktop-composite mixed audio received PCM buffers with different byte lengths."
-                    .to_string(),
-            ));
-        }
-        buffer_channels.push(primary_buffer.number_channels);
-        mixed_payloads.push(
-            mix_audio_buffer_bytes(
-                primary_buffer.data(),
-                secondary_buffer.data(),
-                audio_writer_plan,
-            )?
-            .into_boxed_slice(),
-        );
-    }
-
-    let timing = primary_screen_capture_sample
-        .sample_timing_info(0)
-        .map_err(|status| {
-            CaptureError::StopFailed(format!(
-                "macOS desktop-composite mixed audio could not read sample timing info (status={status})."
-            ))
-        })?;
-    let timing = normalized_audio_timing(timing, &audio_writer_plan.timestamp_origin);
+    let presentation_frame = {
+        let mut cursor = audio_writer_plan
+            .output_frame_cursor
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let current = *cursor;
+        *cursor = cursor.saturating_add(target_frame_count as u64);
+        current
+    };
+    let timing = screencapturekit::cm::CMSampleTimingInfo::with_times(
+        mixed_audio_frame_duration(audio_writer_plan.sample_rate),
+        screencapturekit::cm::CMTime::new(
+            presentation_frame as i64,
+            audio_writer_plan.sample_rate.round().max(1.0) as i32,
+        ),
+        screencapturekit::cm::CMTime::indefinite(),
+    );
     let timing_info = ObjcCMSampleTimingInfo {
         duration: objc_cm_time(timing.duration),
         presentationTimeStamp: objc_cm_time(timing.presentation_time_stamp),
         decodeTimeStamp: objc_cm_time(timing.decode_time_stamp),
     };
-    let format_description = unsafe { primary_objc_sample.format_description() }.ok_or_else(|| {
-        CaptureError::StopFailed(
-            "macOS desktop-composite mixed audio could not inspect the negotiated Core Media audio format."
-                .to_string(),
-        )
-    })?;
+    let format_description = build_mixed_audio_format_description(audio_writer_plan)?;
 
     let mut sample_buffer_ptr = std::ptr::null_mut();
+    let sample_size = audio_writer_plan._bytes_per_frame as usize;
     let status = unsafe {
         ObjcCMSampleBuffer::create_ready(
             None,
             None,
             Some(format_description.as_ref()),
-            primary_screen_capture_sample.num_samples() as _,
+            target_frame_count.try_into().unwrap_or(isize::MAX),
             1,
             &timing_info,
-            0,
-            std::ptr::null(),
+            1,
+            &sample_size,
             NonNull::new(&mut sample_buffer_ptr).expect("sample buffer output pointer"),
         )
     };
@@ -1410,7 +1482,10 @@ fn create_mixed_audio_sample(
             )
         })?)
     };
-    let mixed_buffer_list = OwnedAudioBufferList::new(&buffer_channels, mixed_payloads)?;
+    let mixed_buffer_list = OwnedAudioBufferList::new(
+        &[audio_writer_plan.channel_count.max(1)],
+        vec![mixed_payload],
+    )?;
     let status = unsafe {
         sample_buffer.set_data_buffer_from_audio_buffer_list(
             None,
@@ -1426,6 +1501,406 @@ fn create_mixed_audio_sample(
     }
 
     Ok(sample_buffer)
+}
+
+#[cfg(target_os = "macos")]
+fn log_composite_audio_drain_stats(
+    audio_writer_plan: Option<&CompositeAudioWriterPlan>,
+    audio_drain_stats: &CompositeAudioDrainStats,
+) {
+    if std::env::var_os("RECORD_SCREEN_MAC_COMPOSITE_AUDIO_TRACE").is_none() {
+        return;
+    }
+    let Some(audio_writer_plan) = audio_writer_plan else {
+        return;
+    };
+
+    let primary_queue_state = audio_writer_plan
+        .primary_queue_state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (secondary_observed, secondary_sample_rate) = audio_writer_plan
+        .secondary_queue_state
+        .as_ref()
+        .map(|queue| {
+            let queue = queue
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            (queue.observed_samples, queue.sample_rate)
+        })
+        .unwrap_or((0, None));
+    let rendered_audio_secs =
+        audio_drain_stats.appended_frames as f64 / audio_writer_plan.sample_rate.max(1.0);
+
+    eprintln!(
+        "[macos-composite-audio] kind={:?} output_rate={} primary_rate={:?} secondary_rate={:?} primary_observed={} secondary_observed={} dequeued_primary={} dequeued_secondary={} appended_samples={} appended_frames={} rendered_audio_secs={:.3} silent_secondary_mixes={}",
+        audio_writer_plan.kind,
+        audio_writer_plan.sample_rate,
+        primary_queue_state.sample_rate,
+        secondary_sample_rate,
+        primary_queue_state.observed_samples,
+        secondary_observed,
+        audio_drain_stats.primary_dequeued_samples,
+        audio_drain_stats.secondary_dequeued_samples,
+        audio_drain_stats.appended_samples,
+        audio_drain_stats.appended_frames,
+        rendered_audio_secs,
+        audio_drain_stats.silent_secondary_mixes,
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn silent_mix_channels(target_frame_count: usize) -> Vec<Vec<f32>> {
+    vec![vec![0.0; target_frame_count], vec![0.0; target_frame_count]]
+}
+
+#[cfg(target_os = "macos")]
+fn decode_audio_sample_to_f32(sample: &CMSampleBuffer) -> Result<DecodedAudioSample, CaptureError> {
+    let format_description = sample.format_description().ok_or_else(|| {
+        CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio could not inspect the source audio format."
+                .to_string(),
+        )
+    })?;
+    let metadata = CompositeAudioFormatMetadata {
+        sample_rate: format_description
+            .audio_sample_rate()
+            .unwrap_or(MIXED_AUDIO_TARGET_SAMPLE_RATE),
+        channel_count: format_description.audio_channel_count().unwrap_or(1).max(1),
+        bits_per_channel: format_description
+            .audio_bits_per_channel()
+            .unwrap_or(32)
+            .max(1),
+        bytes_per_frame: format_description
+            .audio_bytes_per_frame()
+            .unwrap_or(4)
+            .max(1),
+        format_flags: format_description
+            .audio_format_flags()
+            .unwrap_or(kAudioFormatFlagIsFloat),
+        buffer_count: sample
+            .audio_buffer_list()
+            .map(|list| list.num_buffers())
+            .unwrap_or(1),
+    };
+    ensure_audio_format_supported(metadata)?;
+    let timing = sample.sample_timing_info(0).map_err(|status| {
+        CaptureError::StopFailed(format!(
+            "macOS desktop-composite mixed audio could not read source timing info (status={status})."
+        ))
+    })?;
+    let buffer_list = sample.audio_buffer_list().ok_or_else(|| {
+        CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio expected a PCM audio buffer list.".to_string(),
+        )
+    })?;
+    let frame_count = derive_pcm_frame_count(&buffer_list, metadata)?;
+    let channels = decode_pcm_buffer_list_to_channels(&buffer_list, metadata, frame_count)?;
+
+    Ok(DecodedAudioSample {
+        timing,
+        sample_rate: metadata.sample_rate.max(1.0),
+        channels,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn decode_pcm_buffer_list_to_channels(
+    buffer_list: &screencapturekit::cm::AudioBufferList,
+    metadata: CompositeAudioFormatMetadata,
+    frame_count: usize,
+) -> Result<Vec<Vec<f32>>, CaptureError> {
+    let mut channels = Vec::new();
+    for buffer in buffer_list.iter() {
+        let local_channels = buffer.number_channels.max(1) as usize;
+        channels.extend(decode_pcm_buffer_bytes(
+            buffer.data(),
+            local_channels,
+            frame_count,
+            metadata.bits_per_channel,
+            metadata.format_flags,
+        )?);
+    }
+
+    if channels.is_empty() {
+        return Err(CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio could not decode any PCM channels from the source sample."
+                .to_string(),
+        ));
+    }
+
+    Ok(channels)
+}
+
+#[cfg(target_os = "macos")]
+fn derive_pcm_frame_count(
+    buffer_list: &screencapturekit::cm::AudioBufferList,
+    metadata: CompositeAudioFormatMetadata,
+) -> Result<usize, CaptureError> {
+    let mut frame_count = None;
+    for buffer in buffer_list.iter() {
+        let buffer_channels = buffer.number_channels.max(1) as usize;
+        let bytes_per_frame = pcm_bytes_per_frame_for_buffer(metadata, buffer_channels)?;
+        let data_len = buffer.data().len();
+        if data_len % bytes_per_frame != 0 {
+            return Err(CaptureError::StopFailed(
+                "macOS desktop-composite mixed audio PCM payload length was not aligned to its frame width."
+                    .to_string(),
+            ));
+        }
+        let local_frame_count = data_len / bytes_per_frame;
+        if local_frame_count == 0 {
+            return Err(CaptureError::StopFailed(
+                "macOS desktop-composite mixed audio could not derive any frames from its PCM payload."
+                    .to_string(),
+            ));
+        }
+        if let Some(existing_frame_count) = frame_count {
+            if existing_frame_count != local_frame_count {
+                return Err(CaptureError::StopFailed(
+                    "macOS desktop-composite mixed audio buffers did not agree on their frame count."
+                        .to_string(),
+                ));
+            }
+        } else {
+            frame_count = Some(local_frame_count);
+        }
+    }
+
+    frame_count.ok_or_else(|| {
+        CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio could not derive a frame count from an empty PCM buffer list."
+                .to_string(),
+        )
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn pcm_bytes_per_frame_for_buffer(
+    metadata: CompositeAudioFormatMetadata,
+    buffer_channels: usize,
+) -> Result<usize, CaptureError> {
+    let bytes_per_sample = (metadata.bits_per_channel / 8) as usize;
+    if bytes_per_sample == 0 {
+        return Err(CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio could not derive a PCM sample width.".to_string(),
+        ));
+    }
+
+    if metadata.format_flags & kAudioFormatFlagIsNonInterleaved != 0 {
+        Ok(bytes_per_sample.saturating_mul(buffer_channels.max(1)))
+    } else {
+        Ok(metadata.bytes_per_frame.max(bytes_per_sample as u32) as usize)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn decode_pcm_buffer_bytes(
+    bytes: &[u8],
+    channel_count: usize,
+    frame_count: usize,
+    bits_per_channel: u32,
+    format_flags: u32,
+) -> Result<Vec<Vec<f32>>, CaptureError> {
+    let bytes_per_sample = (bits_per_channel / 8) as usize;
+    if bytes_per_sample == 0 || channel_count == 0 {
+        return Err(CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio could not derive a valid PCM sample width."
+                .to_string(),
+        ));
+    }
+    let expected_bytes = frame_count
+        .saturating_mul(channel_count)
+        .saturating_mul(bytes_per_sample);
+    if bytes.len() < expected_bytes {
+        return Err(CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio PCM payload was smaller than expected for its frame count."
+                .to_string(),
+        ));
+    }
+
+    let non_interleaved = format_flags & kAudioFormatFlagIsNonInterleaved != 0;
+    let is_float = format_flags & kAudioFormatFlagIsFloat != 0;
+    let is_signed_integer = format_flags & kAudioFormatFlagIsSignedInteger != 0;
+    let mut channels = vec![Vec::with_capacity(frame_count); channel_count];
+
+    for frame_index in 0..frame_count {
+        for channel_index in 0..channel_count {
+            let sample_index = if non_interleaved {
+                channel_index
+                    .saturating_mul(frame_count)
+                    .saturating_add(frame_index)
+            } else {
+                frame_index
+                    .saturating_mul(channel_count)
+                    .saturating_add(channel_index)
+            };
+            let offset = sample_index.saturating_mul(bytes_per_sample);
+            let value = if is_float && bits_per_channel == 32 {
+                let chunk: [u8; 4] = bytes[offset..offset + 4].try_into().map_err(|_| {
+                    CaptureError::StopFailed(
+                        "macOS desktop-composite mixed audio could not decode a float PCM sample."
+                            .to_string(),
+                    )
+                })?;
+                f32::from_le_bytes(chunk)
+            } else if is_signed_integer && bits_per_channel == 16 {
+                let chunk: [u8; 2] = bytes[offset..offset + 2].try_into().map_err(|_| {
+                    CaptureError::StopFailed(
+                        "macOS desktop-composite mixed audio could not decode a signed PCM sample."
+                            .to_string(),
+                    )
+                })?;
+                f32::from(i16::from_le_bytes(chunk)) / f32::from(i16::MAX)
+            } else {
+                return Err(CaptureError::BackendUnavailable(
+                    "Full desktop across multiple macOS displays can only combine microphone and system audio for 32-bit float PCM or 16-bit signed PCM sources right now."
+                        .to_string(),
+                ));
+            };
+            channels[channel_index].push(value.clamp(-1.0, 1.0));
+        }
+    }
+
+    Ok(channels)
+}
+
+#[cfg(target_os = "macos")]
+fn convert_decoded_audio_sample(
+    sample: &DecodedAudioSample,
+    target_frame_count: usize,
+) -> Result<Vec<Vec<f32>>, CaptureError> {
+    let resampled_channels = sample
+        .channels
+        .iter()
+        .map(|channel| resample_channel_linear(channel, target_frame_count))
+        .collect::<Vec<_>>();
+    normalize_channels_for_mix(&resampled_channels, target_frame_count)
+}
+
+#[cfg(target_os = "macos")]
+fn normalize_channels_for_mix(
+    channels: &[Vec<f32>],
+    target_frame_count: usize,
+) -> Result<Vec<Vec<f32>>, CaptureError> {
+    if channels.is_empty() {
+        return Err(CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio could not normalize an empty channel layout."
+                .to_string(),
+        ));
+    }
+
+    if channels.len() == 1 {
+        let mono = channels[0].clone();
+        return Ok(vec![mono.clone(), mono]);
+    }
+
+    let mut left = channels[0].clone();
+    let mut right = channels[1].clone();
+    for frame_index in 0..target_frame_count {
+        if channels.len() > 2 {
+            let mut extra_sum = 0.0f32;
+            let mut extra_count = 0usize;
+            for channel in channels.iter().skip(2) {
+                if let Some(sample) = channel.get(frame_index) {
+                    extra_sum += *sample;
+                    extra_count = extra_count.saturating_add(1);
+                }
+            }
+            if extra_count > 0 {
+                let extra = extra_sum / extra_count as f32;
+                left[frame_index] = ((left[frame_index] + extra) * 0.5).clamp(-1.0, 1.0);
+                right[frame_index] = ((right[frame_index] + extra) * 0.5).clamp(-1.0, 1.0);
+            }
+        }
+    }
+
+    Ok(vec![left, right])
+}
+
+#[cfg(target_os = "macos")]
+fn resample_channel_linear(channel: &[f32], target_frame_count: usize) -> Vec<f32> {
+    if target_frame_count == 0 {
+        return Vec::new();
+    }
+    if channel.is_empty() {
+        return vec![0.0; target_frame_count];
+    }
+    if channel.len() == 1 {
+        return vec![channel[0]; target_frame_count];
+    }
+    if channel.len() == target_frame_count {
+        return channel.to_vec();
+    }
+    if target_frame_count == 1 {
+        return vec![channel[0]];
+    }
+
+    let source_span = channel.len().saturating_sub(1) as f64;
+    let target_span = target_frame_count.saturating_sub(1) as f64;
+    (0..target_frame_count)
+        .map(|target_index| {
+            let position = target_index as f64 * source_span / target_span;
+            let lower = position.floor() as usize;
+            let upper = position.ceil() as usize;
+            if lower == upper {
+                channel[lower]
+            } else {
+                let alpha = (position - lower as f64) as f32;
+                channel[lower] * (1.0 - alpha) + channel[upper] * alpha
+            }
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn canonical_frame_count(sample: &DecodedAudioSample) -> usize {
+    let source_frame_count = sample.channels.first().map_or(0, Vec::len);
+    if source_frame_count == 0 {
+        if let Some(duration_seconds) = sample.timing.duration.as_seconds() {
+            let from_timing = (duration_seconds * MIXED_AUDIO_TARGET_SAMPLE_RATE).round() as usize;
+            if from_timing > 0 {
+                return from_timing;
+            }
+        }
+        return 0;
+    }
+
+    ((source_frame_count as f64 / sample.sample_rate.max(1.0)) * MIXED_AUDIO_TARGET_SAMPLE_RATE)
+        .round()
+        .max(1.0) as usize
+}
+
+#[cfg(target_os = "macos")]
+fn mixed_audio_frame_duration(sample_rate: f64) -> screencapturekit::cm::CMTime {
+    screencapturekit::cm::CMTime::new(1, sample_rate.round().max(1.0) as i32)
+}
+
+#[cfg(target_os = "macos")]
+fn encode_canonical_audio_bytes(
+    channels: &[Vec<f32>],
+    target_frame_count: usize,
+) -> Result<Vec<u8>, CaptureError> {
+    if channels.len() < MIXED_AUDIO_TARGET_CHANNEL_COUNT as usize {
+        return Err(CaptureError::StopFailed(
+            "macOS desktop-composite mixed audio could not encode fewer than two canonical channels."
+                .to_string(),
+        ));
+    }
+
+    let mut encoded = Vec::with_capacity(
+        target_frame_count.saturating_mul(MIXED_AUDIO_TARGET_BYTES_PER_FRAME as usize),
+    );
+    for frame_index in 0..target_frame_count {
+        for channel in channels
+            .iter()
+            .take(MIXED_AUDIO_TARGET_CHANNEL_COUNT as usize)
+        {
+            let value = channel.get(frame_index).copied().unwrap_or_default();
+            encoded.extend_from_slice(&value.clamp(-1.0, 1.0).to_le_bytes());
+        }
+    }
+    Ok(encoded)
 }
 
 #[cfg(target_os = "macos")]
@@ -1524,7 +1999,6 @@ fn normalize_audio_time(
 fn mix_audio_buffer_bytes(
     primary_bytes: &[u8],
     secondary_bytes: &[u8],
-    audio_writer_plan: &CompositeAudioWriterPlan,
 ) -> Result<Vec<u8>, CaptureError> {
     if primary_bytes.len() != secondary_bytes.len() {
         return Err(CaptureError::StopFailed(
@@ -1532,60 +2006,20 @@ fn mix_audio_buffer_bytes(
                 .to_string(),
         ));
     }
-    if audio_writer_plan.format_flags & kAudioFormatFlagIsBigEndian != 0 {
-        return Err(CaptureError::BackendUnavailable(
-            "Full desktop across multiple macOS displays can only combine microphone and system audio for little-endian PCM layouts right now."
-                .to_string(),
-        ));
-    }
-    if audio_writer_plan.format_flags & kAudioFormatFlagIsPacked == 0 {
-        return Err(CaptureError::BackendUnavailable(
-            "Full desktop across multiple macOS displays can only combine packed PCM audio layouts right now."
-                .to_string(),
-        ));
-    }
-
-    if audio_writer_plan.format_flags & kAudioFormatFlagIsFloat != 0
-        && audio_writer_plan.bits_per_channel == 32
+    let mut mixed = Vec::with_capacity(primary_bytes.len());
+    for (primary_chunk, secondary_chunk) in primary_bytes
+        .chunks_exact(4)
+        .zip(secondary_bytes.chunks_exact(4))
     {
-        let mut mixed = Vec::with_capacity(primary_bytes.len());
-        for (primary_chunk, secondary_chunk) in primary_bytes
-            .chunks_exact(4)
-            .zip(secondary_bytes.chunks_exact(4))
-        {
-            let primary_value = f32::from_ne_bytes(primary_chunk.try_into().unwrap_or([0; 4]));
-            let secondary_value = f32::from_ne_bytes(secondary_chunk.try_into().unwrap_or([0; 4]));
-            mixed.extend_from_slice(
-                &(0.5 * (primary_value + secondary_value))
-                    .clamp(-1.0, 1.0)
-                    .to_ne_bytes(),
-            );
-        }
-        return Ok(mixed);
+        let primary_value = f32::from_le_bytes(primary_chunk.try_into().unwrap_or([0; 4]));
+        let secondary_value = f32::from_le_bytes(secondary_chunk.try_into().unwrap_or([0; 4]));
+        mixed.extend_from_slice(
+            &(0.5 * (primary_value + secondary_value))
+                .clamp(-1.0, 1.0)
+                .to_le_bytes(),
+        );
     }
-
-    if audio_writer_plan.format_flags & kAudioFormatFlagIsSignedInteger != 0
-        && audio_writer_plan.bits_per_channel == 16
-    {
-        let mut mixed = Vec::with_capacity(primary_bytes.len());
-        for (primary_chunk, secondary_chunk) in primary_bytes
-            .chunks_exact(2)
-            .zip(secondary_bytes.chunks_exact(2))
-        {
-            let primary_value = i16::from_ne_bytes(primary_chunk.try_into().unwrap_or([0; 2]));
-            let secondary_value = i16::from_ne_bytes(secondary_chunk.try_into().unwrap_or([0; 2]));
-            let mixed_value = ((i32::from(primary_value) + i32::from(secondary_value)) / 2)
-                .clamp(i32::from(i16::MIN), i32::from(i16::MAX))
-                as i16;
-            mixed.extend_from_slice(&mixed_value.to_ne_bytes());
-        }
-        return Ok(mixed);
-    }
-
-    Err(CaptureError::BackendUnavailable(
-        "Full desktop across multiple macOS displays can only combine microphone and system audio for 32-bit float PCM or 16-bit signed PCM layouts right now."
-            .to_string(),
-    ))
+    Ok(mixed)
 }
 
 #[cfg(target_os = "macos")]
@@ -1634,7 +2068,7 @@ fn all_display_slots_ready(frame_slots: &[Mutex<CompositeFrameSlot>]) -> bool {
 #[cfg(test)]
 fn composite_dual_audio_support_note(display_count: usize) -> String {
     format!(
-        "Full desktop across {} macOS displays can combine microphone and system audio on the native composite lane when ScreenCaptureKit exposes matching PCM layouts for both sources. If the two audio streams use different layouts, choose one audio source or switch to a specific display.",
+        "Full desktop across {} macOS displays can combine microphone and system audio on the native composite lane. Common PCM differences such as sample rate, mono-versus-stereo layout, and 16-bit-versus-float samples are converted automatically. Unsupported PCM encodings still require choosing one audio source or switching to a specific display.",
         display_count.max(2)
     )
 }
@@ -1753,16 +2187,16 @@ fn writer_error(writer: &AVAssetWriter, context: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CompositeAudioFormatMetadata, CompositeAudioKind, CompositeAudioWriterPlan,
-        CompositeFrameSlot, all_display_slots_ready, composite_dual_audio_support_note,
-        duration_for_frame_count, ensure_dual_audio_formats_match, mix_audio_buffer_bytes,
-        normalize_audio_time,
+        CompositeAudioFormatMetadata, CompositeFrameSlot, DecodedAudioSample,
+        all_display_slots_ready, canonical_frame_count, composite_dual_audio_support_note,
+        convert_decoded_audio_sample, decode_pcm_buffer_bytes, duration_for_frame_count,
+        ensure_dual_audio_formats_supported, mix_audio_buffer_bytes, normalize_audio_time,
+        resample_channel_linear,
     };
     use objc2_core_audio_types::{
         kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger,
     };
     use screencapturekit::cm::CMTime;
-    use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
 
@@ -1781,21 +2215,6 @@ mod tests {
             bytes_per_frame,
             format_flags,
             buffer_count,
-        }
-    }
-
-    fn writer_plan(bits_per_channel: u32, format_flags: u32) -> CompositeAudioWriterPlan {
-        CompositeAudioWriterPlan {
-            kind: CompositeAudioKind::Mixed,
-            primary_queue_state: Arc::new(Mutex::new(Default::default())),
-            secondary_queue_state: Some(Arc::new(Mutex::new(Default::default()))),
-            timestamp_origin: Arc::new(Mutex::new(None)),
-            sample_rate: 48_000.0,
-            channel_count: 2,
-            bits_per_channel,
-            _bytes_per_frame: if bits_per_channel == 16 { 2 } else { 4 },
-            format_flags,
-            buffer_count: 1,
         }
     }
 
@@ -1840,11 +2259,11 @@ mod tests {
     fn builds_audio_support_note_for_multi_display_lane() {
         let note = composite_dual_audio_support_note(3);
         assert!(note.contains("3 macOS displays"));
-        assert!(note.contains("matching PCM layouts"));
+        assert!(note.contains("converted automatically"));
     }
 
     #[test]
-    fn accepts_matching_dual_audio_formats() {
+    fn accepts_supported_dual_audio_formats_even_when_they_differ() {
         let primary = format_metadata(
             48_000.0,
             2,
@@ -1853,13 +2272,20 @@ mod tests {
             kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
             1,
         );
-        let secondary = primary;
+        let secondary = format_metadata(
+            44_100.0,
+            1,
+            16,
+            2,
+            kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+            1,
+        );
 
-        assert!(ensure_dual_audio_formats_match(primary, secondary).is_ok());
+        assert!(ensure_dual_audio_formats_supported(primary, secondary).is_ok());
     }
 
     #[test]
-    fn rejects_mismatched_dual_audio_formats() {
+    fn rejects_unsupported_dual_audio_formats() {
         let primary = format_metadata(
             48_000.0,
             2,
@@ -1871,60 +2297,106 @@ mod tests {
         let secondary = format_metadata(
             44_100.0,
             2,
-            32,
-            4,
-            kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            24,
+            6,
+            kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
             1,
         );
 
-        let error = ensure_dual_audio_formats_match(primary, secondary).unwrap_err();
-        assert!(error.to_string().contains("matching PCM stream layouts"));
+        let error = ensure_dual_audio_formats_supported(primary, secondary).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("32-bit float PCM or 16-bit signed PCM")
+        );
     }
 
     #[test]
-    fn mixes_float_audio_buffers() {
-        let plan = writer_plan(32, kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked);
+    fn decodes_signed_integer_audio_buffers_to_f32() {
+        let decoded = decode_pcm_buffer_bytes(
+            &[0, 0, 0xFF, 0x7F],
+            1,
+            2,
+            16,
+            kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+        )
+        .unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert!((decoded[0][0] - 0.0).abs() < 0.0001);
+        assert!((decoded[0][1] - 1.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn resamples_linear_audio_channel() {
+        let resampled = resample_channel_linear(&[0.0, 1.0], 4);
+        assert_eq!(resampled.len(), 4);
+        assert!((resampled[1] - 0.3333).abs() < 0.01);
+        assert!((resampled[2] - 0.6666).abs() < 0.01);
+    }
+
+    #[test]
+    fn normalizes_mono_audio_to_stereo() {
+        let decoded = DecodedAudioSample {
+            timing: screencapturekit::cm::CMSampleTimingInfo::with_times(
+                CMTime::new(480, 48_000),
+                CMTime::new(0, 48_000),
+                CMTime::indefinite(),
+            ),
+            sample_rate: 48_000.0,
+            channels: vec![vec![0.25, -0.25]],
+        };
+        let converted = convert_decoded_audio_sample(&decoded, 2).unwrap();
+        assert_eq!(converted.len(), 2);
+        assert_eq!(converted[0], converted[1]);
+    }
+
+    #[test]
+    fn derives_canonical_frame_count_from_timing() {
+        let decoded = DecodedAudioSample {
+            timing: screencapturekit::cm::CMSampleTimingInfo::with_times(
+                CMTime::new(480, 48_000),
+                CMTime::new(0, 48_000),
+                CMTime::indefinite(),
+            ),
+            sample_rate: 44_100.0,
+            channels: vec![vec![0.0; 441]],
+        };
+        assert_eq!(canonical_frame_count(&decoded), 480);
+    }
+
+    #[test]
+    fn canonical_frame_count_prefers_pcm_payload_over_single_frame_timing() {
+        let decoded = DecodedAudioSample {
+            timing: screencapturekit::cm::CMSampleTimingInfo::with_times(
+                CMTime::new(1, 48_000),
+                CMTime::new(0, 48_000),
+                CMTime::indefinite(),
+            ),
+            sample_rate: 48_000.0,
+            channels: vec![vec![0.0; 480], vec![0.0; 480]],
+        };
+        assert_eq!(canonical_frame_count(&decoded), 480);
+    }
+
+    #[test]
+    fn mixes_canonical_float_audio_buffers() {
         let primary = [0.8f32, -0.2f32]
             .into_iter()
-            .flat_map(|value| value.to_ne_bytes())
+            .flat_map(|value| value.to_le_bytes())
             .collect::<Vec<_>>();
         let secondary = [0.4f32, 0.2f32]
             .into_iter()
-            .flat_map(|value| value.to_ne_bytes())
+            .flat_map(|value| value.to_le_bytes())
             .collect::<Vec<_>>();
 
-        let mixed = mix_audio_buffer_bytes(&primary, &secondary, &plan).unwrap();
+        let mixed = mix_audio_buffer_bytes(&primary, &secondary).unwrap();
         let values = mixed
             .chunks_exact(4)
-            .map(|chunk| f32::from_ne_bytes(chunk.try_into().unwrap()))
+            .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
             .collect::<Vec<_>>();
 
         assert_eq!(values.len(), 2);
         assert!((values[0] - 0.6).abs() < 0.0001);
         assert!((values[1] - 0.0).abs() < 0.0001);
-    }
-
-    #[test]
-    fn mixes_signed_integer_audio_buffers() {
-        let plan = writer_plan(
-            16,
-            kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
-        );
-        let primary = [10_000i16, -20_000i16]
-            .into_iter()
-            .flat_map(|value| value.to_ne_bytes())
-            .collect::<Vec<_>>();
-        let secondary = [20_000i16, 10_000i16]
-            .into_iter()
-            .flat_map(|value| value.to_ne_bytes())
-            .collect::<Vec<_>>();
-
-        let mixed = mix_audio_buffer_bytes(&primary, &secondary, &plan).unwrap();
-        let values = mixed
-            .chunks_exact(2)
-            .map(|chunk| i16::from_ne_bytes(chunk.try_into().unwrap()))
-            .collect::<Vec<_>>();
-
-        assert_eq!(values, vec![15_000, -5_000]);
     }
 }
