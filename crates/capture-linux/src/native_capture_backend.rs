@@ -283,7 +283,11 @@ impl CaptureController for GstreamerWaylandCapture {
             self.resume()?;
         }
 
-        request_process_stop(LinuxCaptureProcessKind::GstreamerX11, self.child.id(), None)?;
+        request_process_stop(
+            LinuxCaptureProcessKind::GstreamerWayland,
+            self.child.id(),
+            None,
+        )?;
 
         let status = self
             .child
@@ -297,7 +301,7 @@ impl CaptureController for GstreamerWaylandCapture {
             return Err(CaptureError::StopFailed(format!(
                 "capture process exited with status {status}: {}",
                 describe_process_failure(
-                    LinuxCaptureProcessKind::GstreamerX11,
+                    LinuxCaptureProcessKind::GstreamerWayland,
                     &read_stderr_buffer(&self.stderr_buffer)
                 )
             )));
@@ -326,7 +330,7 @@ impl CaptureController for GstreamerWaylandCapture {
             && status.signal() != Some(libc::SIGINT)
         {
             return Err(CaptureError::StopFailed(describe_process_failure(
-                LinuxCaptureProcessKind::GstreamerX11,
+                LinuxCaptureProcessKind::GstreamerWayland,
                 &read_stderr_buffer(&self.stderr_buffer),
             )));
         }
@@ -716,6 +720,7 @@ pub(crate) fn build_x11_gstreamer_args(
         "-e".to_string(),
         "ximagesrc".to_string(),
         format!("display-name={}", plan.display_name),
+        "do-timestamp=true".to_string(),
         "show-pointer=true".to_string(),
         "use-damage=false".to_string(),
     ];

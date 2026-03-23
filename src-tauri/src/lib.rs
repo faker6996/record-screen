@@ -15,7 +15,6 @@ mod window;
 
 use std::str::FromStr;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use app_core::{AppCore, RecorderSnapshot};
 use shortcuts::{ShortcutAction, ShortcutBinding};

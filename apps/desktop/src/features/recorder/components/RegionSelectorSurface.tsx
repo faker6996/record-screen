@@ -152,8 +152,8 @@ function toRegionCoordinates(
   }
 }
 
-export function RegionSelectorSurface() {
-  const context = window.__RECORD_SCREEN_SELECTOR_CONTEXT__ ?? {
+function defaultRegionSelectorContext(): RegionSelectorSurfaceContext {
+  return {
     originX: 0,
     originY: 0,
     width: window.innerWidth,
@@ -162,6 +162,13 @@ export function RegionSelectorSurface() {
     captureTargetId: 'full-desktop',
     initialRegion: undefined,
   }
+}
+
+export function RegionSelectorSurface() {
+  const context = useMemo(
+    () => window.__RECORD_SCREEN_SELECTOR_CONTEXT__ ?? defaultRegionSelectorContext(),
+    [],
+  )
   const [dragMode, setDragMode] = useState<DragMode | null>(null)
   const [selectionRect, setSelectionRect] = useState<DragRect | null>(
     context.initialRegion ?? null,

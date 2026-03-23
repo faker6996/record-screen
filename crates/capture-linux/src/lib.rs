@@ -5,7 +5,11 @@ mod native_encoder_backend;
 mod runtime_support;
 pub mod wayland_portal;
 
-use std::{env, fs, process::Command, time::SystemTime};
+use std::{
+    env, fs,
+    process::Command,
+    time::{Duration, SystemTime},
+};
 
 use capture::{
     AudioBackendFactory, AudioBackendStatus, AudioInputKind, AudioInputOption,
@@ -216,7 +220,8 @@ pub(crate) fn build_recording_artifact(
 ) -> Result<RecordingArtifact, CaptureError> {
     let metadata = fs::metadata(output_path)
         .map_err(|error| CaptureError::OutputInspectionFailed(error.to_string()))?;
-    let duration = finished_at.duration_since(started_at).unwrap_or_default();
+    let wall_clock_duration = finished_at.duration_since(started_at).unwrap_or_default();
+    let duration = probe_media_duration(output_path).unwrap_or(wall_clock_duration);
 
     Ok(RecordingArtifact {
         output_path: output_path.to_path_buf(),
@@ -225,6 +230,83 @@ pub(crate) fn build_recording_artifact(
         duration,
         bytes_written: metadata.len(),
     })
+}
+
+fn probe_media_duration(output_path: &std::path::Path) -> Option<Duration> {
+    ffprobe_media_duration(output_path).or_else(|| gst_discoverer_media_duration(output_path))
+}
+
+fn ffprobe_media_duration(output_path: &std::path::Path) -> Option<Duration> {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(output_path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    parse_ffprobe_duration_output(std::str::from_utf8(&output.stdout).ok()?)
+}
+
+fn gst_discoverer_media_duration(output_path: &std::path::Path) -> Option<Duration> {
+    let output = Command::new("gst-discoverer-1.0")
+        .arg(output_path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    parse_gst_discoverer_duration_output(std::str::from_utf8(&output.stdout).ok()?)
+}
+
+fn parse_ffprobe_duration_output(output: &str) -> Option<Duration> {
+    let seconds = output.lines().find_map(|line| {
+        let candidate = line.trim();
+        if candidate.is_empty() {
+            None
+        } else {
+            candidate.parse::<f64>().ok()
+        }
+    })?;
+
+    duration_from_seconds(seconds)
+}
+
+fn parse_gst_discoverer_duration_output(output: &str) -> Option<Duration> {
+    let duration_line = output
+        .lines()
+        .find(|line| line.trim_start().starts_with("Duration:"))?;
+    let duration_text = duration_line.split_once(':')?.1.trim();
+    parse_hms_duration(duration_text)
+}
+
+fn parse_hms_duration(value: &str) -> Option<Duration> {
+    let mut parts = value.split(':');
+    let hours = parts.next()?.trim().parse::<u64>().ok()?;
+    let minutes = parts.next()?.trim().parse::<u64>().ok()?;
+    let seconds = parts.next()?.trim().parse::<f64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+
+    duration_from_seconds(hours as f64 * 3600.0 + minutes as f64 * 60.0 + seconds)
+}
+
+fn duration_from_seconds(seconds: f64) -> Option<Duration> {
+    if !seconds.is_finite() || seconds < 0.0 {
+        return None;
+    }
+
+    Some(Duration::from_secs_f64(seconds))
 }
 
 fn portal_backend_availability_for(
@@ -842,14 +924,16 @@ impl LinuxDesktopSession {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, path::PathBuf};
+    use std::{env, path::PathBuf, time::Duration};
 
     use capture::{DEFAULT_AUDIO_INPUT_ID, FULL_DESKTOP_TARGET_ID, RecordingOptions};
 
     use super::{
         LinuxDesktopSession, classify_desktop_session, gst_bitrate_for_quality,
-        native_audio_backend, native_capture_backend, native_encoder_backend, parse_monitors,
-        parse_windows, portal_backend_availability_for, x11_gstreamer_backend_availability_for,
+        native_audio_backend, native_capture_backend, native_encoder_backend,
+        parse_ffprobe_duration_output, parse_gst_discoverer_duration_output, parse_hms_duration,
+        parse_monitors, parse_windows, portal_backend_availability_for,
+        x11_gstreamer_backend_availability_for,
     };
     use crate::wayland_portal::{
         PipeWireGstreamerSupport, ScreenCastPortalCapabilities, ScreenCastPortalProbe,
@@ -1135,5 +1219,31 @@ mod tests {
             ),
             capture::EncoderBackendAvailability::Available
         ));
+    }
+
+    #[test]
+    fn parses_ffprobe_duration_output() {
+        assert_eq!(
+            parse_ffprobe_duration_output("4.966667\n"),
+            Some(Duration::from_secs_f64(4.966667))
+        );
+    }
+
+    #[test]
+    fn parses_gst_discoverer_duration_output() {
+        assert_eq!(
+            parse_gst_discoverer_duration_output(
+                "Properties:\n  Duration: 0:00:04.966666666\n  Seekable: yes\n"
+            ),
+            Some(Duration::from_secs_f64(4.966666666))
+        );
+    }
+
+    #[test]
+    fn parses_hms_duration_with_fractional_seconds() {
+        assert_eq!(
+            parse_hms_duration("1:02:03.500000000"),
+            Some(Duration::from_secs_f64(3723.5))
+        );
     }
 }

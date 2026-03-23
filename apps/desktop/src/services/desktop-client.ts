@@ -207,6 +207,10 @@ let mockMicCheckState: MicCheckSnapshot = {
 }
 
 let mockMicCheckTimer: number | null = null
+let mockRecordingFinalizeTimer: number | null = null
+let mockRecordingStartTimer: number | null = null
+let mockRecordingElapsedTimer: number | null = null
+let mockRecordingElapsedSeconds = 0
 const mockRecorderListeners = new Set<(snapshot: RecorderSnapshot) => void>()
 
 function emitMockRecorderState() {
@@ -214,6 +218,93 @@ function emitMockRecorderState() {
   for (const listener of mockRecorderListeners) {
     listener(snapshot)
   }
+}
+
+function clearMockRecordingTimers() {
+  if (mockRecordingStartTimer !== null) {
+    window.clearTimeout(mockRecordingStartTimer)
+    mockRecordingStartTimer = null
+  }
+
+  if (mockRecordingFinalizeTimer !== null) {
+    window.clearTimeout(mockRecordingFinalizeTimer)
+    mockRecordingFinalizeTimer = null
+  }
+
+  if (mockRecordingElapsedTimer !== null) {
+    window.clearInterval(mockRecordingElapsedTimer)
+    mockRecordingElapsedTimer = null
+  }
+}
+
+function formatMockElapsedLabel(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  return [hours, minutes, seconds]
+    .map((value) => value.toString().padStart(2, '0'))
+    .join(':')
+}
+
+function resetMockRecorderToIdle() {
+  clearMockRecordingTimers()
+  mockRecordingElapsedSeconds = 0
+  mockSnapshot.recorder = {
+    ...mockSnapshot.recorder,
+    status: 'idle',
+    elapsedLabel: 'Ready when you are',
+    activeOutputPath: null,
+    activeEncoderLabel: null,
+    canPause: true,
+    pauseNote: null,
+  }
+}
+
+function startMockElapsedTimer() {
+  if (mockRecordingElapsedTimer !== null) {
+    return
+  }
+
+  mockRecordingElapsedTimer = window.setInterval(() => {
+    if (mockSnapshot.recorder.status !== 'recording') {
+      return
+    }
+
+    mockRecordingElapsedSeconds += 1
+    mockSnapshot.recorder.elapsedLabel = formatMockElapsedLabel(
+      mockRecordingElapsedSeconds,
+    )
+    emitMockRecorderState()
+  }, 1000)
+}
+
+function scheduleMockRecordingStart() {
+  clearMockRecordingTimers()
+  mockRecordingStartTimer = window.setTimeout(() => {
+    mockRecordingStartTimer = null
+    if (mockSnapshot.recorder.status !== 'recording') {
+      return
+    }
+
+    mockSnapshot.recorder.activeEncoderLabel = 'preview-h264'
+    mockSnapshot.recorder.canPause = true
+    mockSnapshot.recorder.pauseNote = null
+    emitMockRecorderState()
+    startMockElapsedTimer()
+  }, 1500)
+}
+
+function scheduleMockRecordingFinalize() {
+  if (mockRecordingFinalizeTimer !== null) {
+    return
+  }
+
+  mockRecordingFinalizeTimer = window.setTimeout(() => {
+    mockRecordingFinalizeTimer = null
+    resetMockRecorderToIdle()
+    emitMockRecorderState()
+  }, 900)
 }
 
 function stopMockMicCheck() {
@@ -250,45 +341,53 @@ async function command<T>(
         return structuredClone(mockSnapshot.audioInputs) as T
       case 'toggle_recording':
         if (mockSnapshot.recorder.status === 'idle') {
+          clearMockRecordingTimers()
+          mockRecordingElapsedSeconds = 0
           mockSnapshot.recorder.status = 'recording'
           mockSnapshot.recorder.activeOutputPath =
             '~/Movies/Record Screen/recording-preview.mp4'
-          mockSnapshot.recorder.activeEncoderLabel = 'h264_videotoolbox'
-          mockSnapshot.recorder.elapsedLabel = '00:12:41'
-          mockSnapshot.recorder.canPause = true
-          mockSnapshot.recorder.pauseNote = null
+          mockSnapshot.recorder.activeEncoderLabel = null
+          mockSnapshot.recorder.elapsedLabel = '00:00:00'
+          mockSnapshot.recorder.canPause = false
+          mockSnapshot.recorder.pauseNote =
+            'Recorder is still preparing the native capture session.'
           emitMockRecorderState()
+          scheduleMockRecordingStart()
           return structuredClone(mockSnapshot.recorder) as T
         }
-        if (mockSnapshot.recorder.status === 'recording' || mockSnapshot.recorder.status === 'paused') {
+        if (
+          mockSnapshot.recorder.status === 'recording' ||
+          mockSnapshot.recorder.status === 'paused'
+        ) {
+          clearMockRecordingTimers()
           mockSnapshot.recorder.status = 'finalizing'
           mockSnapshot.recorder.canPause = false
           mockSnapshot.recorder.pauseNote =
             'Recording is finalizing the output file. Pause is unavailable right now.'
-          mockSnapshot.recorder.elapsedLabel = 'Finalizing 00:12:41'
+          mockSnapshot.recorder.elapsedLabel = `Finalizing ${formatMockElapsedLabel(
+            mockRecordingElapsedSeconds,
+          )}`
           emitMockRecorderState()
-          window.setTimeout(() => {
-            mockSnapshot.recorder.status = 'idle'
-            mockSnapshot.recorder.activeOutputPath = null
-            mockSnapshot.recorder.activeEncoderLabel = null
-            mockSnapshot.recorder.canPause = true
-            mockSnapshot.recorder.pauseNote = null
-            mockSnapshot.recorder.elapsedLabel = 'Ready when you are'
-            emitMockRecorderState()
-          }, 900)
+          scheduleMockRecordingFinalize()
         }
         return structuredClone(mockSnapshot.recorder) as T
       case 'pause_resume':
         if (mockSnapshot.recorder.status === 'recording') {
+          clearMockRecordingTimers()
           mockSnapshot.recorder.status = 'paused'
-          mockSnapshot.recorder.elapsedLabel = 'Paused at 00:12:41'
+          mockSnapshot.recorder.elapsedLabel = `Paused at ${formatMockElapsedLabel(
+            mockRecordingElapsedSeconds,
+          )}`
           emitMockRecorderState()
           return structuredClone(mockSnapshot.recorder) as T
         }
         if (mockSnapshot.recorder.status === 'paused') {
           mockSnapshot.recorder.status = 'recording'
-          mockSnapshot.recorder.elapsedLabel = '00:12:41'
+          mockSnapshot.recorder.elapsedLabel = formatMockElapsedLabel(
+            mockRecordingElapsedSeconds,
+          )
           emitMockRecorderState()
+          startMockElapsedTimer()
           return structuredClone(mockSnapshot.recorder) as T
         }
         return null as T

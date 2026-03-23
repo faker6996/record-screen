@@ -10,6 +10,13 @@ pub struct GstreamerLinuxEncoderBackend;
 
 static GSTREAMER_LINUX_ENCODER_BACKEND: GstreamerLinuxEncoderBackend = GstreamerLinuxEncoderBackend;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GstreamerEncoderSupport {
+    nvh264enc: bool,
+    x264enc: bool,
+    vaapih264enc: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GstreamerEncoderPlan {
     pub element_name: &'static str,
@@ -49,23 +56,18 @@ pub fn preferred_encoder_label() -> Option<String> {
 }
 
 pub fn encoder_plan_for_quality(preset: &str) -> Option<GstreamerEncoderPlan> {
+    encoder_plan_for_quality_with_support(preset, probe_encoder_support())
+}
+
+fn encoder_plan_for_quality_with_support(
+    preset: &str,
+    support: GstreamerEncoderSupport,
+) -> Option<GstreamerEncoderPlan> {
     let bitrate = crate::gst_bitrate_for_quality(preset).to_string();
     let gop_size = crate::quality_settings(preset).2.to_string();
 
-    if gst_inspect_available("nvh264enc") {
-        return Some(GstreamerEncoderPlan {
-            element_name: "nvh264enc",
-            label: "NVENC H.264".to_string(),
-            property_args: vec![
-                "preset=low-latency-hq".to_string(),
-                "rc-mode=cbr".to_string(),
-                format!("bitrate={bitrate}"),
-                format!("gop-size={gop_size}"),
-            ],
-        });
-    }
-
-    if gst_inspect_available("x264enc") {
+    // Prefer the most stable Linux short-recording path first.
+    if support.x264enc {
         return Some(GstreamerEncoderPlan {
             element_name: "x264enc",
             label: "x264".to_string(),
@@ -78,7 +80,20 @@ pub fn encoder_plan_for_quality(preset: &str) -> Option<GstreamerEncoderPlan> {
         });
     }
 
-    if gst_inspect_available("vaapih264enc") {
+    if support.nvh264enc {
+        return Some(GstreamerEncoderPlan {
+            element_name: "nvh264enc",
+            label: "NVENC H.264".to_string(),
+            property_args: vec![
+                "preset=low-latency-hq".to_string(),
+                "rc-mode=cbr".to_string(),
+                format!("bitrate={bitrate}"),
+                format!("gop-size={gop_size}"),
+            ],
+        });
+    }
+
+    if support.vaapih264enc {
         return Some(GstreamerEncoderPlan {
             element_name: "vaapih264enc",
             label: "VAAPI H.264".to_string(),
@@ -90,6 +105,14 @@ pub fn encoder_plan_for_quality(preset: &str) -> Option<GstreamerEncoderPlan> {
     }
 
     None
+}
+
+fn probe_encoder_support() -> GstreamerEncoderSupport {
+    GstreamerEncoderSupport {
+        nvh264enc: gst_inspect_available("nvh264enc"),
+        x264enc: gst_inspect_available("x264enc"),
+        vaapih264enc: gst_inspect_available("vaapih264enc"),
+    }
 }
 
 pub fn runtime_summary() -> Option<String> {
@@ -168,7 +191,10 @@ pub(crate) fn availability_for(
 
 #[cfg(test)]
 mod tests {
-    use super::{availability_for, encoder_plan_for_quality, preferred_encoder_label};
+    use super::{
+        GstreamerEncoderSupport, availability_for, encoder_plan_for_quality,
+        encoder_plan_for_quality_with_support, preferred_encoder_label,
+    };
     use crate::{LinuxDesktopSession, wayland_portal::PipeWireGstreamerSupport};
     use capture::EncoderBackendAvailability;
 
@@ -207,5 +233,21 @@ mod tests {
                     Some("NVENC H.264") | Some("x264") | Some("VAAPI H.264")
                 )
         );
+    }
+
+    #[test]
+    fn prefers_x264_when_x264_and_nvenc_are_both_available() {
+        let plan = encoder_plan_for_quality_with_support(
+            "1080p / 30 fps",
+            GstreamerEncoderSupport {
+                nvh264enc: true,
+                x264enc: true,
+                vaapih264enc: false,
+            },
+        )
+        .expect("expected a preferred encoder plan");
+
+        assert_eq!(plan.element_name, "x264enc");
+        assert_eq!(plan.label, "x264");
     }
 }

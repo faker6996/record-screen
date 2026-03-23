@@ -85,6 +85,26 @@ function parseCustomRegionTargetSummary(targetLabel: string) {
   }
 }
 
+function RecorderElapsed({
+  label,
+  status,
+}: {
+  label: string
+  status: RecorderSnapshot['status']
+}) {
+  const displayElapsedSeconds = parseElapsedSeconds(label, status)
+
+  if (status === 'paused') {
+    return <>Paused at {formatElapsed(displayElapsedSeconds)}</>
+  }
+
+  if (status === 'finalizing') {
+    return <>Finalizing {formatElapsed(displayElapsedSeconds)}</>
+  }
+
+  return <>{formatElapsed(displayElapsedSeconds)}</>
+}
+
 const RecorderControlGrid = memo(function RecorderControlGrid({
   captureTargetDescription,
   captureTargetOptions,
@@ -428,26 +448,6 @@ export function RecorderPanel({
     () => parseCustomRegionTargetSummary(recorder.activeTarget),
     [recorder.activeTarget],
   )
-
-  function RecorderElapsed({
-    label,
-    status,
-  }: {
-    label: string
-    status: RecorderSnapshot['status']
-  }) {
-    const displayElapsedSeconds = parseElapsedSeconds(label, status)
-
-    if (status === 'paused') {
-      return <>Paused at {formatElapsed(displayElapsedSeconds)}</>
-    }
-
-    if (status === 'finalizing') {
-      return <>Finalizing {formatElapsed(displayElapsedSeconds)}</>
-    }
-
-    return <>{formatElapsed(displayElapsedSeconds)}</>
-  }
 
   useEffect(() => {
     if (!isIdle && micCheckActive) {
