@@ -102,7 +102,7 @@ fn schedule_macos_composite_selftest(app: &AppHandle) {
 
     let app = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(1_500));
+        std::thread::sleep(std::time::Duration::from_millis(1_500));
         match recording::toggle_recording(&app) {
             Ok(_) => runtime_log::log_runtime_info(&format!(
                 "macOS composite self-test started | auto_stop_ms={delay_ms}"
@@ -115,7 +115,7 @@ fn schedule_macos_composite_selftest(app: &AppHandle) {
             }
         }
 
-        std::thread::sleep(Duration::from_millis(delay_ms));
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
         match recording::toggle_recording(&app) {
             Ok(_) => runtime_log::log_runtime_info(&format!(
                 "macOS composite self-test stopped | auto_stop_ms={delay_ms}"
