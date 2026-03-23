@@ -181,6 +181,42 @@
   box-shadow: none;
 }
 
+body[data-surface='hud'][data-platform='linux'] .hud {
+  padding: 2px;
+}
+
+body[data-surface='hud'][data-platform='linux'] .hud__card {
+  gap: 6px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(18, 18, 22, 0.88);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+body[data-surface='hud'][data-platform='linux'] .hud__elapsed,
+body[data-surface='hud'][data-platform='linux'] .hud__controls {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+body[data-surface='hud'][data-platform='linux'] .hud__icon-button.button--secondary {
+  color: color-mix(in srgb, var(--color-text-primary) 78%, transparent);
+}
+
+body[data-surface='hud'][data-platform='linux'] .hud__icon-button.button--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+body[data-surface='hud'][data-platform='linux'] .hud__icon-button--active.button--secondary {
+  background: rgba(255, 255, 255, 0.07);
+}
+
 @keyframes hud-recording-pulse {
   0%,
   100% {

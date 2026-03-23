@@ -8,7 +8,7 @@ import {
   ShieldCheck,
   Video,
 } from 'lucide-react'
-import { getAppSurface } from './surfaces'
+import { getAppPlatform, getAppSurface } from './surfaces'
 import { HudSurface } from '../features/launcher/components/HudSurface'
 import { PermissionsPanel } from '../features/permissions/components/PermissionsPanel'
 import { RecorderPanel } from '../features/recorder/components/RecorderPanel'
@@ -441,13 +441,18 @@ function LauncherApp() {
 
 export default function App() {
   const surface = getAppSurface()
+  const platform = getAppPlatform()
 
   useEffect(() => {
     document.body.dataset.surface = surface
+    if (platform) {
+      document.body.dataset.platform = platform
+    }
     return () => {
       delete document.body.dataset.surface
+      delete document.body.dataset.platform
     }
-  }, [surface])
+  }, [platform, surface])
 
   if (surface === 'hud') {
     return <HudApp />

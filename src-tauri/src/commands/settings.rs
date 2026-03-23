@@ -132,9 +132,10 @@ pub fn update_capture_target(
 
     emit_recorder_state(&app, &recorder);
     persist_settings(&app)?;
-    emit_bootstrap_refresh_request(&app);
 
-    if capture_target_id != capture::CUSTOM_REGION_TARGET_ID {
+    if capture_target_id != capture::CUSTOM_REGION_TARGET_ID
+        && !cfg!(target_os = "linux")
+    {
         let preview_app = app.clone();
         let preview_target_id = capture_target_id.clone();
         let preview_target_label = normalized_label.clone();
@@ -179,7 +180,6 @@ pub fn update_region_source_capture_target(
 
     emit_recorder_state(&app, &recorder);
     persist_settings(&app)?;
-    emit_bootstrap_refresh_request(&app);
     Ok(settings)
 }
 

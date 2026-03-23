@@ -655,7 +655,7 @@ pub(crate) fn build_wayland_gstreamer_args(
         "videorate".to_string(),
         "!".to_string(),
         format!(
-            "video/x-raw,width={},height={},framerate={}/1",
+            "video/x-raw,format=I420,width={},height={},framerate={}/1",
             plan.width, plan.height, plan.fps
         ),
         "!".to_string(),
@@ -745,7 +745,7 @@ pub(crate) fn build_x11_gstreamer_args(
         "videorate".to_string(),
         "!".to_string(),
         format!(
-            "video/x-raw,width={},height={},framerate={}/1",
+            "video/x-raw,format=I420,width={},height={},framerate={}/1",
             plan.output_width, plan.output_height, plan.fps
         ),
         "!".to_string(),
@@ -917,6 +917,7 @@ mod tests {
         assert!(joined.contains("display-name=:1.0"));
         assert!(joined.contains("startx=0"));
         assert!(joined.contains("endx=1919"));
+        assert!(joined.contains("video/x-raw,format=I420,width=1920,height=1080,framerate=60/1"));
         assert!(joined.contains("framerate=60/1"));
         assert!(joined.contains("x264enc speed-preset=superfast"));
         assert!(joined.contains("pulsesrc do-timestamp=true device=alsa_input.usb-Blue_Yeti"));

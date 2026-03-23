@@ -7,8 +7,9 @@ pub mod wayland_portal;
 
 use std::{
     env, fs,
-    process::Command,
-    time::{Duration, SystemTime},
+    process::{Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant, SystemTime},
 };
 
 use capture::{
@@ -29,6 +30,7 @@ use capture::{
 
 const MONITOR_TARGET_PREFIX: &str = "monitor:";
 const WINDOW_TARGET_PREFIX: &str = "window:";
+const DISCOVERY_COMMAND_TIMEOUT: Duration = Duration::from_millis(1_500);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LinuxDesktopSession {
     X11 {
@@ -723,10 +725,11 @@ fn query_audio_inputs() -> Result<Vec<AudioInputOption>, CaptureError> {
 }
 
 pub(crate) fn query_monitors() -> Result<Vec<MonitorDescriptor>, CaptureError> {
-    let output = Command::new("xrandr")
-        .arg("--listmonitors")
-        .output()
-        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+    let output = run_command_with_timeout(
+        "xrandr",
+        &["--listmonitors"],
+        DISCOVERY_COMMAND_TIMEOUT,
+    )?;
 
     if !output.status.success() {
         return Err(CaptureError::BackendUnavailable(
@@ -739,10 +742,11 @@ pub(crate) fn query_monitors() -> Result<Vec<MonitorDescriptor>, CaptureError> {
 }
 
 fn query_windows() -> Result<Vec<WindowDescriptor>, CaptureError> {
-    let output = Command::new("xwininfo")
-        .args(["-root", "-tree"])
-        .output()
-        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+    let output = run_command_with_timeout(
+        "xwininfo",
+        &["-root", "-tree"],
+        DISCOVERY_COMMAND_TIMEOUT,
+    )?;
 
     if !output.status.success() {
         return Err(CaptureError::BackendUnavailable(
@@ -752,6 +756,46 @@ fn query_windows() -> Result<Vec<WindowDescriptor>, CaptureError> {
 
     let listing = String::from_utf8_lossy(&output.stdout);
     Ok(parse_windows(&listing))
+}
+
+fn run_command_with_timeout(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<Output, CaptureError> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| CaptureError::BackendUnavailable(error.to_string()))?;
+    let started_at = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                return child
+                    .wait_with_output()
+                    .map_err(|error| CaptureError::BackendUnavailable(error.to_string()));
+            }
+            Ok(None) => {
+                if started_at.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(CaptureError::BackendUnavailable(format!(
+                        "`{program} {}` timed out after {} ms",
+                        args.join(" "),
+                        timeout.as_millis(),
+                    )));
+                }
+            }
+            Err(error) => {
+                return Err(CaptureError::BackendUnavailable(error.to_string()));
+            }
+        }
+
+        thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn parse_monitors(listing: &str) -> Vec<MonitorDescriptor> {
@@ -1070,7 +1114,7 @@ mod tests {
 
         assert!(joined.contains("pipewiresrc fd=3 path=77 autoconnect=true"));
         assert!(joined.contains("always-copy=true"));
-        assert!(joined.contains("video/x-raw,width=1920,height=1080,framerate=30/1"));
+        assert!(joined.contains("video/x-raw,format=I420,width=1920,height=1080,framerate=30/1"));
         assert!(joined.contains("x264enc speed-preset=veryfast"));
         assert!(joined.contains("bitrate=8000"));
         assert!(joined.contains("mp4mux name=mux faststart=true"));

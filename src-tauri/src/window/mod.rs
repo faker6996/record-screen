@@ -9,8 +9,9 @@ use std::sync::mpsc;
 
 use app_core::{RecorderSnapshot, RecorderStatus};
 use tauri::{
-    AppHandle, Emitter, Error as TauriError, Manager, PhysicalPosition, PhysicalSize, Position,
-    Size, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Error as TauriError, LogicalUnit, Manager, PhysicalPosition,
+    PhysicalSize, PixelUnit, Position, Size, WebviewUrl, WebviewWindowBuilder,
+    WindowSizeConstraints,
 };
 
 use crate::{emit_recorder_state, runtime_log, with_core};
@@ -44,6 +45,38 @@ struct RegionSelectorInitialRegion {
     top: f64,
     width: f64,
     height: f64,
+}
+
+fn surface_initialization_script(surface: &str) -> String {
+    format!(
+        "window.__RECORD_SCREEN_SURFACE__ = '{surface}'; window.__RECORD_SCREEN_PLATFORM__ = '{}';",
+        crate::bootstrap::platform_name(),
+    )
+}
+
+fn hud_size_constraints() -> WindowSizeConstraints {
+    WindowSizeConstraints {
+        min_width: Some(PixelUnit::new(LogicalUnit::new(f64::from(HUD_DEFAULT_WIDTH)))),
+        min_height: Some(PixelUnit::new(LogicalUnit::new(f64::from(HUD_DEFAULT_HEIGHT)))),
+        max_width: Some(PixelUnit::new(LogicalUnit::new(f64::from(HUD_DEFAULT_WIDTH)))),
+        max_height: Some(PixelUnit::new(LogicalUnit::new(f64::from(HUD_DEFAULT_HEIGHT)))),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn force_linux_hud_window_size(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use gtk::prelude::{GtkWindowExt, WidgetExt};
+
+    let window_for_main_thread = window.clone();
+    window
+        .run_on_main_thread(move || {
+            if let Ok(gtk_window) = window_for_main_thread.gtk_window() {
+                gtk_window.set_default_size(HUD_DEFAULT_WIDTH as i32, HUD_DEFAULT_HEIGHT as i32);
+                gtk_window.set_size_request(HUD_DEFAULT_WIDTH as i32, HUD_DEFAULT_HEIGHT as i32);
+                gtk_window.resize(HUD_DEFAULT_WIDTH as i32, HUD_DEFAULT_HEIGHT as i32);
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 pub fn focus_launcher(app: &AppHandle) -> Result<(), String> {
@@ -203,9 +236,10 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
     let mut builder =
         WebviewWindowBuilder::new(app, HUD_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
             .title("Record Screen HUD")
-            .initialization_script("window.__RECORD_SCREEN_SURFACE__ = 'hud';")
+            .initialization_script(&surface_initialization_script("hud"))
             .inner_size(294.0, 62.0)
             .min_inner_size(264.0, 56.0)
+            .max_inner_size(294.0, 62.0)
             .visible(false)
             .resizable(false)
             .always_on_top(true)
@@ -403,7 +437,8 @@ fn region_selector_init_script(context: &RegionSelectorContext) -> String {
         })
     });
     format!(
-        "window.__RECORD_SCREEN_SURFACE__ = 'region-selector'; window.__RECORD_SCREEN_SELECTOR_CONTEXT__ = {{ originX: {}, originY: {}, width: {}, height: {}, scaleFactor: {}, captureTargetId: {:?}, initialRegion: {} }};",
+        "window.__RECORD_SCREEN_SURFACE__ = 'region-selector'; window.__RECORD_SCREEN_PLATFORM__ = '{}'; window.__RECORD_SCREEN_SELECTOR_CONTEXT__ = {{ originX: {}, originY: {}, width: {}, height: {}, scaleFactor: {}, captureTargetId: {:?}, initialRegion: {} }};",
+        crate::bootstrap::platform_name(),
         context.origin_x,
         context.origin_y,
         context.width,
@@ -572,7 +607,7 @@ pub fn ensure_target_preview_window(app: &AppHandle) -> Result<(), String> {
         WebviewUrl::App("index.html".into()),
     )
     .title("Record Screen Target Preview")
-    .initialization_script("window.__RECORD_SCREEN_SURFACE__ = 'target-preview';")
+    .initialization_script(&surface_initialization_script("target-preview"))
     .inner_size(320.0, 180.0)
     .visible(false)
     .focused(false)
@@ -709,6 +744,23 @@ pub fn show_hud(app: &AppHandle) -> Result<(), String> {
         if window.is_minimized().map_err(|error| error.to_string())? {
             window.unminimize().map_err(|error| error.to_string())?;
         }
+        window
+            .set_size_constraints(hud_size_constraints())
+            .map_err(|error| error.to_string())?;
+        #[cfg(target_os = "macos")]
+        window
+            .set_size(Size::Logical(tauri::LogicalSize::new(
+                f64::from(HUD_DEFAULT_WIDTH),
+                f64::from(HUD_DEFAULT_HEIGHT),
+            )))
+            .map_err(|error| error.to_string())?;
+        #[cfg(not(target_os = "macos"))]
+        window
+            .set_size(Size::Physical(PhysicalSize::new(
+                HUD_DEFAULT_WIDTH,
+                HUD_DEFAULT_HEIGHT,
+            )))
+            .map_err(|error| error.to_string())?;
         if should_reposition {
             position_hud_window(app, &window)?;
         }
@@ -716,6 +768,8 @@ pub fn show_hud(app: &AppHandle) -> Result<(), String> {
             .set_always_on_top(true)
             .map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
+        #[cfg(target_os = "linux")]
+        force_linux_hud_window_size(&window)?;
         runtime_log::log_runtime_info(&format!("hud shown | repositioned={should_reposition}"));
     }
 

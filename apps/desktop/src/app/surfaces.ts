@@ -22,8 +22,11 @@ export interface TargetPreviewSurfaceContext {
   style: 'badge' | 'region-outline'
 }
 
+export type AppPlatform = 'linux' | 'macos' | 'windows'
+
 declare global {
   interface Window {
+    __RECORD_SCREEN_PLATFORM__?: AppPlatform
     __RECORD_SCREEN_SURFACE__?: AppSurface
     __RECORD_SCREEN_SELECTOR_CONTEXT__?: RegionSelectorSurfaceContext
     __RECORD_SCREEN_TARGET_PREVIEW_CONTEXT__?: TargetPreviewSurfaceContext
@@ -48,4 +51,12 @@ export function getAppSurface(): AppSurface {
   }
 
   return 'main'
+}
+
+export function getAppPlatform(): AppPlatform | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  return window.__RECORD_SCREEN_PLATFORM__ ?? null
 }
