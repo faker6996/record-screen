@@ -47,11 +47,47 @@ if [[ -z "$HOMEBREW_TAP_TOKEN" ]]; then
 fi
 
 DMG_FILENAME="$(basename "$DMG_PATH")"
-DMG_FILENAME_URL_ENCODED="$(
-  python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$DMG_FILENAME"
-)"
 SHA256="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
-URL="https://github.com/$RELEASE_OWNER_REPO/releases/download/$TAG_NAME/$DMG_FILENAME_URL_ENCODED"
+RELEASE_API_URL="https://api.github.com/repos/$RELEASE_OWNER_REPO/releases/tags/$TAG_NAME"
+RELEASE_JSON_PATH="$WORK_DIR/release.json"
+curl -fsSL "$RELEASE_API_URL" > "$RELEASE_JSON_PATH" || true
+URL="$(
+  python3 -c '
+import json
+import pathlib
+import sys
+
+release_path = pathlib.Path(sys.argv[1])
+if not release_path.exists():
+    raise SystemExit(1)
+
+release = json.loads(release_path.read_text())
+assets = release.get("assets", [])
+dmg_assets = [
+    asset["browser_download_url"]
+    for asset in assets
+    if asset.get("name", "").endswith(".dmg") and asset.get("browser_download_url")
+]
+
+if len(dmg_assets) == 1:
+    print(dmg_assets[0])
+    raise SystemExit(0)
+
+for asset in dmg_assets:
+    if "_universal.dmg" in asset:
+        print(asset)
+        raise SystemExit(0)
+
+raise SystemExit(1)
+' "$RELEASE_JSON_PATH"
+)" || true
+
+if [[ -z "$URL" ]]; then
+  DMG_FILENAME_URL_ENCODED="$(
+    python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$DMG_FILENAME"
+  )"
+  URL="https://github.com/$RELEASE_OWNER_REPO/releases/download/$TAG_NAME/$DMG_FILENAME_URL_ENCODED"
+fi
 
 TAP_DIR="$WORK_DIR/homebrew-tap"
 git clone \
