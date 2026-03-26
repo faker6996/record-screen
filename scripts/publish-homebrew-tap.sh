@@ -47,8 +47,11 @@ if [[ -z "$HOMEBREW_TAP_TOKEN" ]]; then
 fi
 
 DMG_FILENAME="$(basename "$DMG_PATH")"
+DMG_FILENAME_URL_ENCODED="$(
+  python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$DMG_FILENAME"
+)"
 SHA256="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
-URL="https://github.com/$RELEASE_OWNER_REPO/releases/download/$TAG_NAME/$DMG_FILENAME"
+URL="https://github.com/$RELEASE_OWNER_REPO/releases/download/$TAG_NAME/$DMG_FILENAME_URL_ENCODED"
 
 TAP_DIR="$WORK_DIR/homebrew-tap"
 git clone \

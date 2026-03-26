@@ -84,7 +84,7 @@ run:
 ```bash
 VERSION=0.1.0 \
 SHA256=<sha256-of-dmg> \
-URL=https://github.com/faker6996/record-screen/releases/download/v0.1.0/<dmg-file-name> \
+URL=https://github.com/faker6996/record-screen/releases/download/v0.1.0/<url-encoded-dmg-file-name> \
 scripts/render-homebrew-cask.sh
 ```
 

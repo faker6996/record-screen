@@ -18,7 +18,7 @@ Missing required inputs.
 Usage:
   VERSION=0.1.0 \
   SHA256=<sha256> \
-  URL=https://github.com/<owner>/<repo>/releases/download/v0.1.0/Record.Screen_0.1.0_universal.dmg \
+  URL=https://github.com/<owner>/<repo>/releases/download/v0.1.0/Record%20Screen_0.1.0_universal.dmg \
   scripts/render-homebrew-cask.sh
 
 Optional:
