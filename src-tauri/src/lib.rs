@@ -287,7 +287,12 @@ pub fn run() {
             if let Err(error) = launch_on_login::sync_launch_on_login(launch_on_login_enabled) {
                 eprintln!("failed to sync launch-on-login state: {error}");
             }
-            register_shortcuts(app.handle())?;
+            if let Err(error) = register_shortcuts(app.handle()) {
+                runtime_log::log_runtime_error(&format!(
+                    "global shortcut registration failed during startup; continuing without shortcuts until they are changed in Settings | error={error}"
+                ));
+                eprintln!("failed to register global shortcuts during startup: {error}");
+            }
             tray::create(app.handle())?;
             window::focus_launcher(app.handle())?;
             window::schedule_hud_window_prewarm(app.handle());
