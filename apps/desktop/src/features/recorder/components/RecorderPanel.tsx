@@ -1,5 +1,5 @@
 import { AudioLines, LoaderCircle, Mic, Monitor, Pause, Play } from 'lucide-react'
-import { memo, useEffect, useMemo } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { Combobox } from '../../../components/Combobox'
 import { useMicCheck } from '../../../hooks/use-mic-check'
 import type {
@@ -92,7 +92,27 @@ function RecorderElapsed({
   label: string
   status: RecorderSnapshot['status']
 }) {
-  const displayElapsedSeconds = parseElapsedSeconds(label, status)
+  const [displayElapsedSeconds, setDisplayElapsedSeconds] = useState(() =>
+    parseElapsedSeconds(label, status),
+  )
+
+  useEffect(() => {
+    setDisplayElapsedSeconds(parseElapsedSeconds(label, status))
+  }, [label, status])
+
+  useEffect(() => {
+    if (status !== 'recording') {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      setDisplayElapsedSeconds((current) => current + 1)
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [status])
 
   if (status === 'paused') {
     return <>Paused at {formatElapsed(displayElapsedSeconds)}</>

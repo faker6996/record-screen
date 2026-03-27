@@ -3,6 +3,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
+import { useEffect, useState } from 'react'
 import { desktopClient } from '../../../services/desktop-client'
 import type { RecorderSnapshot } from '../../../types/desktop'
 
@@ -47,10 +48,34 @@ function formatHudTime(totalSeconds: number) {
 
 function HudElapsed({
   initialElapsedSeconds,
+  status,
 }: {
   initialElapsedSeconds: number
+  status: RecorderSnapshot['status']
 }) {
-  return <strong>{formatHudTime(initialElapsedSeconds)}</strong>
+  const [displayElapsedSeconds, setDisplayElapsedSeconds] = useState(
+    initialElapsedSeconds,
+  )
+
+  useEffect(() => {
+    setDisplayElapsedSeconds(initialElapsedSeconds)
+  }, [initialElapsedSeconds])
+
+  useEffect(() => {
+    if (status !== 'recording') {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      setDisplayElapsedSeconds((current) => current + 1)
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [status])
+
+  return <strong>{formatHudTime(displayElapsedSeconds)}</strong>
 }
 
 export function HudSurface({
@@ -110,6 +135,7 @@ export function HudSurface({
           ) : (
             <HudElapsed
               initialElapsedSeconds={parsedElapsedSeconds}
+              status={recorder.status}
               key={`${recorder.activeOutputPath ?? 'idle'}:${recorder.status}:${recorder.elapsedLabel}`}
             />
           )}

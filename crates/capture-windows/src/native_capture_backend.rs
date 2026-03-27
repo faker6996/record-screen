@@ -1016,6 +1016,7 @@ fn run_native_recording_thread(
                     &mut microphone_queue,
                     &mut loopback_queue,
                     &mut audio_samples_written,
+                    &mut video_samples_written,
                 )?;
 
                 thread::sleep(Duration::from_millis(16));
@@ -1032,6 +1033,7 @@ fn run_native_recording_thread(
         &mut microphone_queue,
         &mut loopback_queue,
         &mut audio_samples_written,
+        &mut video_samples_written,
     )?;
     write_fallback_video_sample_if_needed(&writer_foundation, video_samples_written)?;
 
@@ -1174,6 +1176,7 @@ fn run_multi_monitor_native_recording_thread(
                 &mut microphone_queue,
                 &mut loopback_queue,
                 &mut audio_samples_written,
+                &mut video_samples_written,
             )?;
 
             thread::sleep(Duration::from_millis(16));
@@ -1190,6 +1193,7 @@ fn run_multi_monitor_native_recording_thread(
         &mut microphone_queue,
         &mut loopback_queue,
         &mut audio_samples_written,
+        &mut video_samples_written,
     )?;
     write_fallback_video_sample_if_needed(&writer_foundation, video_samples_written)?;
 
@@ -1794,6 +1798,7 @@ fn flush_pending_audio_packets(
     microphone_queue: &mut VecDeque<super::native_audio_backend::WindowsWasapiAudioPacket>,
     loopback_queue: &mut VecDeque<super::native_audio_backend::WindowsWasapiAudioPacket>,
     audio_samples_written: &mut bool,
+    video_samples_written: &mut bool,
 ) -> Result<(), CaptureError> {
     if let Some(worker) = microphone_worker {
         while let Some(packet) = worker.try_recv_packet() {
@@ -1810,18 +1815,30 @@ fn flush_pending_audio_packets(
     match (options.mic_enabled, options.system_audio_enabled) {
         (true, true) => {
             while let Some(packet) = try_mix_audio_packets(microphone_queue, loopback_queue)? {
+                ensure_video_stream_seeded_for_audio(
+                    writer_foundation,
+                    video_samples_written,
+                )?;
                 super::native_encoder_backend::write_audio_sample(writer_foundation, &packet)?;
                 *audio_samples_written = true;
             }
         }
         (true, false) => {
             while let Some(packet) = microphone_queue.pop_front() {
+                ensure_video_stream_seeded_for_audio(
+                    writer_foundation,
+                    video_samples_written,
+                )?;
                 super::native_encoder_backend::write_audio_sample(writer_foundation, &packet)?;
                 *audio_samples_written = true;
             }
         }
         (false, true) => {
             while let Some(packet) = loopback_queue.pop_front() {
+                ensure_video_stream_seeded_for_audio(
+                    writer_foundation,
+                    video_samples_written,
+                )?;
                 super::native_encoder_backend::write_audio_sample(writer_foundation, &packet)?;
                 *audio_samples_written = true;
             }
@@ -1829,6 +1846,20 @@ fn flush_pending_audio_packets(
         (false, false) => {}
     }
 
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_video_stream_seeded_for_audio(
+    writer_foundation: &super::native_encoder_backend::NativeSinkWriterFoundation,
+    video_samples_written: &mut bool,
+) -> Result<(), CaptureError> {
+    if *video_samples_written {
+        return Ok(());
+    }
+
+    super::native_encoder_backend::write_black_video_sample(writer_foundation, 0)?;
+    *video_samples_written = true;
     Ok(())
 }
 
