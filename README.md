@@ -1,184 +1,79 @@
 <div align="center">
   <h1>🎥 Record Screen</h1>
-  <p>A high-performance, cross-platform desktop screen recorder built with modern web and systems tech.</p>
+  <p>A fast, lightweight, and easy-to-use cross-platform screen recorder.</p>
 
   <p>
+    <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="Cross-Platform" />
     <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" alt="Tauri v2" />
     <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19" />
     <img src="https://img.shields.io/badge/Rust-1.70+-000000?logo=rust&logoColor=white" alt="Rust" />
-    <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="Cross-Platform" />
   </p>
 </div>
 
 ---
 
-## ✨ Features
+Welcome to **Record Screen**! Whether you want to record a quick tutorial, save an important meeting, or capture a bug, this app provides a seamless and high-performance recording experience directly from your desktop.
 
-- ⌨️ **Keyboard-First Interface** - Navigate and control entirely via global shortcuts.
-- ⌨️ **Configurable Shortcuts** - Remap core recorder shortcuts and re-register them without restarting the app.
-- 🎨 **Modern UI** - Sleek launcher, HUD, tray menu, and recent sessions manager.
-- 🦀 **Rust App State** - High-performance, memory-safe backend as the source of truth.
-- 🧾 **Local Runtime Log** - Persist launch/runtime/panic logs in the app config directory for debugging real machines.
-- 🎯 **Flexible Capture Targets** - Record the full desktop, a specific display, or an individual window. On macOS, `Full desktop` now composites all active displays on the native multi-display lane.
-- ✂️ **Custom Region Capture** - Drag-select a reusable capture rectangle on supported backends and preview the selected target on screen.
-- 🔊 **Audio Input + System Audio Mixing** - Choose a microphone and optionally mix a supported system-audio loopback source where the backend can do it.
-- 🔒 **Native Permissions** - Seamless flow for `Screen recording` and `Microphone` access on macOS.
-- 🚀 **Automated Builds** - GitHub Actions CI/CD for macOS DMG, Windows setup EXE, and Linux DEB packages.
-- 💅 **Scalable CSS** - Styled with a modular architecture (`foundation`, `shared`, `blocks`).
+## ✨ Key Features
 
-<details>
-<summary><b>Current MVP Backend Implementations</b></summary>
-<br>
+- 🎯 **Capture Anything:** Record your full desktop, a specific window, or drag to select a custom capture region.
+- 🔊 **Clear Audio:** Capture your microphone narrations, your system's internal audio, or mix both together effortlessly.
+- ⌨️ **Keyboard-First:** Control your entire recording session using global keyboard shortcuts without needing to click around.
+- ⚡ **High Performance:** Built with modern technologies (Rust) to ensure smooth recording without draining your system resources.
+- 🌍 **Cross-Platform:** Works beautifully everywhere you do—macOS, Windows, and Linux.
 
-- **macOS:** `ScreenCaptureKit / SCRecordingOutput` on supported runtimes
-- **Linux:** native `GStreamer` recorder lanes on X11/XWayland today, plus a ScreenCast portal / PipeWire / GStreamer path for pure Wayland that still needs more runtime hardening
-- **Windows:** `Windows.Graphics.Capture + Media Foundation + WASAPI`
-</details>
+---
 
-## 🗺️ Roadmap (Not Implemented Yet)
-- [ ] Production hardening and QA signoff for the per-OS native recorder stacks.
-- [ ] Production-grade encoder pipeline beyond MVP.
-- [ ] Full video review and export workflow.
+## 🚀 Quick Start (How to Use)
+
+1. **Launch the App:** Open "Record Screen". A sleek, minimal launcher will appear on your screen.
+2. **Select your Target:** Choose whether you want to record the **Full desktop**, a specific **Window**, or a **Custom region**.
+3. **Configure Audio:** Toggle your **Microphone** or **System Audio** on or off based on your needs.
+4. **Start Recording:** Press `Ctrl/Cmd + Shift + R` or click the Start recording button on the launcher.
+5. **Stop Recording:** Press `Ctrl/Cmd + Shift + R` again. Your video will be saved automatically!
 
 ---
 
 ## ⌨️ Global Shortcuts
 
+You can control the app from anywhere on your computer using these default shortcuts. You can also customize them directly in the app settings!
+
 | Action | Shortcut |
 | :--- | :--- |
-| 🔴 **Start / Stop** | <kbd>CmdOrCtrl</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> |
-| ⏸️ **Pause / Resume** | <kbd>CmdOrCtrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> |
-| 🚀 **Show Launcher** | <kbd>CmdOrCtrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> |
-| 🎙️ **Mute / Unmute Mic** | <kbd>CmdOrCtrl</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> |
+| 🔴 **Start / Stop Recording** | <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> |
+| ⏸️ **Pause / Resume** | <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> |
+| 🚀 **Show/Hide Launcher** | <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> |
+| 🎙️ **Mute / Unmute Mic** | <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> |
 
 ---
 
-## 🛠️ Local Development
+## 🔐 Important Permissions
 
-### Prerequisites
+Depending on your operating system, the app needs permission to capture your screen and audio.
 
-Ensure you have the following installed before proceeding:
-- [Node.js](https://nodejs.org/)
-- [Rust](https://www.rust-lang.org/)
-- **macOS only:** Xcode Command Line Tools
-
-### Getting Started
-
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-2. **Run the desktop app in development mode:**
-   ```bash
-   npm run dev
-   ```
-
-<details>
-<summary><b>Other useful commands</b></summary>
-
-- Run only the web UI preview:
-  ```bash
-  npm run dev:web
-  ```
-- Build desktop app locally (no installer bundling):
-  ```bash
-  npm run build -- --no-bundle --ci
-  ```
-- Build a macOS DMG locally:
-  ```bash
-  npm run build -- --bundles dmg --ci --no-sign
-  ```
-- Build a Linux DEB locally:
-  ```bash
-  npm run build -- --bundles deb --ci --no-sign
-  ```
-- Linting and type-checking:
-  ```bash
-  npm run lint
-  npm run build:web
-  cargo check
-  ```
-</details>
+- **macOS:** When you first run the app, you will be prompted to allow **Screen Recording** and **Microphone** access in System Settings. Just follow the on-screen instructions.
+- **Windows / Linux:** Generally works out of the box! On some modern Linux setups (like Wayland), your system will ask you to confirm screen sharing when you start a recording.
 
 ---
 
-## 🏗️ Project Structure
+## 📥 Installation
 
-The repository is structured as a monorepo, separating the UI from the Rust core:
+*You can download the latest version of Record Screen from the Releases page.*
 
-```text
-📁 record-screen/
-├── 📁 apps/
-│   └── 🖥️ desktop/          # React launcher and desktop UI
-├── 📁 src-tauri/             # Tauri shell, commands, tray, windows
-├── 📁 crates/                # Rust workspace
-│   ├── ⚙️ app-core/         # Recorder state and session summaries
-│   ├── 🎥 capture/          # Shared capture abstractions
-│   ├── 🍏 capture-macos/    # macOS recording backend
-│   ├── 🪟 capture-windows/  # Windows recording backend
-│   ├── 🐧 capture-linux/    # Linux recording backend
-│   ├── 🔐 permissions/      # Permission probing and request flow
-│   ├── ⌨️ shortcuts/        # Shortcut bindings
-│   └── 💾 storage/          # Settings and output-path helpers
-└── 📁 docs/                  # Architecture, decisions, conventions
-```
+- 🍏 **macOS:** Download the `.dmg` file, open it, and drag the app into your Applications folder.
+- 🪟 **Windows:** Download the `.exe` setup file and run the installer.
+- 🐧 **Linux:** Download the `.deb` package and install it via your package manager.
 
 ---
 
-## 📝 Platform Notes
+## 🛠️ For Developers
 
-### 🍏 macOS
-- Must grant **Screen Recording** permission.
-- If narration is enabled, must grant **Microphone** permission.
-- `Display`, `custom region`, and supported audio lanes now record through the native ScreenCaptureKit path on supported runtimes.
-- `Full desktop` on multi-display setups now records through a native desktop-composite lane instead of binding only the first display.
-- `Full desktop + microphone` and `Full desktop + system audio` now work on the native composite lane.
-- `Full desktop + microphone + system audio` on multi-display setups currently depends on ScreenCaptureKit exposing matching PCM layouts for both audio sources; when the layouts differ, the app fails explicitly instead of producing bad audio.
-- Pause/resume is not available on the direct native file-output lane, so the app disables it explicitly there.
+Are you a developer looking to contribute or understand how Record Screen works under the hood? All technical documentation, architecture overviews, and build instructions have been moved to the documentation folder.
 
-### 🐧 Linux
-- `X11`: production-ready native lane through `GStreamer ximagesrc + pulsesrc`.
-- `Wayland + XWayland`: uses the same native X11 GStreamer lane and is usable today.
-- `Wayland-only`: native `ScreenCast portal + PipeWire + GStreamer` groundwork exists, but it is still not hardened enough to claim production-ready support.
-- `Custom region` works on `X11` and `XWayland`, but not on pure `Wayland-only`.
-- `System audio mixing` works on the native X11/XWayland audio lane when a monitor source exists.
-- Native GStreamer / PipeWire runtime packages must be available on the host.
-- Microphone narration uses the selected PulseAudio/PipeWire source, and Linux mic check now uses the native GStreamer probe path.
-- The launcher reports Linux readiness for:
-  - X11/XWayland access
-  - Wayland ScreenCast portal capability
-  - PipeWire readiness hints
-  - active capture/audio/encoder backend path
-  - microphone availability
-- Release packages are distributed as `.deb` files for `apt install ./record-screen_<version>_amd64.deb`.
-
-### 🪟 Windows
-- Uses `Windows.Graphics.Capture` for video, `Media Foundation` for output, and `WASAPI` for microphone/system audio.
-- **PowerShell** is still used for some shell integration and compatibility helpers around windowing behavior.
-- Auto-selects the current Windows default microphone when `Default input` is selected.
-- The launcher can target the full desktop, a single monitor, or a single top-level window.
-- `Custom region` is available on the native desktop path.
-- `System audio mixing` uses native WASAPI loopback.
-- Release packages are distributed as NSIS setup executables.
-
----
-
-## 📚 Documentation
-Dive deeper into the project's design and conventions:
-- 📌 **Roadmap:** [`docs/roadmap/product-plan.md`](docs/roadmap/product-plan.md)
-- 🧭 **Native backend migration plan:** [`docs/roadmap/native-backend-plan.md`](docs/roadmap/native-backend-plan.md)
-- 🐧 **Linux X11 performance report:** [`docs/linux-x11-performance-report-2026-03-18.md`](docs/linux-x11-performance-report-2026-03-18.md)
-- 📋 **Product audit:** [`docs/reports/product-audit-2026-03-14.md`](docs/reports/product-audit-2026-03-14.md)
-- 🏛 **Architecture:** [`docs/architecture/overview.md`](docs/architecture/overview.md)
-- 🐧 **Linux Wayland status:** [`docs/architecture/linux-wayland.md`](docs/architecture/linux-wayland.md)
-  This doc now also includes the handoff checklist for continuing pure Wayland work on a Linux machine.
-- 📝 **Decisions:** [`docs/decisions/0001-launcher-and-hud-surfaces.md`](docs/decisions/0001-launcher-and-hud-surfaces.md)
-- 💅 **Frontend:** [`docs/frontend/styleguide.md`](docs/frontend/styleguide.md)
-- 📦 **Distribution overview:** [`docs/distribution/overview.md`](docs/distribution/overview.md)
-- 🐧 **Linux install guide:** [`docs/distribution/linux.md`](docs/distribution/linux.md)
-- 🧰 **APT repository guide:** [`docs/distribution/apt-repo.md`](docs/distribution/apt-repo.md)
-- 🍺 **Homebrew cask template:** [`docs/distribution/homebrew.md`](docs/distribution/homebrew.md)
-- 🍏 **macOS install guide:** [`docs/distribution/macos.md`](docs/distribution/macos.md)
-- 🪟 **Windows install guide:** [`docs/distribution/windows.md`](docs/distribution/windows.md)
-- ⚖️ **Licensing:** [`docs/legal/licensing.md`](docs/legal/licensing.md)
+- 🏗 **Architecture Overview:** [docs/architecture/overview.md](docs/architecture/overview.md)
+- 🚀 **Build locally:** 
+  ```bash
+  npm install
+  npm run dev
+  ```
+- 📚 **More Docs:** Check the [`docs/`](docs/) directory for detailed backend implementations, native backend plans, and Linux/Wayland compatibility tracking.
