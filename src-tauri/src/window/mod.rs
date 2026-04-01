@@ -263,7 +263,6 @@ pub fn ensure_hud_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 pub fn schedule_hud_window_prewarm(app: &AppHandle) {
     let should_prewarm =
         with_core(app, |core| core.settings().show_hud_during_recording).unwrap_or(true);
@@ -281,16 +280,13 @@ pub fn schedule_hud_window_prewarm(app: &AppHandle) {
         let _ = main_window.run_on_main_thread(move || {
             if let Err(error) = ensure_hud_window(&app_for_main_thread) {
                 runtime_log::log_runtime_error(&format!(
-                    "unable to prewarm HUD window on macOS: {}",
+                    "unable to prewarm HUD window: {}",
                     error
                 ));
             }
         });
     });
 }
-
-#[cfg(not(target_os = "macos"))]
-pub fn schedule_hud_window_prewarm(_app: &AppHandle) {}
 
 fn position_hud_window(app: &AppHandle, window: &tauri::WebviewWindow) -> Result<(), String> {
     let monitor = app

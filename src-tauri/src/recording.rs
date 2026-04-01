@@ -69,7 +69,9 @@ fn sync_hud_for_current_settings(app: &AppHandle, snapshot: &RecorderSnapshot) {
 fn sync_custom_region_preview_for_snapshot(app: &AppHandle, _snapshot: &RecorderSnapshot) {
     let capture_target_id = with_core(app, |core| core.settings().capture_target_id)
         .unwrap_or_else(|_| capture::FULL_DESKTOP_TARGET_ID.to_string());
-    if capture_target_id != capture::CUSTOM_REGION_TARGET_ID {
+    if capture_target_id != capture::CUSTOM_REGION_TARGET_ID
+        || !matches!(_snapshot.status, RecorderStatus::Idle)
+    {
         let _ = window::hide_target_preview(app);
     }
 }
@@ -332,8 +334,8 @@ pub fn start_recording(app: &AppHandle) -> Result<RecorderSnapshot, String> {
             Some(startup_pause_note.clone()),
         )
     })?;
-    sync_hud_for_current_settings(app, &snapshot);
     sync_custom_region_preview_for_snapshot(app, &snapshot);
+    sync_hud_for_current_settings(app, &snapshot);
     emit_recorder_state(app, &snapshot);
     spawn_recorder_ticker(app.clone());
     spawn_recording_startup(
